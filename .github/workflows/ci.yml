@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx tsc -p packages/server/tsconfig.json --noEmit
+      - run: npx tsc -p apps/web/tsconfig.json --noEmit
+      - run: npx vitest run
+      - run: npm run build:server
+      - run: npm run build --workspace @sac/web

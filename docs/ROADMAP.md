@@ -86,6 +86,11 @@ Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 - Métricas por tenant (SLA, volume, erros), alertas e status page.
 - Backup/restore por tenant e LGPD (exportação/eliminação de dados).
 
+## CI
+
+.github/workflows/ci.yml roda em push/PR: 
+pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. Os testes que exigem ambiente real (alidate:live, 	est:isolation, doctor) rodam localmente/contra a API publicada.
+
 ## Decisões pendentes
 
 | Decisão | Opções | Recomendação |
