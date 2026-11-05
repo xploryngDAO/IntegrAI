@@ -27,7 +27,13 @@ export interface AccountControllers {
 
 /** After the provider redirect we always land on the accounts page. */
 function redirectLocation(webOrigin: string, params: Record<string, string>): string {
-  const base = webOrigin.replace(/\/+$/, '');
+  // WEB_ORIGIN may be a comma-separated allowlist (operators app + hosted SPA);
+  // the redirect must use the canonical (first) origin only.
+  const primary = webOrigin
+    .split(',')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+  const base = (primary ?? 'http://localhost:5173').replace(/\/+$/, '');
   const query = new URLSearchParams(params).toString();
   return `${base}/accounts${query.length > 0 ? `?${query}` : ''}`;
 }

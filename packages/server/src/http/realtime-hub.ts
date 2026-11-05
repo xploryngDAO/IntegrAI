@@ -232,7 +232,13 @@ export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
     >(httpServer, {
       path: HUB_PATH,
       serveClient: false,
-      cors: { origin: options.webOrigin, credentials: true },
+      cors: {
+        origin: options.webOrigin
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0),
+        credentials: true,
+      },
       transports: ['websocket', 'polling'],
       pingInterval: 25_000,
       pingTimeout: 20_000,

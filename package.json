@@ -30,6 +30,7 @@
         "dev": "npm run build:shared && concurrently -n api,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
         "test": "vitest run",
         "doctor": "tsx scripts/doctor.ts",
+    "validate:live": "node scripts/validate-live.mjs",
         "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
         "db:down": "docker compose down",
         "docker:up": "docker compose up -d --build"
