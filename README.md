@@ -36,7 +36,7 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 ## Screenshots
 
-Interface re-fundada no **Convergência Design System** (tema claro canônico + escuro):
+Interface no **Convergência Design System** (tema claro canônico + escuro). As imagens abaixo usam dados ilustrativos de layout — **a aplicação não gera nem exibe dados simulados**; sem API/credenciais ela mostra a tela de login ou estado vazio real.
 
 | Workspace 3 colunas | Tema escuro |
 |---|---|
