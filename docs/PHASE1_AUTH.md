@@ -37,8 +37,10 @@ Decisões:
 | POST | `/auth/logout` | JWT | revoga sessão atual |
 | POST | `/auth/forgot-password` | pública | envia link (sempre 202, sem enumeração) |
 | POST | `/auth/reset-password` | pública | consome token, troca senha, revoga sessões |
-| POST | `/invitations` | ADMIN | convida operador (papel) |
-| POST | `/invitations/accept` | pública | define senha e cria usuário |
+| POST | `/invitations` | ADMIN | convida operador (papel); reenvio regenera o token |
+| GET | `/invitations` | ADMIN | lista convites do tenant (pending/accepted/expired) |
+| DELETE | `/invitations/:id` | ADMIN | revoga convite pendente |
+| POST | `/auth/accept-invitation` | pública | consome o token, define a senha, cria usuário e abre sessão |
 | GET | `/users` | ADMIN | lista equipe do tenant |
 | PATCH | `/users/:id` | ADMIN | papel/ativo |
 | POST | `/auth/2fa/setup` \| `/auth/2fa/verify` \| `/auth/2fa/disable` | JWT | TOTP |

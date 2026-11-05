@@ -1,5 +1,6 @@
 import type {
   AgentPresenceStatus,
+  AgentRole,
   ChannelActionKind,
   DeliveryStatus,
   Marketplace,
@@ -13,6 +14,7 @@ import type {
   AvailableActionView,
   ChannelHealthView,
   ConnectorDescriptor,
+  InvitationStatus,
   PageRequest,
   Paginated,
   QueueSnapshot,
@@ -274,6 +276,70 @@ export interface IAuthSessionService {
 }
 
 /* ==========================================================================
+ * Invitations (Fase 1: operator invites)
+ * ========================================================================== */
+
+export interface CreateInvitationCommand {
+  email: string;
+  role: AgentRole;
+  /** Authenticated ADMIN issuing the invitation (tenant + audit). */
+  actor: { id: string; name: string; tenantId: string };
+}
+
+export interface CreateInvitationResult {
+  invitationId: string;
+  email: string;
+  role: AgentRole;
+  expiresAt: Date;
+}
+
+/** Tenant-scoped invitation projection rendered by `GET /invitations`. */
+export interface InvitationSummary {
+  id: string;
+  email: string;
+  role: AgentRole;
+  status: InvitationStatus;
+  createdAt: Date;
+  expiresAt: Date;
+  acceptedAt: Date | null;
+}
+
+export interface AcceptInvitationCommand {
+  token: string;
+  name: string;
+  password: string;
+}
+
+export interface AcceptInvitationResult {
+  /** Access JWT, byte-identical to the login/refresh claim shape. */
+  token: string;
+  /** Present when the session store accepted the new operator. */
+  refreshToken?: string;
+  agent: {
+    id: string;
+    name: string;
+    email: string;
+    role: AgentRole;
+    presence: AgentPresenceStatus;
+    tenantId: string;
+  };
+}
+
+export interface IInvitationService {
+  /** Creates/refreshes the invite, mails the single-use link and returns the row. */
+  create(command: CreateInvitationCommand): Promise<CreateInvitationResult>;
+  /** Every invitation of the tenant, newest first, with the derived status. */
+  list(tenantId: string): Promise<InvitationSummary[]>;
+  /** Revokes a pending invitation (expires it now); 404 when out of scope. */
+  revoke(invitationId: string, tenantId: string): Promise<void>;
+  /** Consumes the token, creates the verified operator and opens a session. */
+  accept(
+    command: AcceptInvitationCommand,
+    device?: SessionDeviceInfo,
+  ): Promise<AcceptInvitationResult>;
+}
+
+/* ==========================================================================
  * Webhook ingress
  * ========================================================================== */
 
@@ -357,6 +423,7 @@ export interface IAppServices {
   readonly agents: IAgentService;
   readonly auth: IAuthService;
   readonly sessions: IAuthSessionService;
+  readonly invitations: IInvitationService;
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
   readonly files: IFileService;

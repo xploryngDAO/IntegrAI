@@ -98,6 +98,8 @@ export interface IEmailService {
   sendVerificationEmail(to: string, link: string, name?: string): Promise<void>;
   /** Fase 1: `/reset-password?token=...` link; single use, 30 min TTL. */
   sendPasswordResetEmail(to: string, link: string, name?: string): Promise<void>;
+  /** Fase 1: `/invite?token=...` link; single use, 7 day TTL. */
+  sendInvitationEmail(to: string, link: string, inviterName?: string): Promise<void>;
 }
 
 export interface ISecretCipher {

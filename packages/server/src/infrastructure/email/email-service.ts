@@ -158,6 +158,61 @@ export class SmtpEmailService implements IEmailService {
     });
   }
 
+  async sendInvitationEmail(to: string, link: string, inviterName?: string): Promise<void> {
+    const recipient = (to ?? '').trim();
+    if (recipient.length === 0) return;
+
+    if (this.options.nodeEnv === 'test') {
+      // Never reach a real SMTP server from tests.
+      this.logger.debug('email.invitation.skipped_in_test', { to: recipient });
+      return;
+    }
+
+    if (!this.isConfigured()) {
+      if (this.options.nodeEnv === 'production') {
+        this.logger.error('email.smtp.not_configured', {
+          hint: 'Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD (and SMTP_FROM) to deliver invitation e-mails.',
+        });
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[email:dev] invitation link for ${recipient}: ${link}`);
+      return;
+    }
+
+    const subject = 'Convite para operar o IntegrAI';
+    const inviter = inviterName !== undefined && inviterName.trim().length > 0
+      ? inviterName.trim()
+      : 'a equipe IntegrAI';
+    const text = [
+      'Olá!',
+      '',
+      `Você foi convidado por ${inviter} para operar o IntegrAI.`,
+      'Defina sua senha e ative seu acesso pelo link:',
+      link,
+      '',
+      'O convite expira em 7 dias e só pode ser usado uma vez.',
+      'Se você não esperava este convite, ignore esta mensagem.',
+    ].join('\n');
+    const html = [
+      '<p>Olá!</p>',
+      `<p>Você foi convidado por ${escapeHtml(inviter)} para operar o IntegrAI.</p>`,
+      '<p>Defina sua senha e ative seu acesso pelo link:</p>',
+      `<p><a href="${escapeHtml(link)}">Aceitar convite</a></p>`,
+      '<p>O convite expira em 7 dias e só pode ser usado uma vez.</p>',
+      '<p>Se você não esperava este convite, ignore esta mensagem.</p>',
+    ].join('\n');
+
+    const transporter = this.getTransporter();
+    await transporter.sendMail({
+      from: this.options.from,
+      to: recipient,
+      subject,
+      text,
+      html,
+    });
+  }
+
   private getTransporter(): Transporter {
     if (this.transporter !== null) return this.transporter;
 

@@ -225,6 +225,25 @@ export interface SessionRecord {
   createdAt: Date;
 }
 
+/** Lifecycle of an operator invitation, derived from `accepted_at`/`expires_at`. */
+export type InvitationStatus = 'pending' | 'accepted' | 'expired';
+
+/**
+ * Single-use operator invitation. Only the SHA-256 of the 32-byte token is
+ * persisted (`tokenHash`); the raw token exists solely in the e-mail link.
+ */
+export interface InvitationRecord {
+  id: string;
+  tenantId: string;
+  email: string;
+  role: AgentRole;
+  tokenHash: string;
+  invitedBy: string | null;
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  createdAt: Date;
+}
+
 export interface WebhookEventRecord {
   id: string;
   marketplace: Marketplace;

@@ -25,6 +25,8 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   '/api/v1/auth/resend-verification',
   '/api/v1/auth/forgot-password',
   '/api/v1/auth/reset-password',
+  // Public by design: the invitation token itself proves the e-mail ownership.
+  '/api/v1/auth/accept-invitation',
   // Refresh authenticates itself with the rotating opaque token in the body.
   '/api/v1/auth/refresh',
 ];
@@ -115,6 +117,21 @@ export function requireAgent(request: FastifyRequest): AuthenticatedAgent {
     throw new AuthenticationError('Authenticated agent is required for this route');
   }
   return request.agent;
+}
+
+/**
+ * Resolve the caller tenant for tenant-scoped routes (invitations, team, ...).
+ *
+ * A legacy operator without a tenant can authenticate but must not be able to
+ * create rows that require `tenant_id`: fail with 403 instead of letting Prisma
+ * reject the insert.
+ */
+export function requireTenantId(request: FastifyRequest): string {
+  const agent = requireAgent(request);
+  if (agent.tenantId === null || agent.tenantId === undefined || agent.tenantId.length === 0) {
+    throw new AuthorizationError('Authenticated operator is not attached to a workspace');
+  }
+  return agent.tenantId;
 }
 
 /**

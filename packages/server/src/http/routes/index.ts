@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { HttpRouteContext } from '../types';
 import { authRoutes } from './auth.routes';
+import { invitationRoutes } from './invitations.routes';
 import { agentRoutes } from './agents.routes';
 import { ticketRoutes } from './tickets.routes';
 import { accountRoutes } from './accounts.routes';
@@ -16,6 +17,7 @@ import { webhookRoutes } from './webhooks.routes';
  */
 export async function registerApiRoutes(app: FastifyInstance, ctx: HttpRouteContext): Promise<void> {
   await app.register(authRoutes, { prefix: '/auth', ...ctx });
+  await app.register(invitationRoutes, { prefix: '/invitations', ...ctx });
   await app.register(agentRoutes, { prefix: '/agents', ...ctx });
   await app.register(ticketRoutes, { prefix: '/tickets', ...ctx });
   await app.register(accountRoutes, { prefix: '/accounts', ...ctx });

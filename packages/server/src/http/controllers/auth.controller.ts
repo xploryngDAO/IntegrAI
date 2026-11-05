@@ -7,6 +7,7 @@ import type {
 import type { FastifyRequest } from 'fastify';
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
+  acceptInvitationBodySchema,
   forgotPasswordBodySchema,
   loginBodySchema,
   logoutBodySchema,
@@ -31,6 +32,7 @@ export interface AuthControllers {
   resendVerification: RouteHandler;
   forgotPassword: RouteHandler;
   resetPassword: RouteHandler;
+  acceptInvitation: RouteHandler;
   refresh: RouteHandler;
   logout: RouteHandler;
 }
@@ -168,6 +170,36 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
       const body = parseInput(resetPasswordBodySchema, request.body, 'body');
       await services.auth.resetPassword(body.token, body.password);
       return ok({ reset: true });
+    },
+
+    /**
+     * `POST /auth/accept-invitation` - public.
+     *
+     * The invitation token proves the e-mail ownership, so the operator is
+     * created already verified and receives an access token + refresh token
+     * (same `AuthResponse` shape as login/refresh) to enter right away.
+     */
+    async acceptInvitation(request) {
+      const body = parseInput(acceptInvitationBodySchema, request.body, 'body');
+      const result = await services.invitations.accept(
+        { token: body.token, name: body.name, password: body.password },
+        deviceInfo(request, body.deviceName),
+      );
+
+      const response: AuthResponse = {
+        token: result.token,
+        ...(result.refreshToken !== undefined ? { refreshToken: result.refreshToken } : {}),
+        agent: {
+          id: result.agent.id,
+          name: result.agent.name,
+          email: result.agent.email,
+          role: toAgentRole(result.agent.role),
+          presence: result.agent.presence,
+          tenantId: result.agent.tenantId,
+        },
+      };
+
+      return ok(response);
     },
 
     /**

@@ -20,6 +20,7 @@ import { AuthSessionService } from './application/AuthSessionService';
 import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
+import { InvitationService } from './application/InvitationService';
 import {
   OutboundRouterService,
   type IOutboundAttemptRecorder,
@@ -227,6 +228,24 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  const invitations = new InvitationService({
+    logger: infra.logger,
+    clock: infra.clock,
+    email: infra.email,
+    jwtSecret: config.jwtSecret,
+    jwtExpiresIn: config.jwtExpiresIn,
+    config: {
+      webOrigin: config.webOrigin,
+      appBaseUrl: config.appBaseUrl,
+    },
+    sessions,
+    repos: {
+      invitations: infra.invitations,
+      agents: infra.agents,
+      tenants: infra.tenants,
+    },
+  });
+
   const webhooks = new WebhookIngressService({
     logger: infra.logger,
     clock: infra.clock,
@@ -304,6 +323,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     agents,
     auth,
     sessions,
+    invitations,
     webhooks,
     health,
     files,

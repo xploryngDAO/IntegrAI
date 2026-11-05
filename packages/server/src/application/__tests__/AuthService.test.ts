@@ -177,6 +177,10 @@ class FakeEmailService implements IEmailService {
     }
     this.sentResets.push({ to, link, name });
   }
+
+  async sendInvitationEmail(): Promise<void> {
+    // Invitations are covered by Invitations.test.ts.
+  }
 }
 
 class InMemoryTenantRepository implements ITenantRepository {

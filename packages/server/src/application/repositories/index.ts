@@ -7,6 +7,7 @@ import {
   createEmailVerificationRepository,
   PrismaEmailVerificationRepository,
 } from './email-verifications';
+import { createInvitationRepository, PrismaInvitationRepository } from './invitations';
 import { createMessageRepository, PrismaMessageRepository } from './messages';
 import { createOrderRepository, PrismaOrderRepository } from './orders';
 import {
@@ -45,6 +46,7 @@ export {
   createEmailVerificationRepository,
   PrismaEmailVerificationRepository,
 };
+export { createInvitationRepository, PrismaInvitationRepository };
 export { createMessageRepository, PrismaMessageRepository };
 export { createOrderRepository, PrismaOrderRepository };
 export {
@@ -65,6 +67,7 @@ export {
   mapAgent,
   mapAttachment,
   mapEmailVerification,
+  mapInvitation,
   mapMessage,
   mapOrder,
   mapPasswordReset,

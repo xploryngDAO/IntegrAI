@@ -15,6 +15,7 @@ import type {
   AgentRecord,
   BuyerPiiRecord,
   EmailVerificationRecord,
+  InvitationRecord,
   MarketplaceAccountRecord,
   MessageAttachmentRecord,
   OrderCacheRecord,
@@ -431,6 +432,38 @@ export interface IPasswordResetRepository {
   markUsed(id: string, at: Date): Promise<void>;
   /** Single-use guarantee: burns every still-unused reset token of the user. */
   invalidateUnused(userId: string, at: Date): Promise<number>;
+}
+
+export interface UpsertInvitationInput {
+  tenantId: string;
+  email: string;
+  role: AgentRole;
+  tokenHash: string;
+  invitedBy?: string | null;
+  expiresAt: Date;
+}
+
+export interface IInvitationRepository {
+  /**
+   * Creates the invitation, or refreshes the pending one for the same
+   * `(tenantId, email)`: the token hash and the TTL are replaced, so a resend
+   * never duplicates the row and never leaves an older link usable.
+   */
+  upsert(input: UpsertInvitationInput): Promise<InvitationRecord>;
+  findByTokenHash(tokenHash: string): Promise<InvitationRecord | null>;
+  findById(id: string): Promise<InvitationRecord | null>;
+  /** Newest first; the service derives pending/accepted/expired from the clock. */
+  listByTenant(tenantId: string): Promise<InvitationRecord[]>;
+  /**
+   * Single-use marker. Returns `null` when another request already accepted it
+   * (conditional `accepted_at IS NULL`, mirroring the session revocation).
+   */
+  accept(id: string, at: Date): Promise<InvitationRecord | null>;
+  /**
+   * Revokes a still-pending invitation by moving `expires_at` to `at`, so the
+   * link stops working immediately and the row stays visible as expired.
+   */
+  revoke(id: string, tenantId: string, at: Date): Promise<boolean>;
 }
 
 export interface CreateSessionInput {

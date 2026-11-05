@@ -2,6 +2,7 @@ import type {
   Agent,
   BuyerPiiVault,
   EmailVerification,
+  Invitation,
   MarketplaceAccount,
   MessageAttachment,
   OrderCache,
@@ -19,6 +20,7 @@ import type {
   AgentRecord,
   BuyerPiiRecord,
   EmailVerificationRecord,
+  InvitationRecord,
   MarketplaceAccountRecord,
   MessageAttachmentRecord,
   OrderCacheRecord,
@@ -303,6 +305,20 @@ export function mapPasswordReset(record: PasswordReset): PasswordResetRecord {
     tokenHash: record.tokenHash,
     expiresAt: record.expiresAt,
     usedAt: record.usedAt,
+    createdAt: record.createdAt,
+  };
+}
+
+export function mapInvitation(record: Invitation): InvitationRecord {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    email: record.email,
+    role: record.role,
+    tokenHash: record.tokenHash,
+    invitedBy: record.invitedBy,
+    expiresAt: record.expiresAt,
+    acceptedAt: record.acceptedAt,
     createdAt: record.createdAt,
   };
 }
