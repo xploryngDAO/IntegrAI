@@ -120,11 +120,27 @@ enum SlaState {
 }
 
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// TENANTS (SaaS workspaces; client rows carry tenant_id)
+// ----------------------------------------------------------------------------
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique @db.VarChar(80)
+  name      String   @db.VarChar(160)
+  status    String   @default("ACTIVE") @db.VarChar(24)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("tenants")
+}
+
 // AGENTS (operators) - JWT auth + Redis presence mirror
 // ----------------------------------------------------------------------------
 
 model Agent {
   id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String?             @map("tenant_id") @db.Uuid
   email         String              @unique @db.VarChar(180)
   name          String              @db.VarChar(120)
   passwordHash  String              @map("password_hash") @db.VarChar(255)
@@ -137,10 +153,11 @@ model Agent {
   createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tickets       SupportTicket[]
-  messages      TicketMessage[]     @relation("MessageAuthor")
-  events        TicketEvent[]
+  tickets  SupportTicket[]
+  messages TicketMessage[] @relation("MessageAuthor")
+  events   TicketEvent[]
 
+  @@index([tenantId])
   @@map("agents")
 }
 
@@ -149,33 +166,35 @@ model Agent {
 // ----------------------------------------------------------------------------
 
 model MarketplaceAccount {
-  id                String        @id @default(uuid()) @db.Uuid
-  marketplace       Marketplace
-  displayName       String        @map("display_name") @db.VarChar(160)
-  externalSellerId  String        @map("external_seller_id") @db.VarChar(128)
-  marketplaceSiteId String        @map("marketplace_site_id") @db.VarChar(32)
-  accessTokenEnc    String?       @map("access_token_enc") @db.Text
-  refreshTokenEnc   String?       @map("refresh_token_enc") @db.Text
-  tokenExpiresAt    DateTime?     @map("token_expires_at") @db.Timestamptz(6)
-  authExpiresAt     DateTime?     @map("auth_expires_at") @db.Timestamptz(6)
+  id                 String        @id @default(uuid()) @db.Uuid
+  tenantId           String?       @map("tenant_id") @db.Uuid
+  marketplace        Marketplace
+  displayName        String        @map("display_name") @db.VarChar(160)
+  externalSellerId   String        @map("external_seller_id") @db.VarChar(128)
+  marketplaceSiteId  String        @map("marketplace_site_id") @db.VarChar(32)
+  accessTokenEnc     String?       @map("access_token_enc") @db.Text
+  refreshTokenEnc    String?       @map("refresh_token_enc") @db.Text
+  tokenExpiresAt     DateTime?     @map("token_expires_at") @db.Timestamptz(6)
+  authExpiresAt      DateTime?     @map("auth_expires_at") @db.Timestamptz(6)
   /// Marketplace specific configuration. Amazon: inbound_email_route,
   /// smtp_sender_email, approved_sender_domains, seller_central_region.
   /// Meli: site_id, tags, mediator_enabled. Shopee: shop_id, region, crr_target.
-  channelConfig     Json          @default("{}") @map("channel_config")
-  status            AccountStatus @default(ACTIVE)
-  lastTokenRefreshAt DateTime?    @map("last_token_refresh_at") @db.Timestamptz(6)
-  lastErrorAt       DateTime?     @map("last_error_at") @db.Timestamptz(6)
-  lastError         String?       @map("last_error") @db.Text
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  channelConfig      Json          @default("{}") @map("channel_config")
+  status             AccountStatus @default(ACTIVE)
+  lastTokenRefreshAt DateTime?     @map("last_token_refresh_at") @db.Timestamptz(6)
+  lastErrorAt        DateTime?     @map("last_error_at") @db.Timestamptz(6)
+  lastError          String?       @map("last_error") @db.Text
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tickets    SupportTicket[]
-  orders     OrderCache[]
-  webhooks   WebhookEvent[]
+  tickets     SupportTicket[]
+  orders      OrderCache[]
+  webhooks    WebhookEvent[]
   slaPolicies SlaPolicy[]
 
   @@unique([marketplace, externalSellerId, marketplaceSiteId])
   @@index([marketplace, status])
+  @@index([tenantId, status])
   @@map("marketplace_accounts")
 }
 
@@ -184,33 +203,33 @@ model MarketplaceAccount {
 // ----------------------------------------------------------------------------
 
 model OrderCache {
-  id                 String      @id @default(uuid()) @db.Uuid
-  accountId          String      @map("account_id") @db.Uuid
-  marketplace        Marketplace
-  externalOrderId    String      @map("external_order_id") @db.VarChar(128)
+  id                   String      @id @default(uuid()) @db.Uuid
+  accountId            String      @map("account_id") @db.Uuid
+  marketplace          Marketplace
+  externalOrderId      String      @map("external_order_id") @db.VarChar(128)
   /// Mercado Livre pack id groups multiple orders into one post-sale thread.
-  packId             String?     @map("pack_id") @db.VarChar(128)
-  buyerExternalId    String?     @map("buyer_external_id") @db.VarChar(128)
-  buyerNameOrNick    String?     @map("buyer_name_or_nick") @db.VarChar(180)
+  packId               String?     @map("pack_id") @db.VarChar(128)
+  buyerExternalId      String?     @map("buyer_external_id") @db.VarChar(128)
+  buyerNameOrNick      String?     @map("buyer_name_or_nick") @db.VarChar(180)
   /// Amazon anonymized buyer email (e.g. abc123@marketplace.amazon.com.br).
-  buyerAnonymizedEmail String?   @map("buyer_anonymized_email") @db.VarChar(180)
-  orderStatus        String      @map("order_status") @db.VarChar(64)
-  fulfillmentType    String?     @map("fulfillment_type") @db.VarChar(64)
-  totalAmount        Decimal     @default(0) @map("total_amount") @db.Decimal(14, 2)
-  currency           String      @default("BRL") @db.VarChar(8)
-  trackingNumber     String?     @map("tracking_number") @db.VarChar(120)
-  carrierName        String?     @map("carrier_name") @db.VarChar(120)
+  buyerAnonymizedEmail String?     @map("buyer_anonymized_email") @db.VarChar(180)
+  orderStatus          String      @map("order_status") @db.VarChar(64)
+  fulfillmentType      String?     @map("fulfillment_type") @db.VarChar(64)
+  totalAmount          Decimal     @default(0) @map("total_amount") @db.Decimal(14, 2)
+  currency             String      @default("BRL") @db.VarChar(8)
+  trackingNumber       String?     @map("tracking_number") @db.VarChar(120)
+  carrierName          String?     @map("carrier_name") @db.VarChar(120)
   /// [{ sku, asin, mlb, itemId, title, quantity, unitPrice, imageUrl }]
-  itemsSnapshot      Json        @default("[]") @map("items_snapshot")
+  itemsSnapshot        Json        @default("[]") @map("items_snapshot")
   /// Amazon allowed_spapi_actions / Meli available_actions / Shopee actions.
-  allowedActionsCache Json       @default("{}") @map("allowed_actions_cache")
-  shippingSnapshot   Json        @default("{}") @map("shipping_snapshot")
-  estimatedDeliveryAt DateTime?  @map("estimated_delivery_at") @db.Timestamptz(6)
-  shippedAt          DateTime?   @map("shipped_at") @db.Timestamptz(6)
-  deliveredAt        DateTime?   @map("delivered_at") @db.Timestamptz(6)
-  lastSyncedAt       DateTime    @default(now()) @map("last_synced_at") @db.Timestamptz(6)
-  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  allowedActionsCache  Json        @default("{}") @map("allowed_actions_cache")
+  shippingSnapshot     Json        @default("{}") @map("shipping_snapshot")
+  estimatedDeliveryAt  DateTime?   @map("estimated_delivery_at") @db.Timestamptz(6)
+  shippedAt            DateTime?   @map("shipped_at") @db.Timestamptz(6)
+  deliveredAt          DateTime?   @map("delivered_at") @db.Timestamptz(6)
+  lastSyncedAt         DateTime    @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   tickets SupportTicket[]
@@ -229,6 +248,7 @@ model OrderCache {
 model SupportTicket {
   id                   String         @id @default(uuid()) @db.Uuid
   accountId            String         @map("account_id") @db.Uuid
+  tenantId             String?        @map("tenant_id") @db.Uuid
   marketplace          Marketplace
   ticketType           TicketType     @map("ticket_type")
   /// question_id | pack_id | claim_id (Meli) | conversation_id | return_sn
@@ -244,7 +264,7 @@ model SupportTicket {
   buyerExternalId      String?        @map("buyer_external_id") @db.VarChar(180)
   buyerDisplayName     String?        @map("buyer_display_name") @db.VarChar(180)
   buyerAnonymizedEmail String?        @map("buyer_anonymized_email") @db.VarChar(180)
-  buyerContactHash      String?       @map("buyer_contact_hash") @db.VarChar(128)
+  buyerContactHash     String?        @map("buyer_contact_hash") @db.VarChar(128)
   hasActiveClaim       Boolean        @default(false) @map("has_active_claim")
   status               TicketStatus   @default(UNREAD)
   priority             TicketPriority @default(MEDIUM)
@@ -267,12 +287,12 @@ model SupportTicket {
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  account     MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  orderCache  OrderCache?        @relation(fields: [orderCacheId], references: [id], onDelete: SetNull)
-  assignedAgent Agent?           @relation(fields: [assignedAgentId], references: [id], onDelete: SetNull)
-  messages    TicketMessage[]
-  events      TicketEvent[]
-  piiVault    BuyerPiiVault?
+  account          MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  orderCache       OrderCache?        @relation(fields: [orderCacheId], references: [id], onDelete: SetNull)
+  assignedAgent    Agent?             @relation(fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  messages         TicketMessage[]
+  events           TicketEvent[]
+  piiVault         BuyerPiiVault?
   outboundAttempts OutboundAttempt[]
 
   @@index([slaDeadlineAt, status])
@@ -286,6 +306,7 @@ model SupportTicket {
   @@index([claimId])
   @@index([conversationId])
   @@index([lastMessageAt(sort: Desc)])
+  @@index([tenantId, status])
   @@map("support_tickets")
 }
 
@@ -294,35 +315,35 @@ model SupportTicket {
 // ----------------------------------------------------------------------------
 
 model TicketMessage {
-  id                  String          @id @default(uuid()) @db.Uuid
-  ticketId            String          @map("ticket_id") @db.Uuid
+  id                   String           @id @default(uuid()) @db.Uuid
+  ticketId             String           @map("ticket_id") @db.Uuid
   /// Message-ID (Amazon) | id (Meli) | shopee message_id. Unique => idempotency.
-  externalMessageId   String?         @map("external_message_id") @db.VarChar(400)
-  inReplyToId         String?         @map("in_reply_to_id") @db.VarChar(400)
-  referencesIds       String[]        @default([]) @map("references_ids")
-  direction           MessageDirection
-  channelRouteUsed    ChannelRoute    @map("channel_route_used")
-  messageType         String          @default("text") @map("message_type") @db.VarChar(32)
-  bodyCleanText       String          @default("") @map("body_clean_text") @db.Text
-  bodyHtml            String?         @map("body_html") @db.Text
+  externalMessageId    String?          @map("external_message_id") @db.VarChar(400)
+  inReplyToId          String?          @map("in_reply_to_id") @db.VarChar(400)
+  referencesIds        String[]         @default([]) @map("references_ids")
+  direction            MessageDirection
+  channelRouteUsed     ChannelRoute     @map("channel_route_used")
+  messageType          String           @default("text") @map("message_type") @db.VarChar(32)
+  bodyCleanText        String           @default("") @map("body_clean_text") @db.Text
+  bodyHtml             String?          @map("body_html") @db.Text
   /// Route-specific metadata: spapi action, claim receiver_role, meli attachment ids.
-  contentPayload      Json            @default("{}") @map("content_payload")
+  contentPayload       Json             @default("{}") @map("content_payload")
   /// S3 URI of the immutable raw artifact (`.eml`, JSON push payload, evidence).
-  bodyRawS3Uri        String?         @map("body_raw_s3_uri") @db.VarChar(512)
-  deliveryStatus      DeliveryStatus  @default(QUEUED) @map("delivery_status")
-  errorDetail         String?         @map("error_detail") @db.Text
-  isInternalNote      Boolean         @default(false) @map("is_internal_note")
-  authorAgentId       String?         @map("author_agent_id") @db.Uuid
+  bodyRawS3Uri         String?          @map("body_raw_s3_uri") @db.VarChar(512)
+  deliveryStatus       DeliveryStatus   @default(QUEUED) @map("delivery_status")
+  errorDetail          String?          @map("error_detail") @db.Text
+  isInternalNote       Boolean          @default(false) @map("is_internal_note")
+  authorAgentId        String?          @map("author_agent_id") @db.Uuid
   /// Marketplace authoritative clock - the ONLY ordering key for threads.
-  marketplaceCreatedAt DateTime        @map("marketplace_created_at") @db.Timestamptz(6)
-  sentAt              DateTime?       @map("sent_at") @db.Timestamptz(6)
-  deliveredAt         DateTime?       @map("delivered_at") @db.Timestamptz(6)
-  readAt              DateTime?       @map("read_at") @db.Timestamptz(6)
-  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  marketplaceCreatedAt DateTime         @map("marketplace_created_at") @db.Timestamptz(6)
+  sentAt               DateTime?        @map("sent_at") @db.Timestamptz(6)
+  deliveredAt          DateTime?        @map("delivered_at") @db.Timestamptz(6)
+  readAt               DateTime?        @map("read_at") @db.Timestamptz(6)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  ticket     SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  authorAgent Agent?            @relation("MessageAuthor", fields: [authorAgentId], references: [id], onDelete: SetNull)
+  ticket      SupportTicket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorAgent Agent?              @relation("MessageAuthor", fields: [authorAgentId], references: [id], onDelete: SetNull)
   attachments MessageAttachment[]
 
   @@unique([externalMessageId])
@@ -338,17 +359,17 @@ model TicketMessage {
 // ----------------------------------------------------------------------------
 
 model MessageAttachment {
-  id                 String   @id @default(uuid()) @db.Uuid
-  messageId          String   @map("message_id") @db.Uuid
-  fileName           String   @map("file_name") @db.VarChar(255)
-  mimeType           String   @map("mime_type") @db.VarChar(120)
-  sizeBytes          Int      @default(0) @map("size_bytes")
-  sha256             String?  @db.VarChar(64)
-  s3Uri              String   @map("s3_uri") @db.VarChar(512)
+  id               String   @id @default(uuid()) @db.Uuid
+  messageId        String   @map("message_id") @db.Uuid
+  fileName         String   @map("file_name") @db.VarChar(255)
+  mimeType         String   @map("mime_type") @db.VarChar(120)
+  sizeBytes        Int      @default(0) @map("size_bytes")
+  sha256           String?  @db.VarChar(64)
+  s3Uri            String   @map("s3_uri") @db.VarChar(512)
   /// Amazon uploadDestinationId | Meli attachment_id | Shopee image key.
-  externalUploadId   String?  @map("external_upload_id") @db.VarChar(255)
-  isEvidence         Boolean  @default(false) @map("is_evidence")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  externalUploadId String?  @map("external_upload_id") @db.VarChar(255)
+  isEvidence       Boolean  @default(false) @map("is_evidence")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   message TicketMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -406,19 +427,19 @@ model TicketEvent {
 // ----------------------------------------------------------------------------
 
 model OutboundAttempt {
-  id             String        @id @default(uuid()) @db.Uuid
-  ticketId       String        @map("ticket_id") @db.Uuid
-  messageId      String?       @map("message_id") @db.Uuid
-  channelRoute   ChannelRoute  @map("channel_route")
-  status         DeliveryStatus
-  requestPayload Json          @default("{}") @map("request_payload")
-  responsePayload Json         @default("{}") @map("response_payload")
-  httpStatus     Int?          @map("http_status")
-  attempt        Int           @default(1)
-  errorCode      String?       @map("error_code") @db.VarChar(96)
-  errorMessage   String?       @map("error_message") @db.Text
-  durationMs     Int?          @map("duration_ms")
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  id              String         @id @default(uuid()) @db.Uuid
+  ticketId        String         @map("ticket_id") @db.Uuid
+  messageId       String?        @map("message_id") @db.Uuid
+  channelRoute    ChannelRoute   @map("channel_route")
+  status          DeliveryStatus
+  requestPayload  Json           @default("{}") @map("request_payload")
+  responsePayload Json           @default("{}") @map("response_payload")
+  httpStatus      Int?           @map("http_status")
+  attempt         Int            @default(1)
+  errorCode       String?        @map("error_code") @db.VarChar(96)
+  errorMessage    String?        @map("error_message") @db.Text
+  durationMs      Int?           @map("duration_ms")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
@@ -435,6 +456,7 @@ model WebhookEvent {
   id             String                  @id @default(uuid()) @db.Uuid
   marketplace    Marketplace
   accountId      String?                 @map("account_id") @db.Uuid
+  tenantId       String?                 @map("tenant_id") @db.Uuid
   eventId        String?                 @map("event_id") @db.VarChar(255)
   topic          String?                 @map("topic") @db.VarChar(120)
   resource       String?                 @db.VarChar(512)
@@ -452,6 +474,7 @@ model WebhookEvent {
   @@unique([marketplace, eventId])
   @@index([marketplace, receivedAt])
   @@index([status])
+  @@index([tenantId, receivedAt])
   @@map("webhook_events")
 }
 
@@ -460,16 +483,16 @@ model WebhookEvent {
 // ----------------------------------------------------------------------------
 
 model SlaPolicy {
-  id                    String      @id @default(uuid()) @db.Uuid
-  accountId             String?     @map("account_id") @db.Uuid
-  marketplace           Marketplace
-  ticketType            TicketType  @map("ticket_type")
-  firstResponseMinutes  Int         @map("first_response_minutes")
-  targetMinutes         Int         @map("target_minutes")
-  warningMinutes        Int         @default(120) @map("warning_minutes")
-  businessHoursOnly     Boolean     @default(false) @map("business_hours_only")
-  isActive              Boolean     @default(true) @map("is_active")
-  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                   String      @id @default(uuid()) @db.Uuid
+  accountId            String?     @map("account_id") @db.Uuid
+  marketplace          Marketplace
+  ticketType           TicketType  @map("ticket_type")
+  firstResponseMinutes Int         @map("first_response_minutes")
+  targetMinutes        Int         @map("target_minutes")
+  warningMinutes       Int         @default(120) @map("warning_minutes")
+  businessHoursOnly    Boolean     @default(false) @map("business_hours_only")
+  isActive             Boolean     @default(true) @map("is_active")
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
   account MarketplaceAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
 

@@ -32,6 +32,12 @@ async function main(): Promise<void> {
 
   const passwordHash = await bcrypt.hash(PASSWORD, 12);
 
+  const tenant = await prisma.tenant.upsert({
+    where: { slug: 'integrai' },
+    update: { name: 'IntegrAI', status: 'ACTIVE' },
+    create: { slug: 'integrai', name: 'IntegrAI', status: 'ACTIVE' },
+  });
+
   const agent = await prisma.agent.upsert({
     where: { email: EMAIL },
     update: {
@@ -39,6 +45,7 @@ async function main(): Promise<void> {
       passwordHash,
       role: 'ADMIN',
       isActive: true,
+      tenantId: tenant.id,
     },
     create: {
       email: EMAIL,
@@ -48,10 +55,11 @@ async function main(): Promise<void> {
       avatarColor: '#6367c9',
       maxConcurrent: 20,
       isActive: true,
+      tenantId: tenant.id,
     },
   });
 
-  console.log(`✓ Operador ADMIN pronto: ${agent.email} (${agent.name})`);
+  console.log(`✓ Operador ADMIN pronto: ${agent.email} (${agent.name}) · tenant ${tenant.slug}`);
 
   const counts = {
     agentes: await prisma.agent.count(),
