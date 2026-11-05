@@ -1,7 +1,6 @@
 import { isAppError, MarketplaceApiError, redactPiiForLogs } from '@sac/shared';
 import type { AdapterDependencies, HttpResponse, ILogger } from '@sac/shared';
-import { asRecord, readString, uniqueStrings } from '../guards';
-import { readAllowedActionNames } from '../outbound/routeDecision';
+import { asRecord, isRecord, readHeaderMap, readString, uniqueStrings } from '../guards';
 import type {
   AmazonOrderItemJson,
   AmazonOrderJson,
@@ -10,11 +9,6 @@ import type {
 } from '../types';
 import type { LwaAuth } from './LwaAuth';
 import type { RdtService } from './RdtService';
-
-export interface MessagingSendPayload {
-  text: string;
-  attachments: Array<{ uploadDestinationId: string; fileName: string }>;
-}
 
 interface CallOptions {
   accountId: string;
@@ -106,39 +100,76 @@ export class SpApiClient {
     }
   }
 
-  /** `GET /messaging/v1/orders/{orderId}/messagingActions` */
-  async getMessagingActions(accountId: string, orderId: string): Promise<string[]> {
+  /**
+   * `GET /messaging/v1/orders/{amazonOrderId}?marketplaceIds=<id>` (operation
+   * `getMessagingActionsForOrder`; there is no `/messagingActions` path).
+   * Action names come from `_links.actions[].name` and are also mirrored in
+   * `_embedded.actions[].payload.name`.
+   */
+  async getMessagingActions(
+    accountId: string,
+    orderId: string,
+    marketplaceId: string,
+  ): Promise<string[]> {
     const response = await this.call({
       accountId,
       method: 'GET',
-      path: `/messaging/v1/orders/${encodeURIComponent(orderId)}/messagingActions`,
+      path: `/messaging/v1/orders/${encodeURIComponent(
+        orderId,
+      )}?marketplaceIds=${encodeURIComponent(marketplaceId)}`,
       operation: 'getMessagingActionsForOrder',
       bucket: 'amazon:messaging',
     });
     const body = asRecord(response.body);
-    const names = uniqueStrings([
-      ...readAllowedActionNames(body.embedded),
-      ...readAllowedActionNames(body._embedded),
-      ...readAllowedActionNames(body),
-    ]);
-    return names;
+
+    const links = asRecord(body._links);
+    const linkActions = Array.isArray(links.actions) ? links.actions : [];
+    const namesFromLinks = linkActions.map((entry) =>
+      isRecord(entry) ? readString(entry.name) : null,
+    );
+
+    const embedded = asRecord(body._embedded);
+    const embeddedActions = Array.isArray(embedded.actions) ? embedded.actions : [];
+    const namesFromEmbedded = embeddedActions.map((entry) => {
+      const record = asRecord(entry);
+      return (
+        readString(asRecord(record.payload).name) ??
+        readString(record.name) ??
+        readString(record.actionName)
+      );
+    });
+
+    return uniqueStrings(
+      [...namesFromEmbedded, ...namesFromLinks].filter(
+        (name): name is string => name !== null,
+      ),
+    );
   }
 
-  /** `POST /uploads/2020-11-01/uploadDestinations/messaging?marketplaceIds=<site>` */
+  /**
+   * `POST /uploads/2020-11-01/uploadDestinations/{resource}` where `{resource}`
+   * is the FULL messaging action path, and `marketplaceIds` + `contentMD5` are
+   * required QUERY parameters (contentMD5 is not a JSON body field).
+   */
   async createMessagingUploadDestination(
     accountId: string,
     marketplaceId: string,
+    orderId: string,
+    actionName: string,
     contentMd5: string,
   ): Promise<AmazonUploadDestination> {
+    const resource = `/messaging/v1/orders/${encodeURIComponent(
+      orderId,
+    )}/messages/${encodeURIComponent(actionName)}`;
+    const query = `marketplaceIds=${encodeURIComponent(
+      marketplaceId,
+    )}&contentMD5=${encodeURIComponent(contentMd5)}`;
     const response = await this.call({
       accountId,
       method: 'POST',
-      path: `/uploads/2020-11-01/uploadDestinations/messaging?marketplaceIds=${encodeURIComponent(
-        marketplaceId,
-      )}`,
-      operation: 'createMessagingUploadDestination',
+      path: `/uploads/2020-11-01/uploadDestinations${resource}?${query}`,
+      operation: 'createUploadDestinationForResource',
       bucket: 'amazon:messaging',
-      body: { contentMD5: contentMd5 },
       retries: 0,
     });
     const body = asRecord(response.body);
@@ -155,38 +186,40 @@ export class SpApiClient {
         false,
       );
     }
-    return { uploadDestinationId, url };
+    return { uploadDestinationId, url, headers: readHeaderMap(payload.headers) };
   }
 
-  /** `POST /messaging/v1/orders/{orderId}/messages/{actionName}` (1 req/s bucket). */
+  /**
+   * `POST /messaging/v1/orders/{amazonOrderId}/messages/{actionName}?marketplaceIds=<id>`
+   * (1 req/s bucket). Amazon answers 201 with an empty body — there is no
+   * `messageId`; the adapter generates its own external id.
+   */
   async sendMessagingMessage(
     accountId: string,
     marketplaceId: string,
     orderId: string,
     actionName: string,
-    payload: MessagingSendPayload,
+    body: Record<string, unknown>,
   ): Promise<string | null> {
     const response = await this.call({
       accountId,
       method: 'POST',
-      path: `/messaging/v1/orders/${encodeURIComponent(orderId)}/messages/${encodeURIComponent(
-        actionName,
+      path: `/messaging/v1/orders/${encodeURIComponent(
+        orderId,
+      )}/messages/${encodeURIComponent(actionName)}?marketplaceIds=${encodeURIComponent(
+        marketplaceId,
       )}`,
       operation: 'sendMessagingMessage',
       bucket: 'amazon:messaging',
-      body: {
-        marketplaceIds: [marketplaceId],
-        text: payload.text,
-        attachments: payload.attachments.map((attachment) => ({
-          uploadDestinationId: attachment.uploadDestinationId,
-          fileName: attachment.fileName,
-        })),
-      },
+      body,
       // Sending is not idempotent: never let the HTTP client retry this POST.
       retries: 0,
     });
-    const body = asRecord(response.body);
-    return readString(body.messageId) ?? readString(asRecord(body.payload).messageId);
+    const responseBody = asRecord(response.body);
+    return (
+      readString(responseBody.messageId) ??
+      readString(asRecord(responseBody.payload).messageId)
+    );
   }
 
   private async call(options: CallOptions): Promise<HttpResponse<JsonRecord>> {

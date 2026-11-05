@@ -156,10 +156,12 @@ export interface RdtTokenResponse {
   [key: string]: unknown;
 }
 
-/** `POST /uploads/2020-11-01/uploadDestinations/messaging` response (payload-wrapped). */
+/** `POST /uploads/2020-11-01/uploadDestinations/{resource}` response (payload-wrapped). */
 export interface AmazonUploadDestination {
   uploadDestinationId: string;
   url: string;
+  /** Headers that MUST be sent with the presigned S3 PUT (returned by Amazon). */
+  headers: Record<string, string>;
 }
 
 /** Everything the adapter needs to materialize one inbound e-mail. */

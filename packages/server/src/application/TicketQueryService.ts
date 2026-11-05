@@ -203,7 +203,9 @@ export class TicketQueryService implements ITicketQueryService {
 
     const validPii = this.isPiiUsable(pii);
     const customer = toCustomerView({ ticket, pii: validPii ? pii : null });
-    const routing = this.buildRoutePreview(ticket, account, order);
+    const hasPriorBuyerInbound =
+      (await this.repos.messages.lastByDirection(ticket.id, 'INBOUND_BUYER')) !== null;
+    const routing = this.buildRoutePreview(ticket, account, order, hasPriorBuyerInbound);
     const allowedActions = this.buildAvailableActions(ticket, order);
     const crr = this.buildCrr(ticket, orderedMessages);
 
@@ -259,6 +261,7 @@ export class TicketQueryService implements ITicketQueryService {
     ticket: SupportTicketRecord,
     account: MarketplaceAccountRecord | null,
     order: OrderCacheRecord | null,
+    hasPriorBuyerInbound: boolean,
   ): RoutePreview {
     const adapter = this.adapters.get(ticket.marketplace);
     const channelMetadata = asRecord(ticket.channelMetadata);
@@ -272,7 +275,7 @@ export class TicketQueryService implements ITicketQueryService {
       recipient: 'BUYER',
       attachments: [],
       forceImportant: channelMetadata.buyer_opt_out === true,
-      hasPriorInbound: ticket.lastInboundAt !== null,
+      hasPriorInbound: hasPriorBuyerInbound,
       allowedActions: order?.allowedActionsCache ?? {},
       closeWithoutResponse: false,
       accountId: ticket.accountId,

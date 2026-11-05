@@ -90,14 +90,20 @@ export class OrderEnrichmentService {
     orderId: string,
     options?: { strict?: boolean; warnings?: string[] },
   ): Promise<string[]> {
-    try {
-      return await this.spApi.getMessagingActions(account.id, orderId);
-    } catch (error) {
-      if (options?.strict && error instanceof MarketplaceApiError && error.retryable) {
-        throw error;
+    const marketplaceId = account.marketplaceSiteId;
+    if (marketplaceId) {
+      try {
+        return await this.spApi.getMessagingActions(account.id, orderId, marketplaceId);
+      } catch (error) {
+        if (options?.strict && error instanceof MarketplaceApiError && error.retryable) {
+          throw error;
+        }
+        options?.warnings?.push('AMAZON_MESSAGING_ACTIONS_UNAVAILABLE');
+        this.logWarn('getMessagingActionsForOrder', error, account.id, orderId);
       }
-      options?.warnings?.push('AMAZON_MESSAGING_ACTIONS_UNAVAILABLE');
-      this.logWarn('getMessagingActionsForOrder', error, account.id, orderId);
+    } else {
+      options?.warnings?.push('AMAZON_MISSING_MARKETPLACE_ID');
+      this.logger.warn('amazon.enrichment.missing_marketplace_id', { accountId: account.id });
     }
 
     const cached = parseChannelSettings(account.channelConfig).allowedActionsCache;

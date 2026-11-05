@@ -471,7 +471,6 @@ export class UnifiedTicketService implements IUnifiedTicketService {
       assignedQueue: plan.queue,
       channelMetadata,
       tags: this.tagsFor(message),
-      isDemo: false,
     });
 
     // Fields that the repository's create input intentionally does not accept

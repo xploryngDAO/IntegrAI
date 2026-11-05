@@ -102,7 +102,6 @@ export interface CreateTicketInput {
   assignedQueue?: string | null;
   channelMetadata?: Record<string, unknown>;
   tags?: string[];
-  isDemo?: boolean;
 }
 
 export interface TicketUpdatePatch {

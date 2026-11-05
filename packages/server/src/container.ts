@@ -4,6 +4,7 @@ import type {
   ChannelRuntimeConfig,
   DeliveryStatus,
   IAppServices,
+  IObjectStorage,
   IRealtimePublisher,
 } from '@sac/shared';
 
@@ -14,6 +15,7 @@ import { createInfrastructure } from './infrastructure';
 
 import { AccountService } from './application/AccountService';
 import { AgentService } from './application/AgentService';
+import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
 import {
@@ -230,6 +232,31 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  const diagnostics = new DiagnosticsService({
+    logger: infra.logger,
+    clock: infra.clock,
+    adapters,
+    repos: { accounts: infra.repos.accounts },
+    probes: {
+      database: async () => {
+        await infra.prisma.$queryRawUnsafe('SELECT 1');
+      },
+      redis: async () => {
+        const pong = await infra.redis.ping();
+        if (pong !== 'PONG') throw new Error(`Unexpected Redis PING reply: ${pong}`);
+      },
+      storage: async () => {
+        await probeStorage(infra.storage);
+      },
+      storageConfigured: Boolean(
+        config.s3.bucket &&
+          config.s3.region &&
+          config.s3.accessKeyId &&
+          config.s3.secretAccessKey,
+      ),
+    },
+  });
+
   const services: IAppServices = {
     config: channelConfig,
     logger: infra.logger,
@@ -246,6 +273,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     webhooks,
     health,
     files,
+    diagnostics,
   };
 
   // --- 6. Worker dependencies --------------------------------------------
@@ -309,6 +337,45 @@ export async function disposeContainer(): Promise<void> {
   state = null;
 }
 
+export function getDiagnosticsService(): import('@sac/shared').IDiagnosticsService {
+  if (!state) {
+    throw new Error('Container has not been initialised; call createContainer() first');
+  }
+  return state.services.diagnostics;
+}
+
+/* ======================================================================== */
+/* Diagnostics storage probe                                                */
+/* ======================================================================== */
+
+/**
+ * REAL S3 probe.
+ *
+ * Prefers a dedicated `headBucket()` when the storage implementation exposes one
+ * (the production client does) and otherwise performs a GET on a sentinel key:
+ * `NoSuchKey` proves the bucket exists and the credentials are accepted, which is
+ * exactly what a HeadBucket would have proven.
+ */
+async function probeStorage(storage: IObjectStorage): Promise<void> {
+  const candidate = storage as IObjectStorage & { headBucket?: () => Promise<void> };
+  if (typeof candidate.headBucket === 'function') {
+    await candidate.headBucket();
+    return;
+  }
+
+  try {
+    await storage.getObject('attachments/.doctor-probe');
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    const message = error instanceof Error ? error.message : String(error);
+    const combined = `${name} ${message}`;
+    if (/NoSuchKey|NotFound|not exist|404/i.test(combined)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 /* ======================================================================== */
 /* Infrastructure adapter: outbound_attempts audit recorder                  */
 /* ======================================================================== */
@@ -351,4 +418,5 @@ function toJson(value: Record<string, unknown> | null | undefined): Prisma.Input
  * single entry point for the whole server graph.
  */
 export { createInfrastructure };
+export { DiagnosticsService } from './application/DiagnosticsService';
 export type { AppConfig, InfrastructureBundle };

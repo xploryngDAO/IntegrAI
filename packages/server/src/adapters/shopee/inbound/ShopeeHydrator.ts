@@ -44,6 +44,7 @@ import {
   pickArray,
   pickNumber,
   pickString,
+  resolvePushHandler,
   toEpochMs,
   toShopeeId,
   triageShopeePush,
@@ -102,18 +103,23 @@ export class ShopeeHydrator {
       });
     }
 
-    switch (payload.code) {
-      case 4:
+    // Shape-first dispatch: supports both the SAC push-code matrix from
+    // CHANNEL_CONTRACTS.md and the public Shopee push codes (webchat=10,
+    // order status=3, tracking=4) without creating spurious tickets.
+    const handler = resolvePushHandler(payload.code, payload.data);
+
+    switch (handler) {
+      case 'chat':
         return this.hydrateChat(account, payload, envelope);
-      case 6:
+      case 'return':
         return this.hydrateReturn(account, payload, envelope);
-      case 7:
+      case 'cancellation':
         return this.hydrateCancellation(account, payload, envelope);
-      case 2:
+      case 'order_status':
         return this.hydrateOrderStatus(account, payload, envelope);
-      case 3:
+      case 'tracking':
         return this.hydrateTracking(account, payload, envelope);
-      case 10: {
+      case 'shipping_document': {
         // Shipping-document push: no message, but the order snapshot may carry
         // fresh label/package data, so refresh the order cache when possible.
         const orderSn = normalizeOrderSn(payload.data);
@@ -124,15 +130,8 @@ export class ShopeeHydrator {
         });
         return [];
       }
-      case 1:
-        this.logger.info('Shopee shop-authorization push received', { accountId: account.id });
-        return [];
-      case 5: {
-        this.logger.debug('Shopee item push: cache refresh only', { accountId: account.id });
-        return [];
-      }
       default:
-        this.logger.warn('Shopee push code not handled by the adapter', {
+        this.logger.debug('Shopee push carries no ticket/message payload (cache-only event)', {
           accountId: account.id,
           code: payload.code,
         });
@@ -152,10 +151,12 @@ export class ShopeeHydrator {
     const data = payload.data;
     const conversationId = normalizeConversationId(data);
     if (!conversationId) {
-      throw new ValidationError('SHOPEE_CHAT_CONVERSATION_MISSING', {
+      this.logger.warn('Shopee chat push without conversation_id; nothing to hydrate', {
         accountId: account.id,
+        code: payload.code,
         eventId: envelope.eventId ?? null,
       });
+      return [];
     }
 
     const triage = mapChatTriage(data);
@@ -402,7 +403,13 @@ export class ShopeeHydrator {
     const result = await this.client.request<Record<string, unknown>>({
       accountId: account.id,
       apiPath: SHOPEE_API_PATHS.getMessage,
-      body: { conversation_id: numericConversationId, offset: 0 },
+      // Official v2: GET with conversation_id/offset/page_size query params.
+      method: 'GET',
+      extraQuery: {
+        conversation_id: numericConversationId,
+        offset: 0,
+        page_size: MAX_FETCHED_MESSAGES,
+      },
     });
     const response = asRecord(result.data) ?? {};
     const rawList = pickArray(response, ['messages', 'message_list', 'data', 'message']);
@@ -514,6 +521,14 @@ export class ShopeeHydrator {
     const data = payload.data;
     const returnSn = normalizeReturnSn(data);
     const orderSn = normalizeOrderSn(data);
+    if (!returnSn && !orderSn) {
+      this.logger.warn('Shopee return push without return_sn/order_sn; nothing to hydrate', {
+        accountId: account.id,
+        code: payload.code,
+        eventId: envelope.eventId ?? null,
+      });
+      return [];
+    }
     const warnings: string[] = [];
 
     const orderContext = orderSn
@@ -617,6 +632,14 @@ export class ShopeeHydrator {
   ): Promise<HydratedInboundMessage[]> {
     const data = payload.data;
     const orderSn = normalizeOrderSn(data);
+    if (!orderSn) {
+      this.logger.warn('Shopee cancellation push without order_sn; nothing to hydrate', {
+        accountId: account.id,
+        code: payload.code,
+        eventId: envelope.eventId ?? null,
+      });
+      return [];
+    }
     const warnings: string[] = [];
     const orderContext = orderSn
       ? await this.safeOrderContext(account, orderSn, warnings)
@@ -1013,7 +1036,13 @@ export class ShopeeHydrator {
     const result = await this.client.request<Record<string, unknown>>({
       accountId: account.id,
       apiPath: SHOPEE_API_PATHS.getOrderDetail,
-      body: { order_sn: orderSn },
+      // Official v2: GET with order_sn_list + response_optional_fields.
+      method: 'GET',
+      extraQuery: {
+        order_sn_list: orderSn,
+        response_optional_fields:
+          'buyer_user_id,buyer_username,item_list,package_list,shipping_carrier,pay_time',
+      },
     });
     const data = asRecord(result.data);
     if (!data) return null;
@@ -1031,7 +1060,9 @@ export class ShopeeHydrator {
     const result = await this.client.request<Record<string, unknown>>({
       accountId: account.id,
       apiPath: SHOPEE_API_PATHS.getTrackingInfo,
-      body: { order_sn: orderSn },
+      // Official v2: GET with order_sn (+ optional package_number) query params.
+      method: 'GET',
+      extraQuery: { order_sn: orderSn },
     });
     return asRecord(result.data);
   }
@@ -1043,7 +1074,9 @@ export class ShopeeHydrator {
     const result = await this.client.request<Record<string, unknown>>({
       accountId: account.id,
       apiPath: SHOPEE_API_PATHS.getItemBaseInfo,
-      body: { item_id_list: [toShopeeId(itemId)] },
+      // Official v2: GET with item_id_list as repeated query params (int64[]).
+      method: 'GET',
+      extraQuery: { item_id_list: [String(toShopeeId(itemId) ?? itemId)] },
     });
     const data = asRecord(result.data);
     if (!data) return null;
@@ -1060,7 +1093,9 @@ export class ShopeeHydrator {
     const result = await this.client.request<Record<string, unknown>>({
       accountId: account.id,
       apiPath: SHOPEE_API_PATHS.getReturnDetail,
-      body: { return_sn: returnSn },
+      // Official v2: GET with return_sn query param.
+      method: 'GET',
+      extraQuery: { return_sn: returnSn },
     });
     const data = asRecord(result.data);
     if (!data) return null;

@@ -8,6 +8,7 @@ import type {
   ShopeeAccessToken,
   ShopeeApiEnvelope,
   ShopeeCallResult,
+  ShopeeQueryValue,
   ShopeeRequestSpec,
   ShopeeTokenProvider,
 } from '../types';
@@ -34,6 +35,8 @@ const INVALID_ACCESS_TOKEN_CODES = new Set([
   'invalid_token',
   'token_expired',
   'access_token_expired',
+  // Shopee also reports a rejected/expired token as a generic auth error.
+  'error_auth',
 ]);
 
 /** Shopee codes worth retrying with backoff. */
@@ -108,8 +111,7 @@ export function isRetryableShopeeErrorCode(code: string | null): boolean {
   return code !== null && RETRYABLE_ERROR_CODES.has(code);
 }
 
-export class ShopeeClient {
-  private readonly deps: AdapterDependencies;
+export class ShopeeClient {  private readonly deps: AdapterDependencies;
   private readonly logger: ILogger;
   private tokenProvider: ShopeeTokenProvider | null = null;
 
@@ -228,20 +230,27 @@ export class ShopeeClient {
     const shopId = publicCall || !includeShopId ? undefined : credentials?.shopId;
     const sign = computeSign({ partnerId, apiPath, timestamp, accessToken, shopId, partnerKey });
 
+    // Shopee GET array params use repeated keys (`item_id_list=1&item_id_list=2`);
+    // the generic HttpRequestOptions.query only carries scalars, so arrays are
+    // baked into the URL while the signed params stay in the query object.
+    const { url: callUrl, scalarQuery } = splitExtraQuery(
+      `${this.apiBase}${apiPath}`,
+      spec.extraQuery,
+    );
     const query: Record<string, string | number | boolean | undefined | null> = {
       partner_id: partnerId,
       timestamp,
       ...(accessToken ? { access_token: accessToken } : {}),
       ...(shopId ? { shop_id: shopId } : {}),
       sign,
-      ...(spec.extraQuery ?? {}),
+      ...scalarQuery,
     };
 
     await this.deps.rateLimiter.acquire('shopee:api');
 
     const response = await this.deps.http.request<ShopeeApiEnvelope<TResponse>>({
       method: spec.method ?? 'POST',
-      url: `${this.apiBase}${apiPath}`,
+      url: callUrl,
       query,
       body: spec.formData ? undefined : spec.body,
       formData: spec.formData,
@@ -290,6 +299,7 @@ export class ShopeeClient {
       envelope: envelope as ShopeeApiEnvelope<unknown>,
       requestId,
       status: response.status,
+      headers: response.headers,
     };
   }
 
@@ -336,4 +346,33 @@ export class ShopeeClient {
     }
     return error;
   }
+}
+
+/**
+ * Splits `extraQuery` into repeated URL params (arrays, e.g. `item_id_list`) and
+ * scalar params that can travel through `HttpRequestOptions.query`.
+ */
+function splitExtraQuery(
+  baseUrl: string,
+  extraQuery: Record<string, ShopeeQueryValue> | undefined,
+): { url: string; scalarQuery: Record<string, string | number | boolean | undefined | null> } {
+  const scalarQuery: Record<string, string | number | boolean | undefined | null> = {};
+  if (!extraQuery) return { url: baseUrl, scalarQuery };
+
+  const arrays: Array<[string, string[]]> = [];
+  for (const [key, value] of Object.entries(extraQuery)) {
+    if (Array.isArray(value)) {
+      arrays.push([key, value.map((item) => String(item))]);
+    } else {
+      scalarQuery[key] = value;
+    }
+  }
+  if (arrays.length === 0) return { url: baseUrl, scalarQuery };
+
+  const search = new URLSearchParams();
+  for (const [key, values] of arrays) {
+    for (const value of values) search.append(key, value);
+  }
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return { url: `${baseUrl}${separator}${search.toString()}`, scalarQuery };
 }

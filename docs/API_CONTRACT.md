@@ -162,9 +162,6 @@ Body:
 `{ marketplace, authMode: OAUTH2|TOKEN_EXCHANGE|SMTP_SES|HYBRID, fields[],
 authorizeUrlTemplate, webhookPath, docsUrl, notes[] }`.
 
-Every `fields[]` entry: `{ key, label, type: text|password|url|email|select,
-required, placeholder?, helpText?, options?, secret? }`.
-
 ### POST /accounts/oauth/:marketplace/start
 Body: `{ "displayName": string }` (marketplace ∈ `mercadolivre`, `shopee`)
 → `data: { authorizeUrl, state, marketplace }`
@@ -243,3 +240,48 @@ Client → server:
 
 The web app must degrade gracefully to polling (`GET /queue/snapshot` every 20 s)
 when the socket cannot connect.
+---
+
+## 9. Diagnóstico real das integrações
+
+Estes endpoints fazem **chamadas reais** aos marketplaces (sem simulação) usando as
+credenciais já cadastradas. Nada é enviado ao comprador: apenas token exchange e
+leituras baratas (participações do seller, perfil do usuário, dados da loja).
+
+### GET /diagnostics  (ADMIN)
+→ `data: SystemDiagnosis`
+`json
+{
+  "overall": "ok | warn | fail",
+  "version": "1.0.0",
+  "testedAt": "2026-11-05T18:00:00.000Z",
+  "infrastructure": [
+    { "id": "infra.postgres", "label": "PostgreSQL", "status": "ok", "detail": "ok", "latencyMs": 4 }
+  ],
+  "channels": [
+    {
+      "accountId": "uuid",
+      "marketplace": "AMAZON",
+      "displayName": "Amazon BR",
+      "overall": "ok",
+      "testedAt": "2026-11-05T18:00:00.000Z",
+      "checks": [
+        { "id": "amazon.lwa", "label": "LWA access token", "status": "ok", "detail": "token válido", "latencyMs": 210 },
+        { "id": "amazon.participations", "label": "Seller participations", "status": "ok", "detail": "1 marketplace" }
+      ]
+    }
+  ]
+}
+`
+
+### POST /accounts/:id/diagnose  (ADMIN)
+→ `data: AccountDiagnosis` (mesmo shape do item de `channels`).
+Status de cada check: `ok | warn | fail | skipped`; `remediation` explica o que
+corrigir. HTTP 200 mesmo com checks em `fail` (o corpo é o resultado), 404 para
+conta inexistente.
+
+### CLI equivalente
+``bash
+npm run doctor            # infra + todas as contas; exit 1 se algum check falhar
+npm run doctor -- --account=<uuid>
+``

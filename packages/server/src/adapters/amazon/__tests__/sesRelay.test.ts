@@ -189,7 +189,7 @@ function envelope(payload: Record<string, unknown>) {
   };
 }
 
-describe('SesRelayParser (temporary validation)', () => {
+describe('SesRelayParser inbound hydration', () => {
   it('hydrates a pre-sale buyer message', async () => {
     const deps = makeDeps();
     const raw = makeMime({

@@ -1,7 +1,9 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import {
   AuthenticationError,
+  AuthorizationError,
   isAppError,
+  type AgentRole,
   type IAgentService,
   type ILogger,
 } from '@sac/shared';
@@ -83,4 +85,25 @@ export function requireAgent(request: FastifyRequest): AuthenticatedAgent {
     throw new AuthenticationError('Authenticated agent is required for this route');
   }
   return request.agent;
+}
+
+/**
+ * Reusable role-based access control preHandler.
+ *
+ * Runs after the global JWT guard (which attaches `request.agent`), so route
+ * modules can compose it per route:
+ *
+ * ```ts
+ * app.get('/diagnostics', { preHandler: requireRole('ADMIN') }, controller.system);
+ * ```
+ *
+ * Fails closed: an empty role list authorizes nobody.
+ */
+export function requireRole(...roles: readonly AgentRole[]): preHandlerHookHandler {
+  return async (request) => {
+    const agent = requireAgent(request);
+    if (!roles.some((role) => role === agent.role)) {
+      throw new AuthorizationError(`This route requires role: ${roles.join(' | ')}`);
+    }
+  };
 }

@@ -264,7 +264,6 @@ model SupportTicket {
   /// Amazon no_response_link, Meli conversation_status, Shopee crr_safe/status.
   channelMetadata      Json           @default("{}") @map("channel_metadata")
   tags                 String[]       @default([])
-  isDemo               Boolean        @default(false) @map("is_demo")
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 

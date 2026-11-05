@@ -241,6 +241,17 @@ export interface IHealthService {
   channels(): Promise<ChannelHealthView[]>;
 }
 
+/* ==========================================================================
+ * Live diagnostics (real credentials; used by /diagnostics and `npm run doctor`)
+ * ========================================================================== */
+
+export interface IDiagnosticsService {
+  /** Infrastructure + every connected account, in parallel where safe. */
+  system(): Promise<import('../dto').SystemDiagnosis>;
+  /** Real marketplace calls for a single account. */
+  account(accountId: string): Promise<import('../dto').AccountDiagnosis>;
+}
+
 export interface IAdapterRegistry {
   get(marketplace: Marketplace): IMarketplaceChannelAdapter;
 }
@@ -281,6 +292,7 @@ export interface IAppServices {
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
   readonly files: IFileService;
+  readonly diagnostics: IDiagnosticsService;
 }
 
 /* ==========================================================================

@@ -49,7 +49,6 @@ export function toTicketListItem(
     assignedQueue: ticket.assignedQueue,
     channelMetadata: asRecord(ticket.channelMetadata),
     tags: Array.isArray(ticket.tags) ? ticket.tags : [],
-    isDemo: ticket.isDemo,
   };
 }
 

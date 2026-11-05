@@ -170,7 +170,7 @@ export function OrderCard({ order, ticket, className }: OrderCardProps) {
         </strong>
       </div>
 
-      <Tooltip label="Integração não configurada nesta conta de demonstração">
+      <Tooltip label="Integração não configurada para esta conta">
         <span className="inline-flex min-w-0">
           <Button
             variant="ghost"

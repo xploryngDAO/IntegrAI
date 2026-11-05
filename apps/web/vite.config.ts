@@ -2,8 +2,9 @@ import { defineConfig } from 'vite';
 import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// SAC Hub web app. The API client falls back to the in-memory mock dataset when
-// `/api` is unreachable, so `npm run dev` alone gives a complete demo.
+// SAC Hub web app. In development both `/api` and the Socket.IO handshake are
+// proxied to the real backend on :4000; production serves the built assets
+// behind the same API origin.
 //
 // `react()` is typed against the hoisted Vite 5 copy of @vitejs/plugin-react
 // while this workspace runs Vite 6; the cast keeps the config type-checking
@@ -15,11 +16,11 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:4000',
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000',
         changeOrigin: true,
         ws: true,
       },

@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 
 /**
  * Environment contract for the SAC Hub server.
@@ -189,7 +189,6 @@ export const envSchema = z.object({
   PII_RETENTION_DAYS: intFromEnv(30, 1, 3_650),
 
   /* --------------------------- feature flags ------------------------------ */
-  ALLOW_DEMO_SEED: boolFromEnv(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

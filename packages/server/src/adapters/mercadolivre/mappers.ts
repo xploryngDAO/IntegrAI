@@ -131,6 +131,34 @@ export function normalizeResource(resource: string | null | undefined): string |
   return resource.split('?')[0]?.split('#')[0]?.replace(/\/+$/, '') ?? null;
 }
 
+/**
+ * Tolerant claim id extraction. Official `post_purchase` notifications now send
+ * `resource: "post-purchase/v1/claims/{id}"` (with or without leading slash, and
+ * with or without the legacy `/claims/` prefix), so a segment regex alone is not
+ * enough.
+ */
+export function extractClaimIdFromResource(resource: string | null | undefined): string | null {
+  if (!resource) return null;
+  const clean = resource.split('?')[0]?.split('#')[0] ?? '';
+  const fromPath = /(?:^|\/)claims\/(\d+)/.exec(clean);
+  if (fromPath?.[1]) return fromPath[1];
+  const fromPostPurchase = /post-purchase\/v1\/claims\/(\d+)/i.exec(clean);
+  if (fromPostPurchase?.[1]) return fromPostPurchase[1];
+  const numeric = /^\d+$/.test(clean) ? clean : null;
+  return numeric;
+}
+
+/**
+ * `messages` notifications send an opaque hash as `resource` (no path). A value
+ * that is not a known resource path/URI must be resolved with
+ * `GET /messages/{resource}`.
+ */
+export function isOpaqueMessageResource(resource: string | null | undefined): boolean {
+  if (!resource) return true;
+  const clean = resource.split('?')[0]?.split('#')[0] ?? '';
+  return !clean.includes('/') && !/^\d+$/.test(clean) && clean.length > 0;
+}
+
 /* ------------------------------- Questions -------------------------------- */
 
 export function isQuestionAnswered(question: MeliQuestion): boolean {
@@ -206,12 +234,29 @@ export function claimPlayersMetadata(claim: MeliClaim): Array<Record<string, unk
   }));
 }
 
+/**
+ * Normalizes the official action guide (`GET /messages/action_guide/packs/{id}
+ * ?tag=post_sale`). Options are keyed by `id` (e.g. `OTHER`,
+ * `REQUEST_BILLING_INFO`) and carry `internal_description`, `type`, templates and
+ * `cap_available`; the composer needs `option_id` + description to send
+ * `POST .../option`.
+ */
 export function normalizeActionGuide(guide: MeliActionGuide | null): Record<string, unknown> | null {
   if (!guide) return null;
   const options = asArray<MeliActionGuideOption>(guide.options).map((option) => ({
-    option_id: asString(option.option_id) ?? asString(option.id),
-    description: asString(option.description) ?? asString(option.title) ?? asString(option.text),
-    action: asString(option.action),
+    option_id: asString(option.id) ?? asString(option.option_id),
+    description:
+      asString(option.internal_description) ??
+      asString(option.description) ??
+      asString(option.title) ??
+      asString(option.text),
+    type: asString(option.type),
+    enabled: option.enabled ?? null,
+    actionable: option.actionable ?? null,
+    char_limit: asNumber(option.char_limit),
+    cap_available: asNumber(option.cap_available),
+    templates: asArray<{ id?: string | null; vars?: unknown }>(option.templates),
+    child_options: option.child_options ?? null,
   }));
   return {
     blocked: true,
@@ -274,6 +319,48 @@ export function directionFromClaimUserIds(
   if (fromUserId && respondentId && fromUserId === respondentId) return 'EXTERNAL_SELLER_PANEL';
   if (fromUserId && complainantId && fromUserId === complainantId) return 'INBOUND_BUYER';
   return 'MEDIATOR';
+}
+
+/**
+ * Claim message direction from the official `sender_role` field (claim messages
+ * expose roles, not user ids): complainant = buyer, respondent = seller panel.
+ */
+export function directionFromClaimSenderRole(senderRole: string | null): MessageDirection | null {
+  switch ((senderRole ?? '').toLowerCase()) {
+    case 'complainant':
+      return 'INBOUND_BUYER';
+    case 'respondent':
+      return 'EXTERNAL_SELLER_PANEL';
+    case 'mediator':
+      return 'MEDIATOR';
+    default:
+      return null;
+  }
+}
+
+/** Claim messages use `message`; older payloads used `text`. */
+export function extractClaimMessageText(message: { message?: unknown; text?: unknown }): string {
+  return extractText(message.message) || extractText(message.text);
+}
+
+/**
+ * Idempotency key for a claim message. Official claim messages have no `id`, so
+ * fall back to the authoritative date plus sender role (stable across replays).
+ */
+export function claimMessageExternalId(
+  claimId: string,
+  message: { id?: unknown; message_id?: unknown; sender_role?: unknown; date_created?: unknown; date?: unknown; message_date?: unknown },
+  index: number,
+): string {
+  const directId = asString(message.id) ?? asString(message.message_id);
+  if (directId) return `claim:${claimId}:${directId}`;
+  const role = asString(message.sender_role) ?? 'unknown';
+  const date =
+    asString(message.date_created) ??
+    asString(message.date) ??
+    asString(message.message_date) ??
+    `idx-${index}`;
+  return `claim:${claimId}:${date}:${role}`.slice(0, 400);
 }
 
 /* --------------------------------- Orders --------------------------------- */

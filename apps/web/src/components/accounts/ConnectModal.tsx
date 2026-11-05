@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ConnectorDescriptor, Marketplace } from '@sac/shared';
 import { Stepper } from '@xploryng/convergencia';
-import { api, isMockMode } from '../../lib/api';
+import { api } from '../../lib/api';
 import { useWorkspace } from '../../lib/store';
 import { MARKETPLACE_LABEL } from '../../lib/labels';
 import { Alert, Button, Input, Modal, Pill, Select } from '../ui';
@@ -173,20 +173,6 @@ export function ConnectModal({ open, onClose, marketplace }: ConnectModalProps):
     setSubmitError(null);
     try {
       const { authorizeUrl } = await api.startOAuth(oauthSlugOf(marketplace), buildDisplayName());
-      if (isMockMode()) {
-        // Demo mode: no real provider to visit — simulate the callback round-trip.
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 1_200);
-        });
-        pushToast({
-          tone: 'ok',
-          title: `${MARKETPLACE_LABEL[marketplace]} conectado`,
-          description: 'Conta autorizada com sucesso (modo demonstração).',
-        });
-        await reloadAccounts();
-        onClose();
-        return;
-      }
       window.location.assign(authorizeUrl);
     } catch {
       setSubmitError('Não foi possível iniciar a autorização. Verifique as credenciais do app.');

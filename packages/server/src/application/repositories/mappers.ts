@@ -150,7 +150,6 @@ export function mapTicket(record: SupportTicket): SupportTicketRecord {
     assignedQueue: record.assignedQueue,
     channelMetadata: toJsonObject(record.channelMetadata),
     tags: record.tags,
-    isDemo: record.isDemo,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };

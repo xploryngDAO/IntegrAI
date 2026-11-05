@@ -32,7 +32,6 @@ Regras herdadas de `AGENTS.md` do DS que valem aqui:
 │ RAIL 88px │ TOPBAR 64px: título · saúde dos canais · SLA médio · tema ·     │
 │ (nav +    │ presença · operador · atalho Canais                            │
 │ badge)    ├────────────────────────────────────────────────────────────────┤
-│           │ banner de demonstração (quando mock)                          │
 │           ├──────────────┬────────────────────────────┬───────────────────┤
 │           │ FILA 320px   │ CONVERSA (fluido)          │ COCKPIT 310px     │
 │           │ .sac-panel   │ .sac-panel                 │ .sac-panel        │
@@ -171,7 +170,7 @@ principal do composer é sempre `primary` e única.
 - Carregando: `Skeleton` no lugar do conteúdo (sem salto de layout).
 - Vazio: `EmptyState` com explicação contextual e ação.
 - Erro: `Alert tone="danger"` + instrução de recuperação; nunca só cor.
-- Offline/demonstração: banner global (já implementado no shell).
+- Offline/sem API: erro real na UI (não há banner nem dados simulados).
 - Foco visível em tudo que é interativo; `aria-live` para toasts/política.
 
 ## 8. Lista de arquivos e responsáveis
@@ -184,7 +183,7 @@ principal do composer é sempre `primary` e única.
 | Agente cockpit/canais | `components/cockpit/**`, `components/accounts/**`, `pages/AccountsPage.tsx` |
 
 Não alterar o DS instalado (`node_modules`), `packages/shared`, `lib/api.ts`,
-`lib/store.ts`, `lib/mock/**`, `lib/labels.ts`. Toda a lógica de negócio
+`lib/store.ts`, `lib/labels.ts`, `lib/api.ts`. Toda a lógica de negócio
 (roteamento, policy-check, ações, CRR, anexos) deve ser preservada — esta
 migração é de **interface**.
 

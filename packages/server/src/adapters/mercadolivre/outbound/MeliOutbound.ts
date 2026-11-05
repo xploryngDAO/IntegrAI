@@ -42,6 +42,13 @@ interface DelegatedSendSpec {
   questionId?: string | null;
 }
 
+/** Official `actions/send-message` body (attachments are file-name strings). */
+interface ClaimMessageBody {
+  receiver_role: string;
+  message: string;
+  attachments: string[];
+}
+
 function buildFileFormData(fileName: string, mimeType: string, bytes: Buffer): FormData {
   const form = new FormData();
   const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
@@ -89,6 +96,11 @@ export class MeliOutbound {
     private readonly client: MeliClient,
   ) {
     this.logger = deps.logger.child({ adapter: 'mercadolivre', component: 'outbound' });
+  }
+
+  /** 404/405 on a documented endpoint variant: try the other API base. */
+  private isMissingEndpoint(error: unknown): boolean {
+    return error instanceof MarketplaceApiError && (error.status === 404 || error.status === 405);
   }
 
   resolveRoute(input: OutboundValidationInput): RouteDecision {
@@ -260,28 +272,21 @@ export class MeliOutbound {
     const attachmentIds: string[] = [];
     const uploaded: OutboundResult['attachments'] = [];
     for (const attachment of draft.attachments) {
-      const uploadedAttachment = await this.uploadAttachment(
-        accountId,
-        `/post-purchase/v1/claims/${claimId}/attachments`,
-        undefined,
-        attachment,
-      );
+      const uploadedAttachment = await this.uploadClaimAttachment(accountId, claimId, attachment);
       attachmentIds.push(uploadedAttachment.uploadId);
       uploaded.push(uploadedAttachment.result);
     }
 
     const receiverRole = draft.recipient === 'MEDIATOR' ? 'mediator' : 'complainant';
-    const requestBody = {
+    // Official contract: `attachments` is an array of file names returned by the
+    // claim attachments upload (`{ user_id, file_name }`), not objects.
+    const requestBody: ClaimMessageBody = {
       receiver_role: receiverRole,
       message: draft.bodyText,
-      attachments: attachmentIds.map((id) => ({ id })),
+      attachments: attachmentIds,
     };
 
-    const response = await this.client.post<MeliSendMessageResponse>(
-      accountId,
-      `/post-purchase/v1/claims/${claimId}/actions/send-message`,
-      requestBody,
-    );
+    const response = await this.postClaimMessage(accountId, claimId, requestBody);
     const externalMessageId = extractResponseId(response) ?? randomUUID();
 
     this.logger.info('meli.outbound.claim_message_sent', {
@@ -337,22 +342,45 @@ export class MeliOutbound {
     }
 
     const actionGuideReasonId = draft.meliActionGuideReasonId;
+    const metadata = isRecord(draft.metadata) ? draft.metadata : {};
+    const buyerId = asString(draft.buyerExternalId);
     let response: MeliSendMessageResponse;
     let requestBody: Record<string, unknown>;
     let path: string;
 
     if (actionGuideReasonId) {
-      path = `/messages/action_guide/packs/${packId}`;
+      // Official reason-guide flow (Fulfillment/Cross-docking/Drop-off/Flex):
+      // POST /messages/action_guide/packs/{packId}/option?tag=post_sale with
+      // `option_id` + `template_id` (template options) or `text` (free text).
+      path = `/messages/action_guide/packs/${packId}/option`;
+      const templateId =
+        asString(metadata.template_id) ??
+        asString(metadata.templateId) ??
+        asString(metadata.meliTemplateId);
+      const vars = Array.isArray(metadata.vars) ? metadata.vars : undefined;
       requestBody = {
         option_id: actionGuideReasonId,
-        ...(draft.bodyText.trim().length > 0 ? { text: draft.bodyText } : {}),
+        ...(templateId ? { template_id: templateId } : {}),
+        ...(vars ? { vars } : {}),
+        // Free-text options (`OTHER`, `SEND_INVOICE_LINK`) carry the message;
+        // template options must not receive free text.
+        ...(!templateId && draft.bodyText.trim().length > 0 ? { text: draft.bodyText } : {}),
       };
-      response = await this.client.post<MeliSendMessageResponse>(accountId, path, requestBody);
+      response = await this.client.post<MeliSendMessageResponse>(
+        accountId,
+        path,
+        requestBody,
+        { tag: 'post_sale' },
+      );
     } else {
+      // Official message body requires `from`/`to` user ids and file-name
+      // strings for `attachments`.
       path = `/messages/packs/${packId}/sellers/${sellerId}`;
       requestBody = {
+        from: { user_id: sellerId },
+        ...(buyerId ? { to: { user_id: buyerId } } : {}),
         text: draft.bodyText,
-        attachments: attachmentIds.map((id) => ({ id })),
+        attachments: attachmentIds,
       };
       response = await this.client.post<MeliSendMessageResponse>(accountId, path, requestBody, {
         tag: 'post_sale',
@@ -436,36 +464,79 @@ export class MeliOutbound {
     }
 
     const body: Record<string, unknown> = { ...payload, claim_id: claimId };
-    try {
-      const response = await this.client.post<Record<string, unknown>>(
-        accountId,
-        `/post-purchase/v1/claims/${claimId}/actions/${actionName}`,
-        body,
-      );
-      this.logger.info('meli.action.executed', {
-        accountId,
-        ticketId: request.ticketId,
-        claimId,
-        actionName,
-      });
-      return {
-        action: request.kind,
-        ok: true,
-        message: `Ação ${actionName} executada na reclamação ${claimId}`,
-        routeUsed: 'MELI_CLAIMS_API',
-        externalId: claimId,
-        data: { response },
-      };
-    } catch (error) {
+    const slug = actionName.replace(/_/g, '-');
+    // Official docs expose resolutions either as `actions/{action}`
+    // (open-dispute) or `expected-resolutions/{resolution}` (refund/allow-return,
+    // Global Selling `marketplace/v2`). Try the contract path first, then the
+    // documented variants on a missing endpoint only.
+    const variants: Array<{ path: string; includeClaimId: boolean }> =
+      actionName === 'open_dispute'
+        ? [
+            { path: `/post-purchase/v1/claims/${claimId}/actions/open-dispute`, includeClaimId: true },
+            { path: `/marketplace/v2/claims/${claimId}/actions/open-dispute`, includeClaimId: true },
+          ]
+        : [
+            { path: `/post-purchase/v1/claims/${claimId}/actions/${slug}`, includeClaimId: true },
+            {
+              path: `/post-purchase/v1/claims/${claimId}/expected-resolutions/${slug}`,
+              includeClaimId: false,
+            },
+            {
+              path: `/marketplace/v2/claims/${claimId}/expected-resolutions/${slug}`,
+              includeClaimId: false,
+            },
+          ];
+
+    let response: unknown = null;
+    let lastError: unknown = null;
+    for (const variant of variants) {
+      try {
+        response = await this.client.post<unknown>(
+          accountId,
+          variant.path,
+          variant.includeClaimId ? body : { ...payload },
+        );
+        break;
+      } catch (error) {
+        lastError = error;
+        if (!this.isMissingEndpoint(error)) {
+          return {
+            action: request.kind,
+            ok: false,
+            message: `Falha ao executar ${actionName}: ${errorMessage(error)}`,
+            routeUsed: 'MELI_CLAIMS_API',
+            externalId: claimId,
+            data: { error: errorMessage(error) },
+          };
+        }
+      }
+    }
+
+    if (response === null) {
       return {
         action: request.kind,
         ok: false,
-        message: `Falha ao executar ${actionName}: ${errorMessage(error)}`,
+        message: `Falha ao executar ${actionName}: ${errorMessage(lastError)}`,
         routeUsed: 'MELI_CLAIMS_API',
         externalId: claimId,
-        data: { error: errorMessage(error) },
+        data: { error: errorMessage(lastError) },
       };
     }
+
+    this.logger.info('meli.action.executed', {
+      accountId,
+      ticketId: request.ticketId,
+      claimId,
+      actionName,
+    });
+    return {
+      action: request.kind,
+      ok: true,
+      message: `Ação ${actionName} executada na reclamação ${claimId}`,
+      routeUsed: 'MELI_CLAIMS_API',
+      externalId: claimId,
+      data: { response },
+    };
   }
 
   /* -------------------------------- Helpers -------------------------------- */
@@ -521,11 +592,84 @@ export class MeliOutbound {
     };
   }
 
+  /**
+   * Uploads claim evidence. Claims return `{ user_id, file_name }` (not `id`),
+   * so the file name is what the send-message body must reference. The Global
+   * Selling CBT base (`marketplace/v2`) is tried when the endpoint is missing.
+   */
+  private async uploadClaimAttachment(
+    accountId: string,
+    claimId: string,
+    attachment: OutboundAttachmentInput,
+  ): Promise<{ uploadId: string; result: OutboundResult['attachments'][number] }> {
+    const idKeys = ['file_name', 'filename', 'id'];
+    try {
+      return await this.uploadAttachment(
+        accountId,
+        `/post-purchase/v1/claims/${claimId}/attachments`,
+        undefined,
+        attachment,
+        idKeys,
+      );
+    } catch (error) {
+      if (!this.isMissingEndpoint(error)) throw error;
+      return this.uploadAttachment(
+        accountId,
+        `/marketplace/v2/claims/${claimId}/attachments`,
+        undefined,
+        attachment,
+        idKeys,
+      );
+    }
+  }
+
+  /**
+   * Sends a claim message through the documented variants, tolerating the
+   * `post-purchase/v1` vs `marketplace/v2` (CBT) coexistence:
+   * 1. `post-purchase/v1 .../actions/send-message` (contract path)
+   * 2. `marketplace/v2 .../actions/send-message` (Global Selling docs)
+   * 3. `post-purchase/v1 .../messages` (legacy docs, no attachments only)
+   */
+  private async postClaimMessage(
+    accountId: string,
+    claimId: string,
+    body: ClaimMessageBody,
+  ): Promise<MeliSendMessageResponse> {
+    const variants = [
+      `/post-purchase/v1/claims/${claimId}/actions/send-message`,
+      `/marketplace/v2/claims/${claimId}/actions/send-message`,
+    ];
+    let lastError: unknown = null;
+    for (const path of variants) {
+      try {
+        return await this.client.post<MeliSendMessageResponse>(accountId, path, body);
+      } catch (error) {
+        lastError = error;
+        if (!this.isMissingEndpoint(error)) throw error;
+      }
+    }
+    if (body.attachments.length === 0) {
+      try {
+        return await this.client.post<MeliSendMessageResponse>(
+          accountId,
+          `/post-purchase/v1/claims/${claimId}/messages`,
+          { receiver_role: body.receiver_role, message: body.message },
+        );
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new MarketplaceApiError('MERCADO_LIVRE', 502, 'Falha ao enviar mensagem da claim', body, true);
+  }
+
   private async uploadAttachment(
     accountId: string,
     path: string,
     query: HttpRequestOptions['query'],
     attachment: OutboundAttachmentInput,
+    idKeys: string[] = ['id', 'filename'],
   ): Promise<{ uploadId: string; result: OutboundResult['attachments'][number] }> {
     const bytes = await this.readAttachment(attachment);
     const form = buildFileFormData(attachment.fileName, attachment.mimeType, bytes);
@@ -535,7 +679,9 @@ export class MeliOutbound {
       form,
       query,
     );
-    const uploadId = asString(response.id);
+    const uploadId = idKeys
+      .map((key) => asString(response[key]))
+      .find((value): value is string => value !== null) ?? null;
     if (!uploadId) {
       throw new MarketplaceApiError(
         'MERCADO_LIVRE',

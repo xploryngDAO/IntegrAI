@@ -71,12 +71,9 @@ export interface ApiClient {
   signedUrl(key: string): Promise<{ url: string }>;
 }
 export const api: ApiClient;
-export function isMockMode(): boolean;
 export function setAuthToken(token: string | null): void;
 ```
-`api` transparently falls back to the mock implementation when
-`import.meta.env.VITE_MOCK_MODE === 'true'` or when a request rejects and mock
-mode is auto-enabled (first failure shows the demo banner).
+`api` fala sempre com a API real: 401 → gate de login; rede/timeout/5xx/200 não-JSON → `ApiClientError` exibido na UI (sem fallback).
 
 ### `src/lib/store.ts` — zustand store (single hook)
 ```ts
@@ -92,7 +89,6 @@ export interface WorkspaceStore {
   filters: WorkspaceFilters;
   loadingQueue: boolean;
   loadingDetail: boolean;
-  isMock: boolean;
   toasts: Toast[];
   presence: AgentPresenceStatus;
   sending: boolean;
@@ -185,27 +181,14 @@ Routing (owned by `frontend-core` in `App.tsx`):
 
 ---
 
-## 3. Mock fixtures contract (`frontend-core` writes, both consume)
+## 3. Simulação removida
 
-`src/lib/mock/fixtures.ts` exports:
-```ts
-export const mockAgents: IAgentSummary[];
-export const mockAccounts: AccountRow[];
-export const mockTickets: TicketListItem[];              // 6 scenarios from docs/UI_SPEC.md §7
-export const mockDetails: Record<string, TicketDetail>;  // keyed by ticket id
-export const mockConnectors: ConnectorDescriptor[];
-export const mockAgentsOnline: IAgentSummary[];
-```
-`mockDetails` must include real message threads (3–6 messages each), order,
-customer (with RDT protection for Amazon), events, routing, allowedActions and
-CRR for Shopee. Deadlines are generated relative to `Date.now()` at module load
-(e.g. `new Date(Date.now() + 2.5 * 3600_000).toISOString()`).
-
-The mock API mutates an in-memory copy (module-level `let`) so replies persist
-for the session and the queue reflects status changes.
-
----
-
+Este documento descrevia fixtures de demonstração. Eles **não existem mais**:
+`apps/web/src/lib/mock/**` foi removido, VITE_MOCK_MODE deixou de existir e o
+cliente HTTP sempre fala com a API real (401 → login; rede/5xx → erro na UI).
+Para validar uma integração use 
+pm run doctor ou *Testar conexão* em
+/accounts (ver docs/INTEGRATION_VALIDATION.md).
 ## 4. Cross-agent rules
 
 - `frontend-core` owns every config file, `App.tsx`, `main.tsx`, `index.css`,

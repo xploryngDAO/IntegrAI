@@ -40,7 +40,6 @@ export function Topbar(): JSX.Element {
   const presence = useWorkspace((state) => state.presence);
   const setPresence = useWorkspace((state) => state.setPresence);
   const currentAgent = useWorkspace((state) => state.currentAgent);
-  const isMock = useWorkspace((state) => state.isMock);
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
   const onAccounts = pathname.startsWith('/accounts');
@@ -76,7 +75,6 @@ export function Topbar(): JSX.Element {
             : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
                 totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
               }`}
-          {isMock ? ' · demonstração' : ''}
         </span>
       </div>
 

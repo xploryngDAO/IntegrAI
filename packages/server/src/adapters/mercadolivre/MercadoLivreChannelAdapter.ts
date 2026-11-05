@@ -4,6 +4,7 @@ import {
   type AdapterDependencies,
   type ChannelActionRequest,
   type ChannelActionResult,
+  type DiagnosisCheck,
   type HydratedInboundMessage,
   type ILogger,
   type IMarketplaceChannelAdapter,
@@ -21,14 +22,17 @@ import {
 import { loadMeliAccount } from './account';
 import { MeliAuth } from './client/MeliAuth';
 import { MeliClient } from './client/MeliClient';
+import { MeliDiagnostics } from './diagnose';
 import { ClaimsHydrator } from './inbound/ClaimsHydrator';
 import { MessagesHydrator } from './inbound/MessagesHydrator';
+import { MissedFeedsRecovery } from './inbound/MissedFeedsRecovery';
 import { OrdersHydrator } from './inbound/OrdersHydrator';
 import { QuestionsHydrator } from './inbound/QuestionsHydrator';
 import { fetchOrderWithShipment, upsertOrderCache } from './inbound/common';
 import {
   asString,
   errorMessage,
+  extractClaimIdFromResource,
   extractResourceSegment,
   extractRespondentActions,
   isRecord,
@@ -57,6 +61,8 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
   private readonly claims: ClaimsHydrator;
   private readonly orders: OrdersHydrator;
   private readonly outbound: MeliOutbound;
+  private readonly diagnostics: MeliDiagnostics;
+  private readonly missedFeeds: MissedFeedsRecovery;
 
   constructor(private readonly deps: AdapterDependencies) {
     this.logger = deps.logger.child({ adapter: 'mercadolivre' });
@@ -67,6 +73,8 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
     this.claims = new ClaimsHydrator(deps, this.client);
     this.orders = new OrdersHydrator(deps, this.client);
     this.outbound = new MeliOutbound(deps, this.client);
+    this.diagnostics = new MeliDiagnostics(deps, this.auth, this.client);
+    this.missedFeeds = new MissedFeedsRecovery(deps, this.client);
   }
 
   /* ------------------------------- Inbound -------------------------------- */
@@ -171,7 +179,10 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
         case 'claims':
         case 'post_purchase':
         case 'postpurchase': {
+          // Official post_purchase notifications now send the full
+          // `/post-purchase/v1/claims/{id}` path (with or without leading slash).
           const claimId =
+            extractClaimIdFromResource(resource) ??
             extractResourceSegment(resource, 'claims') ??
             asString(payload.claim_id) ??
             asString(payload.resource_id);
@@ -287,9 +298,24 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
     return this.outbound.resolveRoute(input);
   }
 
+  /* ------------------------------- Diagnostics ----------------------------- */
+
+  /**
+   * Live credential/connectivity probe: real token exchange and authenticated
+   * `GET`s (`/users/me`, `/users/{seller_id}`, optional items search). Never
+   * performs a marketplace write.
+   */
+  async diagnose(input: { accountId: string }): Promise<DiagnosisCheck[]> {
+    return this.diagnostics.run(input.accountId);
+  }
+
   /* ------------------------------ Maintenance ------------------------------ */
 
-  /** Refreshes Meli tokens that expire within 30 minutes (serialized per account). */
+  /**
+   * Refreshes Meli tokens that expire within 30 minutes (serialized per account)
+   * and recovers notifications lost by the marketplace (`GET /missed_feeds`),
+   * republishing them into `queue.inbound.meli`.
+   */
   async runMaintenance(): Promise<{ task: string; ok: boolean; detail: string }[]> {
     const now = this.deps.clock.now();
     const accounts = await this.deps.repos.accounts.list({
@@ -297,45 +323,63 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
       status: 'ACTIVE',
     });
 
+    const results: { task: string; ok: boolean; detail: string }[] = [];
+
     if (accounts.length === 0) {
-      return [
-        {
-          task: 'meli.token.refresh',
-          ok: true,
-          detail: 'Nenhuma conta Mercado Livre ativa para renovar',
-        },
-      ];
+      results.push({
+        task: 'meli.token.refresh',
+        ok: true,
+        detail: 'Nenhuma conta Mercado Livre ativa para renovar',
+      });
+    } else {
+      for (const account of accounts) {
+        const expiresAt = account.tokenExpiresAt;
+        const due =
+          expiresAt === null || expiresAt.getTime() - now.getTime() <= THIRTY_MINUTES_MS;
+        if (!due) {
+          results.push({
+            task: 'meli.token.refresh',
+            ok: true,
+            detail: `Conta ${account.id}: token válido até ${expiresAt?.toISOString() ?? 'desconhecido'}`,
+          });
+          continue;
+        }
+        try {
+          await this.auth.refreshAccessToken(account.id, { force: true, reason: 'maintenance' });
+          results.push({
+            task: 'meli.token.refresh',
+            ok: true,
+            detail: `Conta ${account.id}: token renovado`,
+          });
+        } catch (error) {
+          results.push({
+            task: 'meli.token.refresh',
+            ok: false,
+            detail: `Conta ${account.id}: falha ao renovar token — ${redactPiiForLogs(
+              errorMessage(error),
+            )}`,
+          });
+        }
+      }
     }
 
-    const results: { task: string; ok: boolean; detail: string }[] = [];
-    for (const account of accounts) {
-      const expiresAt = account.tokenExpiresAt;
-      const due = expiresAt === null || expiresAt.getTime() - now.getTime() <= THIRTY_MINUTES_MS;
-      if (!due) {
-        results.push({
-          task: 'meli.token.refresh',
-          ok: true,
-          detail: `Conta ${account.id}: token válido até ${expiresAt?.toISOString() ?? 'desconhecido'}`,
-        });
-        continue;
-      }
-      try {
-        await this.auth.refreshAccessToken(account.id, { force: true, reason: 'maintenance' });
-        results.push({
-          task: 'meli.token.refresh',
-          ok: true,
-          detail: `Conta ${account.id}: token renovado`,
-        });
-      } catch (error) {
-        results.push({
-          task: 'meli.token.refresh',
-          ok: false,
-          detail: `Conta ${account.id}: falha ao renovar token — ${redactPiiForLogs(
-            errorMessage(error),
-          )}`,
-        });
-      }
+    try {
+      const recovery = await this.missedFeeds.run();
+      results.push({
+        task: 'meli.missed_feed.recover',
+        ok: recovery.ok,
+        detail: recovery.detail,
+      });
+    } catch (error) {
+      results.push({
+        task: 'meli.missed_feed.recover',
+        ok: false,
+        detail: `Falha na recuperação de notificações perdidas: ${redactPiiForLogs(
+          errorMessage(error),
+        )}`,
+      });
     }
+
     return results;
   }
 }

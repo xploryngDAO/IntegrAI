@@ -249,24 +249,65 @@ export class ShopeeAuth {
     const partnerKey = partnerKeyOf(this.deps, account);
 
     try {
-      const result = await this.client.publicRequest<Record<string, unknown>>({
-        apiPath: SHOPEE_API_PATHS.tokenGet,
-        method: 'POST',
-        body: {
-          refresh_token: refreshToken,
-          shop_id: toShopeeId(shopId),
-          partner_id: toShopeeId(partnerId),
-        },
+      const result = await this.requestRefreshToken({
+        refreshToken,
+        shopId,
         partnerId,
         partnerKey,
-        // token exchange must fail fast on skew: no retrying with a stale clock
-        timestamp: Math.floor(this.deps.clock.now().getTime() / 1000),
       });
       const tokenSet = this.parseTokenResult(result);
       return await this.persistTokenSet(account, tokenSet, gateKey);
     } catch (error) {
       await this.handleRefreshFailure(account, gateKey, error);
       throw error;
+    }
+  }
+
+  /**
+   * Single-use refresh exchange.
+   *
+   * Official v2 endpoint: `POST /api/v2/auth/access_token/get` (partner_id,
+   * timestamp and sign in the query; `{ refresh_token, shop_id, partner_id }` in
+   * the JSON body). Older regional deployments only expose
+   * `/api/v2/auth/token/get`, so a 404/405 falls back to it instead of losing the
+   * (already single-use) refresh token.
+   */
+  private async requestRefreshToken(input: {
+    refreshToken: string;
+    shopId: string;
+    partnerId: string;
+    partnerKey: string;
+  }): Promise<ShopeeCallResult<Record<string, unknown>>> {
+    const timestamp = Math.floor(this.deps.clock.now().getTime() / 1000);
+    const body = {
+      refresh_token: input.refreshToken,
+      shop_id: toShopeeId(input.shopId),
+      partner_id: toShopeeId(input.partnerId),
+    };
+    try {
+      return await this.client.publicRequest<Record<string, unknown>>({
+        apiPath: SHOPEE_API_PATHS.accessTokenGet,
+        method: 'POST',
+        body,
+        partnerId: input.partnerId,
+        partnerKey: input.partnerKey,
+        // token exchange must fail fast on skew: no retrying with a stale clock
+        timestamp,
+      });
+    } catch (error) {
+      if (!isMissingEndpointError(error)) throw error;
+      this.logger.warn(
+        'Shopee /auth/access_token/get indisponível; usando /auth/token/get (fallback de compatibilidade)',
+        { endpoint: SHOPEE_API_PATHS.accessTokenGet },
+      );
+      return this.client.publicRequest<Record<string, unknown>>({
+        apiPath: SHOPEE_API_PATHS.tokenGet,
+        method: 'POST',
+        body,
+        partnerId: input.partnerId,
+        partnerKey: input.partnerKey,
+        timestamp,
+      });
     }
   }
 
@@ -510,13 +551,24 @@ export class ShopeeAuth {
   }
 }
 
+/** True when the API answered "this endpoint does not exist here" (404/405). */
+function isMissingEndpointError(error: unknown): boolean {
+  if (!(error instanceof MarketplaceApiError)) return false;
+  if (error.status === 404 || error.status === 405) return true;
+  const code = shopeeErrorCode(error);
+  return (
+    code === 'error_not_found' ||
+    code === 'error_method_not_allowed' ||
+    code === 'error_unsupported'
+  );
+}
+
 /**
  * `GET {apiBase}/api/v2/shop/auth_partner` builder.
  *
  * The redirect URI is signed exactly as provided and URL-encoded only when
  * placed in the query string.
- */
-export function buildShopeeAuthorizeUrl(
+ */export function buildShopeeAuthorizeUrl(
   partnerId: number | string,
   partnerKey: string,
   redirectUri: string,

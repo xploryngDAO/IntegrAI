@@ -1,23 +1,25 @@
 import { useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Heading, Text } from '@xploryng/convergencia';
-import { api, ApiClientError, enableMockMode } from '../lib/api';
+import { api, ApiClientError } from '../lib/api';
 import { useTheme } from '../lib/theme';
 import { Alert, Avatar, Button, Card, IconButton, Input } from '../components/ui';
 
 interface LoginPageProps {
   onAuthenticated: () => void;
+  /** Real error raised while resolving the session (e.g. API unreachable). */
+  initialError?: string;
 }
 
 /**
- * Credential gate for the real (non-demo) session, rendered with Convergência
- * surfaces (paper card on the cool background, indigo primary action).
+ * Credential gate for the real session, rendered with Convergência surfaces
+ * (paper card on the cool background, indigo primary action).
  */
-export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
-  const [email, setEmail] = useState('marina@sachub.demo');
-  const [password, setPassword] = useState('sac-hub-2024');
+export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JSX.Element {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError ?? null);
   const { theme, toggle } = useTheme();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -33,21 +35,16 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
         setError(
           loginError.status === 401 || loginError.status === 422
             ? 'Credenciais inválidas. Verifique e-mail e senha e tente novamente.'
-            : `Falha ao autenticar (HTTP ${loginError.status}). Tente novamente em instantes.`,
+            : loginError.status === 0
+              ? loginError.message
+              : `Falha ao autenticar (HTTP ${loginError.status}): ${loginError.message}`,
         );
       } else {
-        setError(
-          'Não foi possível falar com a API. Entre no modo demonstração para explorar o produto sem servidor.',
-        );
+        setError('Não foi possível falar com a API. Verifique a conexão e tente novamente.');
       }
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleDemo(): void {
-    enableMockMode('manual');
-    onAuthenticated();
   }
 
   return (
@@ -99,27 +96,19 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              hint="Mínimo de 8 caracteres."
               required
             />
 
-            {error ? <Alert title="Não foi possível entrar" tone="danger">{error}</Alert> : null}
+            {error ? (
+              <Alert title="Não foi possível entrar" tone="danger">
+                {error}
+              </Alert>
+            ) : null}
 
             <Button type="submit" variant="primary" loading={loading} fullWidth>
               Entrar
             </Button>
           </form>
-
-          <div className="mt-1 border-t border-[var(--cv-color-border)] pt-4">
-            <Button fullWidth onClick={handleDemo}>
-              Entrar no modo demonstração
-            </Button>
-            <p className="m-0 mt-2 text-center text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-              Dados simulados dos três canais, sem API. Credenciais de demonstração:{' '}
-              <span className="sac-num">marina@sachub.demo</span> ·{' '}
-              <span className="sac-num">sac-hub-2024</span>
-            </p>
-          </div>
         </Card>
 
         <div className="mt-6 flex items-center justify-center gap-2 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">

@@ -28,6 +28,13 @@ export const MAX_PAGE_SIZE = 100;
 /** Response header carrying the measured webhook handler duration. */
 export const WEBHOOK_DURATION_HEADER = 'x-sac-duration-ms';
 
+/**
+ * Diagnostics perform live token exchanges and marketplace reads, so they get a
+ * generous per-request deadline (30s) instead of the normal fast-path budget.
+ * Exceeding it answers 504 without affecting webhooks or any other route.
+ */
+export const DIAGNOSTICS_TIMEOUT_MS = 30_000;
+
 /** Storage prefix attachments are written under. */
 export const ATTACHMENTS_KEY_PREFIX = 'attachments/';
 

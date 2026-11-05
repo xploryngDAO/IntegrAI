@@ -434,4 +434,11 @@ export interface IMarketplaceChannelAdapter {
 
   /** Optional periodic reconciliation (token refresh, lost push recovery). */
   runMaintenance?(): Promise<{ task: string; ok: boolean; detail: string }[]>;
+
+  /**
+   * Live credential/connectivity probe used by the cockpit diagnostics and by
+   * `npm run doctor`. Must perform REAL marketplace calls (token exchange plus
+   * the cheapest authenticated read) and never simulate success.
+   */
+  diagnose?(input: { accountId: string }): Promise<import('./dto').DiagnosisCheck[]>;
 }

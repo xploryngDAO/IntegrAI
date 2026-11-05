@@ -10,6 +10,7 @@ import {
   mapChatTriage,
   normalizeEventId,
   parseShopeePushBody,
+  resolvePushHandler,
   triageShopeePush,
 } from '../mappers';
 
@@ -111,6 +112,44 @@ describe('triage matrix', () => {
     expect(triageShopeePush({ code: 1, data: {} })).toBeNull();
     expect(triageShopeePush({ code: 5, data: { item_id: 1 } })).toBeNull();
     expect(triageShopeePush({ code: 10, data: {} })).toBeNull();
+  });
+});
+
+describe('shape-first push dispatch', () => {
+  it('routes sellerchat payloads by shape (project code 4 and official webchat code 10)', () => {
+    expect(resolvePushHandler(4, { conversation_id: 1, message_id: 2 })).toBe('chat');
+    expect(resolvePushHandler(10, { conversation_id: 1, message_id: 2 })).toBe('chat');
+  });
+
+  it('routes tracking payloads by shape (project code 3 and official code 4)', () => {
+    expect(
+      resolvePushHandler(3, { ordersn: 'SN-1', logistics_status: 'LOGISTICS_PICKUP_DONE' }),
+    ).toBe('tracking');
+    expect(resolvePushHandler(4, { ordersn: 'SN-1', tracking_number: 'SPX123' })).toBe('tracking');
+  });
+
+  it('routes order-status payloads by shape (project code 2 and official code 3)', () => {
+    expect(resolvePushHandler(2, { ordersn: 'SN-1', status: 'SHIPPED' })).toBe('order_status');
+    expect(resolvePushHandler(3, { ordersn: 'SN-1', status: 'SHIPPED' })).toBe('order_status');
+  });
+
+  it('routes IN_CANCEL to cancellation and return_sn to return', () => {
+    expect(resolvePushHandler(7, { ordersn: 'SN-1', status: 'IN_CANCEL' })).toBe('cancellation');
+    expect(resolvePushHandler(3, { ordersn: 'SN-1', status: 'IN_CANCEL' })).toBe('cancellation');
+    expect(resolvePushHandler(6, { return_sn: 'RET-1', ordersn: 'SN-1' })).toBe('return');
+  });
+
+  it('does not create tickets for shop/item/promotion pushes', () => {
+    expect(resolvePushHandler(1, { shop_id: 123 })).toBe('none');
+    expect(resolvePushHandler(2, { shop_id: 123, shop_status: 'BANNED' })).toBe('none');
+    expect(resolvePushHandler(5, { item_id: 1, item_name: 'x' })).toBe('none');
+    expect(resolvePushHandler(6, { item_id: 1, item_name: 'banned item' })).toBe('none');
+    expect(resolvePushHandler(7, { item_id: 1, promotion_id: 9 })).toBe('none');
+    expect(resolvePushHandler(10, { item_id: 1 })).toBe('none');
+  });
+
+  it('keeps the project shipping-document code as cache-only', () => {
+    expect(resolvePushHandler(10, { ordersn: 'SN-1' })).toBe('shipping_document');
   });
 });
 

@@ -421,6 +421,65 @@ export function triageShopeePush(input: ShopeeTriageInput): ShopeeTriageDecision
   }
 }
 
+export type ShopeePushHandler =
+  | 'chat'
+  | 'return'
+  | 'cancellation'
+  | 'order_status'
+  | 'tracking'
+  | 'shipping_document'
+  | 'none';
+
+/**
+ * Shape-first dispatch used by the hydrator.
+ *
+ * The project contract fixes its own push-code matrix, while the public Shopee
+ * push documentation assigns different codes (e.g. webchat = 10, order status =
+ * 3, tracking = 4). Dispatching first on the payload shape - and only then on the
+ * few codes that carry no discriminating field - keeps real Shopee pushes working
+ * under both contracts without creating spurious tickets for shop/item pushes.
+ */
+export function resolvePushHandler(
+  code: number,
+  data: Record<string, unknown>,
+): ShopeePushHandler {
+  const conversationId = normalizeConversationId(data);
+  const messageId = pickString(data, ['message_id', 'messageId', 'msg_id']);
+  const contentRecord = asRecord(data['content']);
+  const contentText = asString(data['content']);
+  const chatLike =
+    conversationId !== null ||
+    messageId !== null ||
+    contentRecord !== null ||
+    contentText !== null;
+
+  if (chatLike) return 'chat';
+
+  const orderSn = normalizeOrderSn(data);
+  const returnSn = normalizeReturnSn(data);
+  const status = pickString(data, ['status', 'order_status', 'current_status']);
+  const logisticsStatus = pickString(data, ['logistics_status', 'logistics']);
+  const trackingNumber = pickString(data, ['tracking_number', 'tracking_no']);
+  const cancelReason =
+    pickString(data, ['cancel_reason', 'buyer_cancel_reason', 'reason']) ?? null;
+  const cancelMarker =
+    code === 7 ||
+    status?.toUpperCase() === 'IN_CANCEL' ||
+    (cancelReason !== null && /cancel/i.test(cancelReason));
+
+  if (returnSn !== null) return 'return';
+  if (code === 6 && orderSn !== null) return 'return';
+
+  if (orderSn !== null) {
+    if (cancelMarker) return 'cancellation';
+    if (logisticsStatus !== null || trackingNumber !== null) return 'tracking';
+    if (status !== null) return 'order_status';
+    if (code === 10) return 'shipping_document';
+  }
+
+  return 'none';
+}
+
 export function priorityForTicketType(ticketType: TicketType): TicketPriority {
   switch (ticketType) {
     case 'PRE_SALE':

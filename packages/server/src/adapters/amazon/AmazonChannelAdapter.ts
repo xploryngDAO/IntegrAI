@@ -8,6 +8,7 @@ import {
   type BuyerPiiSnapshot,
   type ChannelActionRequest,
   type ChannelActionResult,
+  type DiagnosisCheck,
   type HydratedInboundMessage,
   type IMarketplaceChannelAdapter,
   type InboundEnvelope,
@@ -33,7 +34,8 @@ import { SpApiClient } from './client/SpApiClient';
 import { OrderEnrichmentService } from './client/OrderEnrichment';
 import { SesRelayParser } from './inbound/SesRelayParser';
 import { EmailRelaySender } from './outbound/EmailRelaySender';
-import { SpApiMessaging } from './outbound/SpApiMessaging';
+import { AMAZON_MESSAGING_ACTION_SPECS, SpApiMessaging } from './outbound/SpApiMessaging';
+import { runAmazonDiagnosis } from './diagnose';
 import {
   ACTION_KIND_TO_PROACTIVE_ACTION,
   decideAmazonRoute,
@@ -146,6 +148,19 @@ export class AmazonChannelAdapter implements IMarketplaceChannelAdapter {
       }
       throw error;
     }
+  }
+
+  /* ======================================================================
+   * Live diagnostics
+   * ==================================================================== */
+
+  /**
+   * Real credential/connectivity probe used by the cockpit diagnostics and by
+   * `npm run doctor`. Performs live LWA + Sellers (and optionally RDT) calls and
+   * never simulates success and never performs marketplace writes.
+   */
+  async diagnose(input: { accountId: string }): Promise<DiagnosisCheck[]> {
+    return runAmazonDiagnosis(this.deps, input.accountId);
   }
 
   /* ======================================================================
@@ -368,12 +383,38 @@ export class AmazonChannelAdapter implements IMarketplaceChannelAdapter {
       };
     }
 
+    const spec = AMAZON_MESSAGING_ACTION_SPECS[actionName];
     const bodyText = (request.bodyText ?? '').trim();
-    if (bodyText.length === 0) {
+    const metadata = asRecord(request.payload);
+    const attachments = request.attachments ?? [];
+    const coverageStart =
+      readString(metadata.coverageStartDate) ?? readString(metadata.coverage_start_date);
+    const coverageEnd =
+      readString(metadata.coverageEndDate) ?? readString(metadata.coverage_end_date);
+
+    if (spec.supportsText && bodyText.length === 0) {
       return {
         action: request.kind,
         ok: false,
-        message: 'O texto da mensagem é obrigatório para ações proativas Amazon.',
+        message: `O texto da mensagem é obrigatório para a ação "${actionName}".`,
+        data: { actionName },
+      };
+    }
+    if (!spec.supportsText && bodyText.length > 0) {
+      return {
+        action: request.kind,
+        ok: false,
+        message: `A ação "${actionName}" do SP-API não aceita texto livre (apenas anexos e datas de cobertura). Remova o texto ou use outra ação proativa.`,
+        data: { actionName },
+      };
+    }
+    if (actionName === 'warranty' && attachments.length === 0 && !coverageStart && !coverageEnd) {
+      return {
+        action: request.kind,
+        ok: false,
+        message:
+          'A ação "warranty" exige ao menos um anexo ou datas de cobertura (coverageStartDate/coverageEndDate) no payload.',
+        data: { actionName },
       };
     }
 
@@ -389,21 +430,25 @@ export class AmazonChannelAdapter implements IMarketplaceChannelAdapter {
       };
     }
 
-    const policy = evaluateAmazonPolicy({
-      text: bodyText,
-      extraAllowedDomains: this.allowedDomainsForAccount(account.id),
-    });
-    if (policy.blocked) {
-      throw new PolicyViolationError(
-        policy.violations
-          .filter((violation) => violation.severity === 'BLOCK')
-          .map((violation) => ({
-            code: violation.code,
-            message: violation.message,
-            ...(violation.match ? { match: violation.match } : {}),
-          })),
-        'AMAZON',
-      );
+    let sanitizedText = bodyText;
+    if (bodyText.length > 0) {
+      const policy = evaluateAmazonPolicy({
+        text: bodyText,
+        extraAllowedDomains: this.allowedDomainsForAccount(account.id),
+      });
+      if (policy.blocked) {
+        throw new PolicyViolationError(
+          policy.violations
+            .filter((violation) => violation.severity === 'BLOCK')
+            .map((violation) => ({
+              code: violation.code,
+              message: violation.message,
+              ...(violation.match ? { match: violation.match } : {}),
+            })),
+          'AMAZON',
+        );
+      }
+      sanitizedText = policy.sanitizedText;
     }
 
     const draft: OutboundDraft = {
@@ -415,20 +460,41 @@ export class AmazonChannelAdapter implements IMarketplaceChannelAdapter {
       externalReferenceId: ticket.externalReferenceId,
       externalOrderId: orderId,
       recipient: 'BUYER',
-      bodyText,
+      bodyText: sanitizedText,
       bodyHtml: null,
       subject: null,
-      attachments: request.attachments ?? [],
+      attachments,
       agent: request.agent ?? { id: 'system', name: 'SAC Hub', email: 'no-reply@sac.local' },
+      metadata,
     };
-    const result = await this.messaging.send(draft, account, actionName, {
-      text: policy.sanitizedText,
-    });
+
+    let result: OutboundResult;
+    try {
+      result = await this.messaging.send(draft, account, actionName, {
+        text: sanitizedText,
+        metadata,
+      });
+    } catch (error) {
+      // Request-shape violations (text/attachment limits from the official
+      // Messaging API model) are surfaced to the cockpit instead of a 500.
+      if (error instanceof ValidationError) {
+        return {
+          action: request.kind,
+          ok: false,
+          message: error.message,
+          data: error.details ?? { actionName },
+        };
+      }
+      throw error;
+    }
 
     return {
       action: request.kind,
       ok: true,
-      message: `Mensagem proativa "${actionName}" enviada via SP-API.`,
+      message:
+        actionName === 'warranty'
+          ? 'Informações de garantia enviadas via SP-API (anexos/datas de cobertura; a ação não aceita texto livre).'
+          : `Mensagem proativa "${actionName}" enviada via SP-API.`,
       routeUsed: result.routeUsed,
       externalId: result.externalMessageId,
       data: {

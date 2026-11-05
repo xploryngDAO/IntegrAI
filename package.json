@@ -29,6 +29,7 @@
                     "dev:web":  "npm run dev --workspace @sac/web",
                     "dev":  "npm run build:shared \u0026\u0026 concurrently -n api,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
                     "test":  "vitest run",
+                    "doctor":  "tsx scripts/doctor.ts",
                     "db:up":  "docker compose up -d postgres redis minio minio-init mailpit",
                     "db:down":  "docker compose down",
                     "docker:up":  "docker compose up -d --build"

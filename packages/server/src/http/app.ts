@@ -131,6 +131,16 @@ export async function buildHttpApp(
   });
   registerAuthGuard(app, { agents: services.agents, logger: options.logger });
 
+  // Authenticated JSON must never be served from a shared/browser cache: the
+  // same URL can return different data per operator and per store state.
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (request.url.startsWith(API_PREFIX) || request.url.startsWith('/api/')) {
+      reply.header('cache-control', 'no-store, no-cache, must-revalidate');
+      reply.header('pragma', 'no-cache');
+    }
+    return payload;
+  });
+
   const ctx: HttpRouteContext = { services, hub, options };
   await registerRootRoutes(app, ctx);
   await app.register(

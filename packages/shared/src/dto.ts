@@ -108,7 +108,6 @@ export interface SupportTicketRecord {
   assignedQueue: string | null;
   channelMetadata: Record<string, unknown>;
   tags: string[];
-  isDemo: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -358,7 +357,6 @@ export interface TicketListItem {
   assignedQueue: string | null;
   channelMetadata: Record<string, unknown>;
   tags: string[];
-  isDemo: boolean;
 }
 
 export interface TicketDetail {
@@ -472,6 +470,40 @@ export interface AuthResponse {
 export interface ApiEnvelope<T> {
   data: T;
   meta?: Record<string, unknown>;
+}
+
+/* ==========================================================================
+ * Live channel diagnostics (real credentials, no simulation)
+ * ========================================================================== */
+
+export type DiagnosisStatus = 'ok' | 'warn' | 'fail' | 'skipped';
+
+export interface DiagnosisCheck {
+  /** Stable id used by the UI and by `npm run doctor` (e.g. `amazon.lwa`). */
+  id: string;
+  label: string;
+  status: DiagnosisStatus;
+  detail: string;
+  latencyMs?: number;
+  /** What to do when the check fails (operator-facing, actionable). */
+  remediation?: string;
+}
+
+export interface AccountDiagnosis {
+  accountId: string;
+  marketplace: Marketplace;
+  displayName: string;
+  overall: DiagnosisStatus;
+  checks: DiagnosisCheck[];
+  testedAt: string;
+}
+
+export interface SystemDiagnosis {
+  overall: DiagnosisStatus;
+  version: string;
+  testedAt: string;
+  infrastructure: DiagnosisCheck[];
+  channels: AccountDiagnosis[];
 }
 
 export interface ApiErrorBody {

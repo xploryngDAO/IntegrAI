@@ -18,12 +18,18 @@ export const SHOPEE_MARKETPLACE: Marketplace = 'SHOPEE';
 
 /** Every v2 path used by this adapter. `apiPath` is the path-only value signed. */
 export const SHOPEE_API_PATHS = {
-  /** Public: signed with partner id + timestamp only. */
+  /** Public: authorization-code exchange (signed with partner id + timestamp only). */
   tokenGet: '/api/v2/auth/token/get',
+  /** Public: single-use refresh-token exchange. */
+  accessTokenGet: '/api/v2/auth/access_token/get',
   /** Public: the store authorization hand-off URL. */
   authPartner: '/api/v2/shop/auth_partner',
+  /** Private: store information (diagnose + store status). */
+  getShopInfo: '/api/v2/shop/get_shop_info',
   /** Private (partner scoped): lost push recovery, no shop_id in the signature. */
   getLostPushMessage: '/api/v2/push/get_lost_push_message',
+  /** Private (partner scoped): acknowledges consumed lost pushes. */
+  confirmConsumedLostPushMessage: '/api/v2/push/confirm_consumed_lost_push_message',
   /** Private: sellerchat. */
   sendMessage: '/api/v2/sellerchat/send_message',
   uploadImage: '/api/v2/sellerchat/upload_image',
@@ -36,6 +42,7 @@ export const SHOPEE_API_PATHS = {
   getTrackingInfo: '/api/v2/logistics/get_tracking_info',
   /** Private: post-sale retention flows. */
   getReturnDetail: '/api/v2/returns/get_return_detail',
+  getReturnDisputeReason: '/api/v2/returns/get_return_dispute_reason',
   confirmReturn: '/api/v2/returns/confirm',
   disputeReturn: '/api/v2/returns/dispute',
   handleBuyerCancellation: '/api/v2/order/handle_buyer_cancellation',
@@ -61,19 +68,33 @@ export interface ShopeeCallResult<TResponse = Record<string, unknown>> {
   envelope: ShopeeApiEnvelope<unknown>;
   requestId: string | null;
   status: number;
+  /** Response headers (lowercase keys) - used by diagnostics for clock skew. */
+  headers: Record<string, string>;
 }
+
+/**
+ * Non-signature query value. Arrays are serialized as repeated query params
+ * (Shopee's GET array contract, e.g. `item_id_list=1&item_id_list=2`).
+ */
+export type ShopeeQueryValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Array<string | number>;
 
 export interface ShopeeRequestSpec {
   apiPath: string;
   method?: ShopeeHttpMethod;
   body?: Record<string, unknown>;
-  /** Extra non-signature query params (rare; most endpoints carry a JSON body). */
-  extraQuery?: Record<string, string | number | boolean | undefined | null>;
+  /** Extra non-signature query params (most endpoints carry a JSON body instead). */
+  extraQuery?: Record<string, ShopeeQueryValue>;
   formData?: FormData;
   accountId?: string;
   /** Public endpoints omit `access_token`/`shop_id` from the signature query. */
   publicCall?: boolean;
-  /** Partner-scoped private endpoints (lost push) omit `shop_id`. */
+  /** Partner-scoped private endpoints omit `shop_id` (kept for overrides). */
   includeShopId?: boolean;
   /** Per-store partner overrides (default to the runtime config values). */
   partnerId?: string;
@@ -167,10 +188,27 @@ export interface ShopeeTriageInput {
   data: Record<string, unknown>;
 }
 
-/** Cursor persisted in Redis for `v2.push.get_lost_push_message` pagination. */
+/**
+ * Cursor persisted in Redis for `v2.push.get_lost_push_message`.
+ *
+ * The official endpoint has no request parameters; it returns the earliest lost
+ * pushes with `has_next_page` + `last_message_id`, and consumed batches are
+ * acknowledged through `v2.push.confirm_consumed_lost_push_message`. The cursor
+ * therefore records the last acknowledged message id (plus legacy `offset` for
+ * caches written by older builds).
+ */
 export interface ShopeeLostPushCursor {
-  offset: number;
+  lastMessageId: number | null;
   updatedAt: string;
+  /** @deprecated legacy offset cursor (pre-conformance fix); kept for compatibility. */
+  offset?: number;
+}
+
+/** Response of `v2.push.get_lost_push_message`. */
+export interface ShopeeLostPushList {
+  push_message_list: Array<Record<string, unknown>>;
+  has_next_page: boolean;
+  last_message_id: number | null;
 }
 
 /**

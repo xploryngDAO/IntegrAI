@@ -25,7 +25,6 @@ export interface AppConfig extends ChannelRuntimeConfig {
   encryptionKeyId: string;
   agentPresenceTtlSeconds: number;
   logLevel: string;
-  allowDemoSeed: boolean;
   cron: {
     slaScan: string;
     piiPurge: string;
@@ -123,7 +122,6 @@ function buildConfig(env: Env): AppConfig {
     encryptionKeyId: env.ENCRYPTION_KEY_ID,
     agentPresenceTtlSeconds: env.AGENT_PRESENCE_TTL,
     logLevel,
-    allowDemoSeed: env.ALLOW_DEMO_SEED,
     piiRetentionDays: env.PII_RETENTION_DAYS,
     cron: {
       slaScan: env.SLA_SCAN_CRON,

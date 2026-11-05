@@ -94,7 +94,7 @@ apps/web/                     React SPOG (see docs/UI_SPEC.md)
 | `packages/server/src/application` (services, SLA) + `queues` | ticket/outbound/webhook/account/query services, SLA engine, workers and schedulers |
 | `packages/server/src/http` | Fastify app, REST routes, webhook controllers, JWT middleware, Socket.IO hub |
 | `packages/server/src/adapters/*` | one strategy per marketplace (hydration, routing, sanitisation, uploads) |
-| `apps/web/src/lib` + `components/ui` | API client, store, mock fixtures, design system |
+| `apps/web/src/lib` + `components/ui` | API client, store, tema, design system |
 | `apps/web/src/components/queue` | SLA-ordered unified queue |
 | `apps/web/src/components/chat` + `cockpit` + `accounts` | conversation, adaptive composer, 360º cockpit, onboarding |
 | `prisma/` | unified schema, migration, demo seed |

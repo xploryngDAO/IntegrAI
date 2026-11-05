@@ -113,7 +113,7 @@ Ticket card (dense, 84–96px):
   `VIOLADO`.
 
 Empty/loading/error states: skeleton rows, and an offline banner when the API is
-unreachable ("Modo demonstração — dados simulados").
+unreachable (erro real de conexão com instrução de recuperação).
 
 Keyboard: `j`/`k` next/prev ticket, `/` focus search, `Esc` clear.
 
@@ -230,38 +230,31 @@ Entry point: topbar avatar menu → "Conectar lojas" and a `+ Conectar` button.
   `?error=invalid_state` → red toast with the code.
 - Webhook URLs displayed per channel:
   `/webhooks/mercadolivre`, `/webhooks/shopee`, `/webhooks/amazon/ses`.
-- Everything must also work in mock mode (fake connectors, simulated success
-  after 1.2 s).
+- Nada funciona em modo simulado: sem API/credenciais a UI reporta erro honesto.
 
 ---
 
-## 7. Mock mode (mandatory)
+## 7. Sem simulação (regra de produto)
 
-`src/lib/api.ts` exports a typed client. If `VITE_MOCK_MODE=true` **or** the first
-request rejects/times out (>2.5 s), the app switches to `src/lib/mock/*` and
-shows the `Modo demonstração` banner. Mock data must be realistic and cover:
+O SAC Hub **não tem modo demonstração**. Removidos do repositório: fixtures em
+memória, VITE_MOCK_MODE, fallback automático de mock, banner de demonstração e
+qualquer dado sintético no banco (a coluna is_demo foi eliminada por migration).
 
-| # | Channel | Scenario | Must show |
-|---|---|---|---|
-| 1 | Amazon | Pós-venda, buyer asks about delivery, `allowed_spapi_actions: [confirmDeliveryDetails, unexpectedProblem]`, `no_response_link`, opt-out false | SMTP route banner, RDT notice, SP-API action buttons |
-| 2 | Amazon | Pré-venda with external link + e-mail typed by the agent (simulated) | policy strip BLOCKs and disables Send |
-| 3 | Meli | Claim ativo `due_date` in 3h, `available_actions: [allow_return, refund, open_dispute]` | yellow claim alert, mediator radio, action buttons |
-| 4 | Meli | Pergunta pré-venda | `MELI_QUESTIONS_API` route, no claim controls |
-| 5 | Shopee | Pós-venda com `order_sn`, tracking, CRR at risk | macros, order card, `Encerrar + Marcar Lido` |
-| 6 | Shopee | Disputa de devolução N2, SLA fatal | `DISPUTA N2` badge, CRR chip, dispute actions |
+Consequências de produto:
 
-Mock behaviours: sending appends an outbound message after ~600 ms and flips
-status to `WAITING_BUYER`; close-without-response sets `NO_RESPONSE_NEEDED`;
-actions return `{ ok: true }` and toast; SLA countdown runs from real `Date.now()`
-offsets (deadlines generated relative to load time so the demo never shows a
-stale breach); presence toggle works locally; queue filters/search work on the
-in-memory list.
-
----
-
+- Sem API no ar, a tela de login mostra erro real de conexão; sem usuário
+  autenticado, nada é exibido.
+- Sem loja conectada, a fila fica vazia e /accounts mostra o estado
+  "Desconectado" — o sistema não inventa tickets.
+- A prova de que um canal funciona é o **diagnóstico real**: 
+pm run doctor,
+  GET /api/v1/diagnostics e o botão *Testar conexão* em cada conector
+  (token exchange + leitura autenticada, sem envio ao comprador).
+- Estados de erro/vazio são explícitos e acionáveis; nunca há "dados de exemplo"
+  apresentados como se fossem reais.
 ## 8. Quality bar
 
-- TypeScript strict, zero `any` in components (mock fixtures may use typed data).
+- TypeScript strict, zero `any` in components (os únicos dados são os da API).
 - No layout shift when switching tickets; skeleton only on first load.
 - Every interactive element: visible focus ring, `aria-label` when icon-only,
   keyboard reachable.

@@ -5,7 +5,7 @@ import type {
   OutboundValidationInput,
   RouteDecision,
 } from '@sac/shared';
-import { isRecord, readString } from '../guards';
+import { asRecord, isRecord, readString } from '../guards';
 
 /**
  * Pure Amazon outbound routing decisions.
@@ -15,14 +15,31 @@ import { isRecord, readString } from '../guards';
  *  1. SMTP Buyer-Seller relay reply (there is a prior INBOUND_BUYER message);
  *  2. SP-API proactive messaging using an action the order explicitly allows;
  *  3. silent close (`AMAZON_NO_RESPONSE_NEEDED`) — not a send.
+ *
+ * Action capability follows the official Messaging API v1 model:
+ * text-only `confirmDeliveryDetails`/`unexpectedProblem`; text+attachments
+ * `confirmCustomizationDetails`; attachments+coverage dates `warranty` (no text).
  */
 
-/** Preference order mandated by the contract. */
+/** Contract preference order (kept for documentation/telemetry). */
 export const AMAZON_PROACTIVE_ACTION_PREFERENCE: readonly AmazonProactiveAction[] = [
   'confirmDeliveryDetails',
   'unexpectedProblem',
   'warranty',
   'confirmCustomizationDetails',
+];
+
+/** Preference among text-capable proactive actions (no attachments). */
+export const AMAZON_TEXT_ACTION_PREFERENCE: readonly AmazonProactiveAction[] = [
+  'confirmDeliveryDetails',
+  'unexpectedProblem',
+  'confirmCustomizationDetails',
+];
+
+/** Preference among attachment-capable proactive actions. */
+export const AMAZON_ATTACHMENT_ACTION_PREFERENCE: readonly AmazonProactiveAction[] = [
+  'confirmCustomizationDetails',
+  'warranty',
 ];
 
 /** Cockpit action -> SP-API `actionName`. */
@@ -39,11 +56,13 @@ export function isAmazonProactiveAction(value: string): value is AmazonProactive
 }
 
 /**
- * Reads action names from any of the shapes the platform hands us:
+ * Reads action names from every shape the platform hands us:
  * `['warranty']`, `{ actions: ['warranty'] }`, `{ actions: [{ actionName }] }`,
+ * HAL `{ actions: [{ name, href }] }`, `{ payload: { name } }`,
  * `{ allowedActions: [...] }`, `{ actionNames: [...] }`.
  */
 export function readAllowedActionNames(value: unknown): string[] {
+  if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
   const source = Array.isArray(value)
     ? value
     : isRecord(value)
@@ -52,21 +71,37 @@ export function readAllowedActionNames(value: unknown): string[] {
   if (!Array.isArray(source)) return [];
   const names: string[] = [];
   for (const entry of source) {
-    const name =
-      typeof entry === 'string'
-        ? entry
-        : isRecord(entry)
-          ? readString(entry.actionName)
-          : null;
+    const name = readActionName(entry);
     if (name && !names.includes(name)) names.push(name);
   }
   return names;
 }
 
-/** First allowed proactive action following the mandated preference order. */
-export function chooseProactiveAction(allowedActions: unknown): AmazonProactiveAction | null {
+function readActionName(entry: unknown): string | null {
+  if (typeof entry === 'string') return readString(entry);
+  if (!isRecord(entry)) return null;
+  const payload = asRecord(entry.payload);
+  return (
+    readString(payload.name) ??
+    readString(entry.actionName) ??
+    readString(entry.name)
+  );
+}
+
+/**
+ * First allowed proactive action compatible with the draft:
+ * - with attachments, only attachment-capable actions are considered;
+ * - without attachments, only text-capable actions are considered.
+ */
+export function chooseProactiveAction(
+  allowedActions: unknown,
+  options?: { hasAttachments?: boolean },
+): AmazonProactiveAction | null {
   const allowed = new Set(readAllowedActionNames(allowedActions));
-  for (const candidate of AMAZON_PROACTIVE_ACTION_PREFERENCE) {
+  const candidates = options?.hasAttachments
+    ? AMAZON_ATTACHMENT_ACTION_PREFERENCE
+    : AMAZON_TEXT_ACTION_PREFERENCE;
+  for (const candidate of candidates) {
     if (allowed.has(candidate)) return candidate;
   }
   return null;
@@ -107,21 +142,47 @@ export function decideAmazonRoute(input: OutboundValidationInput): RouteDecision
   }
 
   // 3. Proactive: only through an action the order explicitly allows.
+  const hasAttachments = input.attachments.length > 0;
+  const hasText = (input.bodyText ?? '').trim().length > 0;
   const allowedNames = readAllowedActionNames(input.allowedActions);
-  const actionName = chooseProactiveAction(input.allowedActions);
+  const actionName = chooseProactiveAction(input.allowedActions, { hasAttachments });
+
   if (!actionName) {
+    const allowedList = allowedNames.length > 0 ? allowedNames.join(', ') : 'nenhuma';
     const blockedReason =
       allowedNames.length === 0
         ? 'O Amazon não retornou ações proativas de mensagem para este pedido e não há mensagem prévia do comprador; o contato proativo por e-mail é proibido pelo Buyer-Seller Messaging Policy.'
-        : `O pedido permite apenas: ${allowedNames.join(', ')}. Nenhuma delas é uma ação proativa de mensagem do SP-API.`;
+        : hasAttachments
+          ? `O pedido permite apenas: ${allowedList}. Nenhuma delas aceita anexos no SP-API; remova os anexos ou aguarde uma mensagem do comprador para responder pelo relay.`
+          : `O pedido permite apenas: ${allowedList}. Nenhuma delas aceita texto livre no SP-API; use a ação estruturada correspondente no cockpit.`;
     return {
       route: 'AMAZON_SP_API_MESSAGING',
       label: LABEL.spapi,
-      reason: 'need-prior-inbound',
+      reason:
+        allowedNames.length === 0
+          ? 'need-prior-inbound'
+          : hasAttachments
+            ? 'proactive-action-attachments-unsupported'
+            : 'proactive-action-text-unsupported',
       recipient,
-      requiresAttachmentUpload: input.attachments.length > 0,
+      requiresAttachmentUpload: hasAttachments,
       blocked: true,
       blockedReason,
+      actionName: null,
+    };
+  }
+
+  // `warranty` has no text field in the official Messaging API model.
+  if (actionName === 'warranty' && hasText) {
+    return {
+      route: 'AMAZON_SP_API_MESSAGING',
+      label: LABEL.spapi,
+      reason: 'proactive-action-text-unsupported',
+      recipient,
+      requiresAttachmentUpload: hasAttachments,
+      blocked: true,
+      blockedReason:
+        'A ação "warranty" do SP-API não aceita texto livre (somente anexos e datas de cobertura). Remova o texto ou use "confirmCustomizationDetails".',
       actionName: null,
     };
   }
@@ -131,7 +192,7 @@ export function decideAmazonRoute(input: OutboundValidationInput): RouteDecision
     label: LABEL.spapi,
     reason: 'proactive-messaging',
     recipient,
-    requiresAttachmentUpload: input.attachments.length > 0,
+    requiresAttachmentUpload: hasAttachments,
     blocked: false,
     actionName,
   };

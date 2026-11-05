@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   claimHasMediator,
+  claimMessageExternalId,
   claimPlayersMetadata,
+  directionFromClaimSenderRole,
   directionFromClaimUserIds,
   extractAvailableActionNames,
+  extractClaimMessageText,
   extractClaimOrderId,
   extractRespondentActions,
   findClaimPlayer,
@@ -121,20 +124,74 @@ describe('claim available_actions extraction', () => {
 });
 
 describe('claim action guide + attachments mapping', () => {
-  it('normalizes the blocked-chat action guide options', () => {
+  it('normalizes the official action guide options (id, templates, caps)', () => {
     const guide = normalizeActionGuide({
       options: [
-        { option_id: 10, description: 'Produto com defeito' },
-        { id: 11, title: 'Não recebi o produto' },
+        {
+          id: 'REQUEST_BILLING_INFO',
+          internal_description: 'Solicitar dados de faturamento',
+          type: 'template',
+          enabled: true,
+          actionable: true,
+          cap_available: 1,
+          templates: [{ id: 'TEMPLATE___REQUEST_BILLING_INFO___1', vars: null }],
+        },
+        {
+          id: 'OTHER',
+          internal_description: 'Outros',
+          type: 'free_text',
+          actionable: true,
+          char_limit: 350,
+          cap_available: 1,
+        },
       ],
       pack_id: 200001,
     });
     expect(guide?.blocked).toBe(true);
     expect(guide?.pack_id).toBe('200001');
     expect(guide?.options).toEqual([
-      { option_id: '10', description: 'Produto com defeito', action: null },
-      { option_id: '11', description: 'Não recebi o produto', action: null },
+      {
+        option_id: 'REQUEST_BILLING_INFO',
+        description: 'Solicitar dados de faturamento',
+        type: 'template',
+        enabled: true,
+        actionable: true,
+        char_limit: null,
+        cap_available: 1,
+        templates: [{ id: 'TEMPLATE___REQUEST_BILLING_INFO___1', vars: null }],
+        child_options: null,
+      },
+      {
+        option_id: 'OTHER',
+        description: 'Outros',
+        type: 'free_text',
+        enabled: null,
+        actionable: true,
+        char_limit: 350,
+        cap_available: 1,
+        templates: [],
+        child_options: null,
+      },
     ]);
+  });
+
+  it('maps official claim messages (sender_role, message, no id) deterministically', () => {
+    expect(directionFromClaimSenderRole('complainant')).toBe('INBOUND_BUYER');
+    expect(directionFromClaimSenderRole('respondent')).toBe('EXTERNAL_SELLER_PANEL');
+    expect(directionFromClaimSenderRole('mediator')).toBe('MEDIATOR');
+    expect(directionFromClaimSenderRole('unknown')).toBeNull();
+
+    expect(extractClaimMessageText({ message: 'Quero devolver' })).toBe('Quero devolver');
+    expect(extractClaimMessageText({ text: 'legacy' })).toBe('legacy');
+
+    expect(claimMessageExternalId('777', { id: 'abc' }, 0)).toBe('claim:777:abc');
+    expect(
+      claimMessageExternalId(
+        '777',
+        { sender_role: 'complainant', date_created: '2026-02-04T10:00:00.000Z' },
+        0,
+      ),
+    ).toBe('claim:777:2026-02-04T10:00:00.000Z:complainant');
   });
 
   it('normalizes claim message attachments into inbound descriptors', () => {

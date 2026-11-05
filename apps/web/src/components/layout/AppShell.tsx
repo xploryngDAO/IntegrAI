@@ -5,11 +5,6 @@ import { useWorkspace } from '../../lib/store';
 import { Topbar } from './Topbar';
 
 export interface AppShellProps {
-  /** Kept for callers that already loaded telemetry; the topbar also reads the store. */
-  health?: unknown;
-  accounts?: unknown;
-  /** Optional global ribbon rendered right under the topbar (demo mode). */
-  banner?: ReactNode;
   /** Optional content; defaults to the router `<Outlet/>`. */
   children?: ReactNode;
 }
@@ -24,7 +19,7 @@ const NAV = [
  * The rail keeps navigation, the topbar keeps telemetry and identity; content
  * pages own their own columns (docs/UI_SPEC.md, docs/CONVERGENCIA_ADOPTION.md).
  */
-export function AppShell({ banner, children }: AppShellProps): JSX.Element {
+export function AppShell({ children }: AppShellProps): JSX.Element {
   const totalTickets = useWorkspace((state) => state.totalTickets);
 
   return (
@@ -63,7 +58,6 @@ export function AppShell({ banner, children }: AppShellProps): JSX.Element {
 
       <div className="sac-main">
         <Topbar />
-        {banner}
         <main className="sac-content" id="sac-main">
           {children ?? <Outlet />}
         </main>

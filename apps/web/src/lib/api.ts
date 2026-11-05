@@ -1,12 +1,13 @@
 /**
- * Typed HTTP client for docs/API_CONTRACT.md with transparent mock fallback.
+ * Typed HTTP client for docs/API_CONTRACT.md.
  *
- * Mock mode is ON when `VITE_MOCK_MODE === 'true'`. Otherwise the first
- * infrastructure failure (network error, timeout, 5xx, 401) switches the app to
- * a persistent in-memory mock session for the rest of the page lifetime and
- * notifies subscribers so the shell can show the demo banner.
+ * Always talks to the real API: there is no offline/demo fallback anymore.
+ * Infrastructure failures are surfaced as `ApiClientError` with status 0 so the
+ * UI can show a real error state; 401 keeps its status so the app can gate the
+ * session behind the login screen.
  */
 import type {
+  AccountDiagnosis,
   AgentPresenceStatus,
   AuthResponse,
   ChannelActionResult,
@@ -17,6 +18,7 @@ import type {
   PolicyEvaluation,
   QueueSnapshot,
   RouteDecision,
+  SystemDiagnosis,
   TicketDetail,
   TicketListItem,
   TicketStats,
@@ -31,7 +33,6 @@ import type {
   UploadedFile,
   WorkspaceFilters,
 } from './types';
-import { mockApi } from './mock';
 
 /* ==========================================================================
  * Configuration
@@ -52,17 +53,12 @@ let authToken: string | null = (() => {
   }
 })();
 
-let mockActive = import.meta.env.VITE_MOCK_MODE === 'true';
-let mockReason: string | null = mockActive ? 'VITE_MOCK_MODE=true' : null;
-
-type MockModeListener = (active: boolean) => void;
-const mockListeners = new Set<MockModeListener>();
-
 /* ==========================================================================
  * Errors
  * ========================================================================== */
 
 export class ApiClientError extends Error {
+  /** HTTP status, or 0 for network/timeout/invalid-response failures. */
   readonly status: number;
   readonly code: string;
   readonly details: unknown;
@@ -76,55 +72,8 @@ export class ApiClientError extends Error {
   }
 }
 
-/** Network/5xx are engine failures; 401 means "authenticate", 4xx must reach the UI. */
-function shouldFallback(error: unknown): boolean {
-  if (error instanceof ApiClientError) {
-    return error.status === 0 || error.status >= 500;
-  }
-  return true;
-}
-
-function describeError(error: unknown): string {
-  if (error instanceof ApiClientError) return `HTTP ${error.status} · ${error.code}`;
-  if (error instanceof DOMException && error.name === 'AbortError') return 'timeout de 6s';
-  if (error instanceof Error) return error.message;
-  return 'erro desconhecido';
-}
-
-function activateMock(reason: string): void {
-  if (mockActive) return;
-  mockActive = true;
-  mockReason = reason;
-  for (const listener of [...mockListeners]) listener(true);
-}
-
-/* ==========================================================================
- * Mock-mode public API
- * ========================================================================== */
-
-export function isMockMode(): boolean {
-  return mockActive;
-}
-
-/** Human-readable reason the demo fallback engaged (for the banner tooltip). */
-export function mockFallbackDetail(): string | null {
-  return mockReason;
-}
-
-/** Subscribe to mock-mode activation. Returns an unsubscribe function. */
-export function subscribeMockMode(listener: MockModeListener): () => void {
-  mockListeners.add(listener);
-  return () => {
-    mockListeners.delete(listener);
-  };
-}
-
-/**
- * Explicitly enter the offline demo session (used by the login screen's
- * "Entrar em modo demonstração" action and by the e2e smoke checks).
- */
-export function enableMockMode(reason = 'manual'): void {
-  activateMock(reason);
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 export function setAuthToken(token: string | null): void {
@@ -192,51 +141,51 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? 'GET',
-      headers,
-      body,
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method: options.method ?? 'GET',
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new ApiClientError(
+          0,
+          'TIMEOUT',
+          'Tempo esgotado ao falar com a API. Verifique a conexão e tente novamente.',
+        );
+      }
+      throw new ApiClientError(
+        0,
+        'NETWORK_ERROR',
+        'Falha de rede ao falar com a API. Verifique a conexão e tente novamente.',
+      );
+    }
+
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const errorBody = payload as
         | { error?: { code?: string; message?: string; details?: unknown } }
         | null;
-      const hasApiEnvelope = Boolean(errorBody && typeof errorBody === 'object' && errorBody.error);
-      // A non-JSON 404/405 means we hit something that is not the SAC Hub API
-      // (wrong port, SPA fallback, proxy miss). Treat it as infrastructure
-      // failure so the demo fallback engages instead of showing a broken queue.
-      const endpointMissing = !hasApiEnvelope && (response.status === 404 || response.status === 405);
       throw new ApiClientError(
-        endpointMissing ? 0 : response.status,
-        endpointMissing ? 'ENDPOINT_NOT_FOUND' : (errorBody?.error?.code ?? 'HTTP_ERROR'),
-        errorBody?.error?.message ?? `Erro HTTP ${response.status}`,
+        response.status,
+        errorBody?.error?.code ?? 'HTTP_ERROR',
+        errorBody?.error?.message ?? `Erro HTTP ${response.status}.`,
         errorBody?.error?.details,
       );
     }
     if (payload === null) {
-      // 200 with a non-JSON body (e.g. the host serves the SPA shell for
-      // `/api/*` because no backend is attached). Same treatment as a network
-      // miss: engage the offline demo session instead of crashing the boot.
-      throw new ApiClientError(0, 'INVALID_RESPONSE', 'Resposta não-JSON recebida do servidor');
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API respondeu sem um corpo JSON válido. Verifique o servidor.',
+      );
     }
     return unwrap<T>(payload);
   } finally {
     window.clearTimeout(timeout);
-  }
-}
-
-async function withFallback<T>(real: () => Promise<T>, mock: () => Promise<T>): Promise<T> {
-  if (mockActive) return mock();
-  try {
-    return await real();
-  } catch (error) {
-    if (shouldFallback(error)) {
-      activateMock(describeError(error));
-      return mock();
-    }
-    throw error;
   }
 }
 
@@ -280,36 +229,32 @@ export interface ApiClient {
   refreshAccount(id: string): Promise<{ ok: boolean; detail: string }>;
   uploadFile(file: File): Promise<UploadedFile>;
   signedUrl(key: string): Promise<{ url: string }>;
+  /** Live infrastructure + every connected account (ADMIN). */
+  diagnostics(): Promise<SystemDiagnosis>;
+  /** Real marketplace token/profile checks for a single account (ADMIN). */
+  diagnoseAccount(id: string): Promise<AccountDiagnosis>;
 }
 
 /* ==========================================================================
- * Implementation
+ * Real API implementation
  * ========================================================================== */
 
 export const api: ApiClient = {
-  login(email, password) {
-    return withFallback(
-      async () => {
-        const auth = await request<AuthResponse>('/auth/login', {
-          method: 'POST',
-          body: { email, password },
-        });
-        // Persist the JWT before any other request runs (boot happens next).
-        setAuthToken(auth.token);
-        return auth;
-      },
-      () => mockApi.login(email, password),
-    );
+  async login(email, password) {
+    const auth = await request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+    // Persist the JWT before any other request runs (boot happens next).
+    setAuthToken(auth.token);
+    return auth;
   },
 
   me() {
-    return withFallback(
-      () => request<IAgentSummary>('/auth/me'),
-      () => mockApi.me() as Promise<IAgentSummary>,
-    );
+    return request<IAgentSummary>('/auth/me');
   },
 
-  listTickets(filters, page = 1) {
+  async listTickets(filters, page = 1) {
     const query = encodeQuery({
       filter: filters.queueKey,
       marketplace: filters.marketplaces.join(','),
@@ -318,121 +263,78 @@ export const api: ApiClient = {
       page,
       pageSize: PAGE_SIZE,
     });
-    return withFallback(
-      async () => {
-        const payload = await request<Paginated<TicketListItem>>(`/tickets${query}`);
-        return {
-          items: payload.items,
-          total: payload.total,
-          totalPages: payload.totalPages,
-        };
-      },
-      () => mockApi.listTickets(filters, page),
-    );
+    const payload = await request<Paginated<TicketListItem>>(`/tickets${query}`);
+    return {
+      items: payload.items,
+      total: payload.total,
+      totalPages: payload.totalPages,
+    };
   },
 
   getTicket(id) {
-    return withFallback(
-      () => request<TicketDetail>(`/tickets/${encodeURIComponent(id)}`),
-      () => mockApi.getTicket(id),
-    );
+    return request<TicketDetail>(`/tickets/${encodeURIComponent(id)}`);
   },
 
   sendMessage(ticketId, body) {
-    return withFallback(
-      () =>
-        request<{ messageId: string; routeUsed: string; deliveryStatus: string; warnings: string[] }>(
-          `/tickets/${encodeURIComponent(ticketId)}/messages`,
-          {
-            method: 'POST',
-            body,
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-          },
-        ),
-      () => mockApi.sendMessage(ticketId, body),
+    return request<{ messageId: string; routeUsed: string; deliveryStatus: string; warnings: string[] }>(
+      `/tickets/${encodeURIComponent(ticketId)}/messages`,
+      {
+        method: 'POST',
+        body,
+        headers: { 'Idempotency-Key': newIdempotencyKey() },
+      },
     );
   },
 
   policyCheck(ticketId, body) {
-    return withFallback(
-      () =>
-        request<PolicyEvaluation>(`/tickets/${encodeURIComponent(ticketId)}/policy-check`, {
-          method: 'POST',
-          body,
-          timeoutMs: 4000,
-        }),
-      () => mockApi.policyCheck(ticketId, body),
-    );
+    return request<PolicyEvaluation>(`/tickets/${encodeURIComponent(ticketId)}/policy-check`, {
+      method: 'POST',
+      body,
+      timeoutMs: 4000,
+    });
   },
 
   resolveRoute(ticketId, recipient) {
     const query = encodeQuery({ recipient });
-    return withFallback(
-      () =>
-        request<RouteDecision>(`/tickets/${encodeURIComponent(ticketId)}/route${query}`),
-      () => mockApi.resolveRoute(ticketId, recipient),
-    );
+    return request<RouteDecision>(`/tickets/${encodeURIComponent(ticketId)}/route${query}`);
   },
 
   runAction(ticketId, body) {
-    return withFallback(
-      () =>
-        request<ChannelActionResult>(`/tickets/${encodeURIComponent(ticketId)}/actions`, {
-          method: 'POST',
-          body,
-        }),
-      () => mockApi.runAction(ticketId, body),
-    );
+    return request<ChannelActionResult>(`/tickets/${encodeURIComponent(ticketId)}/actions`, {
+      method: 'POST',
+      body,
+    });
   },
 
   assignTicket(ticketId, agentId) {
-    return withFallback(
-      () =>
-        request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/assign`, {
-          method: 'POST',
-          body: { agentId },
-        }),
-      () => mockApi.assignTicket(ticketId, agentId),
-    );
+    return request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/assign`, {
+      method: 'POST',
+      body: { agentId },
+    });
   },
 
   changeStatus(ticketId, status) {
-    return withFallback(
-      () =>
-        request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/status`, {
-          method: 'POST',
-          body: { status },
-        }),
-      () => mockApi.changeStatus(ticketId, status),
-    );
+    return request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/status`, {
+      method: 'POST',
+      body: { status },
+    });
   },
 
   closeWithoutResponse(ticketId) {
-    return withFallback(
-      () =>
-        request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/close-without-response`, {
-          method: 'POST',
-        }),
-      () => mockApi.closeWithoutResponse(ticketId),
-    );
+    return request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/close-without-response`, {
+      method: 'POST',
+    });
   },
 
   markRead(ticketId) {
-    return withFallback(
-      () => request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/read`, { method: 'POST' }),
-      () => mockApi.markRead(ticketId),
-    );
+    return request<unknown>(`/tickets/${encodeURIComponent(ticketId)}/read`, { method: 'POST' });
   },
 
   addNote(ticketId, text) {
-    return withFallback(
-      () =>
-        request<TicketDetail['messages'][number]>(`/tickets/${encodeURIComponent(ticketId)}/notes`, {
-          method: 'POST',
-          body: { text },
-        }),
-      () => mockApi.addNote(ticketId, text),
-    );
+    return request<TicketDetail['messages'][number]>(`/tickets/${encodeURIComponent(ticketId)}/notes`, {
+      method: 'POST',
+      body: { text },
+    });
   },
 
   queueSnapshot(filters) {
@@ -442,119 +344,87 @@ export const api: ApiClient = {
       accountId: filters?.accountId,
       search: filters?.search,
     });
-    return withFallback(
-      () => request<QueueSnapshot>(`/queue/snapshot${query}`),
-      () => mockApi.queueSnapshot(filters),
-    );
+    return request<QueueSnapshot>(`/queue/snapshot${query}`);
   },
 
   stats() {
-    return withFallback(
-      () => request<TicketStats>('/stats'),
-      () => mockApi.stats(),
-    );
+    return request<TicketStats>('/stats');
   },
 
   channelHealth() {
-    return withFallback(
-      () => request<ChannelHealthView[]>('/channels/health'),
-      () => mockApi.channelHealth(),
-    );
+    return request<ChannelHealthView[]>('/channels/health');
   },
 
   listAgents() {
-    return withFallback(
-      () => request<IAgentSummary[]>('/agents'),
-      () => mockApi.listAgents(),
-    );
+    return request<IAgentSummary[]>('/agents');
   },
 
   setPresence(presence) {
-    return withFallback(
-      () => request<unknown>('/auth/presence', { method: 'PUT', body: { presence } }),
-      () => mockApi.setPresence(presence),
-    );
+    return request<unknown>('/auth/presence', { method: 'PUT', body: { presence } });
   },
 
   listAccounts() {
-    return withFallback(
-      () => request<AccountRow[]>('/accounts'),
-      () => mockApi.listAccounts(),
-    );
+    return request<AccountRow[]>('/accounts');
   },
 
   connectors() {
-    return withFallback(
-      () => request<ConnectorDescriptor[]>('/accounts/connectors'),
-      () => mockApi.connectors(),
-    );
+    return request<ConnectorDescriptor[]>('/accounts/connectors');
   },
 
   startOAuth(marketplace, displayName) {
-    return withFallback(
-      () =>
-        request<{ authorizeUrl: string; state: string }>(
-          `/accounts/oauth/${encodeURIComponent(marketplace)}/start`,
-          { method: 'POST', body: { displayName } },
-        ),
-      () => mockApi.startOAuth(marketplace, displayName),
+    return request<{ authorizeUrl: string; state: string }>(
+      `/accounts/oauth/${encodeURIComponent(marketplace)}/start`,
+      { method: 'POST', body: { displayName } },
     );
   },
 
   connectAccount(payload) {
-    return withFallback(
-      () =>
-        request<{ accountId: string; displayName: string }>('/accounts/connect', {
-          method: 'POST',
-          body: payload,
-        }),
-      () => mockApi.connectAccount(payload),
-    );
+    return request<{ accountId: string; displayName: string }>('/accounts/connect', {
+      method: 'POST',
+      body: payload,
+    });
   },
 
-  disconnectAccount(id) {
-    return withFallback(
-      async () => {
-        await request<unknown>(`/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      },
-      () => mockApi.disconnectAccount(id),
-    );
+  async disconnectAccount(id) {
+    await request<unknown>(`/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   refreshAccount(id) {
-    return withFallback(
-      () =>
-        request<{ ok: boolean; detail: string }>(`/accounts/${encodeURIComponent(id)}/refresh`, {
-          method: 'POST',
-        }),
-      () => mockApi.refreshAccount(id),
+    return request<{ ok: boolean; detail: string }>(
+      `/accounts/${encodeURIComponent(id)}/refresh`,
+      { method: 'POST' },
     );
   },
 
   uploadFile(file) {
     const formData = new FormData();
     formData.append('file', file);
-    return withFallback(
-      () =>
-        request<UploadedFile>('/files/upload', {
-          method: 'POST',
-          formData,
-          timeoutMs: 30_000,
-        }),
-      () => mockApi.uploadFile(file),
-    );
+    return request<UploadedFile>('/files/upload', {
+      method: 'POST',
+      formData,
+      timeoutMs: 30_000,
+    });
   },
 
   signedUrl(key) {
-    return withFallback(
-      () => request<{ url: string }>(`/files/signed${encodeQuery({ key })}`),
-      () => mockApi.signedUrl(key),
-    );
+    return request<{ url: string }>(`/files/signed${encodeQuery({ key })}`);
+  },
+
+  diagnostics() {
+    return request<SystemDiagnosis>('/diagnostics', { timeoutMs: 60_000 });
+  },
+
+  diagnoseAccount(id) {
+    return request<AccountDiagnosis>(`/accounts/${encodeURIComponent(id)}/diagnose`, {
+      method: 'POST',
+      timeoutMs: 60_000,
+    });
   },
 };
 
 /** Re-exported for convenience (workspace features derive request types). */
 export type {
+  AccountDiagnosis,
   AccountRow,
   ActionBody,
   AgentPresenceStatus,
@@ -563,15 +433,18 @@ export type {
   ChannelHealthView,
   ConnectAccountPayload,
   ConnectorDescriptor,
+  DiagnosisCheck,
+  DiagnosisStatus,
   IAgentSummary,
   PolicyCheckBody,
   PolicyEvaluation,
   QueueSnapshot,
   RouteDecision,
   SendMessageBody,
+  SystemDiagnosis,
   TicketDetail,
   TicketListItem,
   TicketStats,
   UploadedFile,
   WorkspaceFilters,
-};
+} from './types';

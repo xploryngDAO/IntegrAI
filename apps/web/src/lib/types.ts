@@ -5,12 +5,14 @@
  * must never pull runtime values from the shared package.
  */
 import type {
+  AccountDiagnosis,
   AccountStatus,
   AgentPresenceStatus,
   ChannelHealthView,
   IAgentSummary,
   Marketplace,
   PolicyEvaluation,
+  SystemDiagnosis,
   TicketDetail,
   TicketListItem,
   TicketStats,
@@ -152,12 +154,18 @@ export interface WorkspaceState {
   filters: WorkspaceFilters;
   loadingQueue: boolean;
   loadingDetail: boolean;
-  isMock: boolean;
   toasts: Toast[];
   presence: AgentPresenceStatus;
   sending: boolean;
   policy: PolicyEvaluation | null;
   currentAgent: IAgentSummary | null;
+  /** Last live diagnostics report (infrastructure + connected accounts). */
+  systemDiagnosis: SystemDiagnosis | null;
+  /** Last live diagnosis per account id. */
+  accountDiagnoses: Record<string, AccountDiagnosis>;
+  diagnosticsLoading: boolean;
+  diagnosticsError: string | null;
+  diagnosingAccountId: string | null;
 
   // actions
   boot(): Promise<void>;
@@ -176,6 +184,12 @@ export interface WorkspaceState {
   setPresence(presence: AgentPresenceStatus): Promise<void>;
   pushToast(t: Omit<Toast, 'id'>): void;
   dismissToast(id: string): void;
+  /** Live system diagnostics (`GET /diagnostics`). Rejects on failure. */
+  systemDiagnostics(): Promise<SystemDiagnosis>;
+  /** Alias for `systemDiagnostics` (task-17 contract naming). */
+  diagnostics(): Promise<SystemDiagnosis>;
+  /** Live diagnosis for one account (`POST /accounts/:id/diagnose`). Rejects on failure. */
+  diagnoseAccount(accountId: string): Promise<AccountDiagnosis>;
 }
 
 /* ==========================================================================
@@ -183,6 +197,7 @@ export interface WorkspaceState {
  * ========================================================================== */
 
 export type {
+  AccountDiagnosis,
   AccountStatus,
   AgentPresenceStatus,
   AgentRole,
@@ -195,6 +210,8 @@ export type {
   CrrStatusView,
   CustomerView,
   DeliveryStatus,
+  DiagnosisCheck,
+  DiagnosisStatus,
   IAgentSummary,
   Marketplace,
   MessageDirection,
@@ -208,6 +225,7 @@ export type {
   RouteDecision,
   RoutePreview,
   SlaState,
+  SystemDiagnosis,
   TicketDetail,
   TicketListItem,
   TicketPriority,

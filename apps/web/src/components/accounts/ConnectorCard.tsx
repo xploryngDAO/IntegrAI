@@ -1,4 +1,4 @@
-import type { ChannelHealthView, Marketplace } from '@sac/shared';
+import type { AccountDiagnosis, ChannelHealthView, DiagnosisStatus, Marketplace } from '@sac/shared';
 import { Icon } from '@xploryng/convergencia';
 import type { AccountRow } from '../../lib/types';
 import { api } from '../../lib/api';
@@ -19,6 +19,20 @@ export async function reloadAccounts(): Promise<void> {
   }
 }
 
+const DIAGNOSIS_LABEL: Record<DiagnosisStatus, string> = {
+  ok: 'Conectado',
+  warn: 'Atenção',
+  fail: 'Falha na conexão',
+  skipped: 'Não verificado',
+};
+
+const DIAGNOSIS_TONE: Record<DiagnosisStatus, 'ok' | 'warn' | 'danger' | 'neutral'> = {
+  ok: 'ok',
+  warn: 'warn',
+  fail: 'danger',
+  skipped: 'neutral',
+};
+
 function pickString(record: Record<string, unknown>, keys: readonly string[]): string | null {
   for (const key of keys) {
     const value = record[key];
@@ -27,9 +41,20 @@ function pickString(record: Record<string, unknown>, keys: readonly string[]): s
   return null;
 }
 
-function statusLabel(status: AccountRow['status'] | null, hasAccount: boolean): JSX.Element {
-  if (!hasAccount || status === 'DISCONNECTED') return <Pill tone="neutral">Desconectado</Pill>;
-  if (status === 'TOKEN_EXPIRED') return <Pill tone="warn">Token expirado</Pill>;
+/** Status pill is driven by the last real diagnosis; account status is the fallback. */
+function statusPill(account: AccountRow | null, diagnosis: AccountDiagnosis | null): JSX.Element {
+  if (diagnosis) {
+    return (
+      <Pill
+        tone={DIAGNOSIS_TONE[diagnosis.overall]}
+        title={`Diagnóstico real de ${formatDateTime(diagnosis.testedAt)}`}
+      >
+        {DIAGNOSIS_LABEL[diagnosis.overall]}
+      </Pill>
+    );
+  }
+  if (!account || account.status === 'DISCONNECTED') return <Pill tone="neutral">Desconectado</Pill>;
+  if (account.status === 'TOKEN_EXPIRED') return <Pill tone="warn">Token expirado</Pill>;
   return <Pill tone="ok">Conectado</Pill>;
 }
 
@@ -48,23 +73,31 @@ export interface ConnectorCardProps {
   account: AccountRow | null;
   /** Live channel health for this account (from `GET /channels/health`). */
   health?: ChannelHealthView | null;
+  /** Last real diagnosis for this account (`POST /accounts/:id/diagnose`). */
+  diagnosis?: AccountDiagnosis | null;
+  /** True while this account's diagnosis request is in flight. */
+  diagnosing?: boolean;
   /** Number of extra stores connected on this marketplace (beyond the shown one). */
   extraAccounts?: number;
   busy?: boolean;
   onReconnect: (marketplace: Marketplace) => void;
+  onDiagnose: (account: AccountRow) => void;
   onRefreshToken: (account: AccountRow) => void;
   onDisconnect: (account: AccountRow) => void;
   className?: string;
 }
 
-/** One marketplace connector card: identity, health, token expiry and actions. */
+/** One marketplace connector card: identity, health, real diagnosis and actions. */
 export function ConnectorCard({
   marketplace,
   account,
   health,
+  diagnosis = null,
+  diagnosing = false,
   extraAccounts = 0,
   busy,
   onReconnect,
+  onDiagnose,
   onRefreshToken,
   onDisconnect,
   className,
@@ -88,7 +121,9 @@ export function ConnectorCard({
         </span>
       }
       subtitle={account ? account.displayName : 'Nenhuma loja conectada'}
-      actions={busy ? <Spinner label="Atualizando" /> : statusLabel(account?.status ?? null, Boolean(account))}
+      actions={
+        busy ? <Spinner label="Atualizando" /> : statusPill(account, diagnosis)
+      }
       footer={
         <>
           <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
@@ -150,6 +185,50 @@ export function ConnectorCard({
         </div>
       ) : null}
 
+      {diagnosis ? (
+        <div className="mt-2 flex flex-col gap-1 border-t border-[var(--cv-color-border)] pt-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
+            <Icon name="clock" size={12} />
+            <span className="sac-num">Diagnóstico {formatDateTime(diagnosis.testedAt)}</span>
+            {account ? (
+              <button
+                type="button"
+                className="cv-link ml-auto shrink-0 text-[var(--cv-font-micro)]"
+                onClick={() => onDiagnose(account)}
+              >
+                ver checks
+              </button>
+            ) : null}
+          </div>
+          {diagnosis.overall === 'fail' ? (
+            <div
+              className="flex items-start gap-1.5 rounded-[var(--cv-radius-small)] border px-2 py-1.5 text-[var(--cv-font-micro)] leading-snug"
+              style={{
+                borderColor: 'color-mix(in srgb, var(--cv-color-danger) 32%, transparent)',
+                background: 'var(--cv-color-danger-soft)',
+                color: 'var(--cv-color-danger)',
+              }}
+            >
+              <Icon name="close" size={12} style={{ marginTop: 1, flex: 'none' }} />
+              Diagnóstico reprovado — corrija os checks antes de operar este canal.
+            </div>
+          ) : null}
+          {diagnosis.overall === 'warn' ? (
+            <div
+              className="flex items-start gap-1.5 rounded-[var(--cv-radius-small)] border px-2 py-1.5 text-[var(--cv-font-micro)] leading-snug"
+              style={{
+                borderColor: 'color-mix(in srgb, var(--cv-color-warning) 32%, transparent)',
+                background: 'var(--cv-color-warning-soft)',
+                color: 'var(--cv-color-warning)',
+              }}
+            >
+              <Icon name="bell" size={12} style={{ marginTop: 1, flex: 'none' }} />
+              Canal opera com avisos — veja as remediações no diagnóstico.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {account?.status === 'TOKEN_EXPIRED' ? (
         <div
           className="mt-2 flex items-start gap-1.5 rounded-[var(--cv-radius-small)] border px-2 py-1.5 text-[var(--cv-font-micro)] leading-snug"
@@ -166,9 +245,21 @@ export function ConnectorCard({
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--cv-color-border)] pt-2">
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
           icon="pulse"
+          disabled={!account || busy}
+          loading={diagnosing}
+          onClick={() => {
+            if (account) onDiagnose(account);
+          }}
+        >
+          Testar conexão
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="clock"
           disabled={!account || busy}
           onClick={() => {
             if (account) onRefreshToken(account);

@@ -49,6 +49,14 @@ export { ShopeeChat } from './outbound/ShopeeChat';
 export { ShopeeReturns } from './outbound/ShopeeReturns';
 export { ShopeeMaintenance } from './ShopeeMaintenance';
 export type { ShopeeMaintenanceTask } from './ShopeeMaintenance';
+export {
+  ShopeeDiagnostics,
+  extractHost,
+  isHealthyShopStatus,
+  isProductionHost,
+  isSandboxHost,
+  validateApiBase,
+} from './ShopeeDiagnostics';
 
 /** Pure triage/snapshot mappers. */
 export {
@@ -58,6 +66,7 @@ export {
   mapChatTriage,
   normalizeEventId,
   parseShopeePushBody,
+  resolvePushHandler,
   triageShopeePush,
 } from './mappers';
 

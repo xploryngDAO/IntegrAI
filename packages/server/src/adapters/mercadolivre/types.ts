@@ -16,19 +16,30 @@ export interface MeliTokenResponse {
 }
 
 /**
- * Push notification payload delivered by Mercado Livre:
- * `{ _id, resource, user_id, topic, sent, attempts }`.
+ * Push notification payload delivered by Mercado Livre.
+ *
+ * General topics use `_id`; the newer sub-topic model (messages, post_purchase,
+ * user_products, ...) uses `id` plus an `actions` array (e.g. `["created"]`,
+ * `["claims"]`). `Notificações` docs:
+ * `{ id, resource, user_id, topic, actions, application_id, attempts, sent,
+ * received }`.
  */
 export interface MeliWebhookPayload {
   _id?: number | string | null;
+  id?: number | string | null;
   resource?: string | null;
   user_id?: number | string | null;
   topic?: string | null;
+  actions?: string[] | null;
   sent?: string | null;
   received?: string | null;
   attempts?: number | null;
   application_id?: number | string | null;
 }
+
+/** Entry returned by `GET /missed_feeds?app_id=...` (Meli keeps 2 days). */
+export type MeliMissedFeed = MeliWebhookPayload;
+
 
 /* ------------------------------- Questions -------------------------------- */
 
@@ -114,7 +125,9 @@ export interface MeliConversationStatus {
   substatus?: string | null;
   status_date?: string | null;
   status_update_allowed?: boolean | null;
+  /** `blocked-messages` docs return `claim_ids` (array); older docs `claim_id`. */
   claim_id?: number | string | null;
+  claim_ids?: Array<number | string> | null;
   shipping_id?: number | string | null;
 }
 
@@ -126,7 +139,10 @@ export interface MeliPackMessagesResponse {
   buyer_max_message_length?: number | null;
 }
 
-/** `GET /messages/{message_id}` (used to resolve a hex message id to its pack). */
+/**
+ * `GET /messages/{message_id}`: used to resolve the opaque `resource` hash of a
+ * `messages` push to its pack/order ids.
+ */
 export interface MeliMessageDetail {
   message_id?: string | null;
   id?: string | null;
@@ -140,17 +156,31 @@ export interface MeliMessageDetail {
   message_resources?: MeliMessageResourceRef[] | null;
   resource?: string | null;
   resource_id?: number | string | null;
+  order_id?: number | string | null;
+  pack_id?: number | string | null;
   site_id?: string | null;
 }
 
-/** Blocked-chat structured reason guide: `GET /messages/action_guide/packs/{packId}`. */
+/**
+ * `GET /messages/action_guide/packs/{packId}?tag=post_sale` option.
+ * Official options use `id` (e.g. `OTHER`, `REQUEST_BILLING_INFO`) and carry the
+ * template/cap metadata in the object itself.
+ */
 export interface MeliActionGuideOption {
-  option_id?: number | string | null;
   id?: number | string | null;
+  option_id?: number | string | null;
+  internal_description?: string | null;
   description?: string | null;
   title?: string | null;
   text?: string | null;
   action?: string | null;
+  type?: string | null;
+  enabled?: boolean | null;
+  actionable?: boolean | null;
+  char_limit?: number | null;
+  cap_available?: number | null;
+  templates?: Array<{ id?: string | null; vars?: unknown }> | null;
+  child_options?: unknown;
 }
 
 export interface MeliActionGuide {
@@ -163,8 +193,12 @@ export interface MeliActionGuide {
 export interface MeliAttachmentUploadResponse {
   id?: string | null;
   filename?: string | null;
+  /** Claims attachments return `{ user_id, file_name }` (not `id`). */
+  file_name?: string | null;
+  user_id?: number | string | null;
   [key: string]: unknown;
 }
+
 
 export interface MeliSendMessageResponse {
   message_id?: string | null;
@@ -281,10 +315,18 @@ export interface MeliClaim {
 export interface MeliClaimMessage {
   id?: number | string | null;
   message_id?: number | string | null;
+  /** Official claim messages return `message` (not `text`). */
+  message?: string | null;
   text?: string | null;
+  /** Official claim messages identify the author by role, not by user id. */
+  sender_role?: string | null;
+  receiver_role?: string | null;
   from?: MeliMessageParty | null;
   date?: string | null;
   date_created?: string | null;
+  message_date?: string | null;
+  stage?: string | null;
+  status?: string | null;
   attachments?: MeliFileAttachment[] | null;
   [key: string]: unknown;
 }
@@ -292,5 +334,19 @@ export interface MeliClaimMessage {
 export interface MeliClaimMessagesResponse {
   paging?: unknown;
   messages?: MeliClaimMessage[] | null;
+  [key: string]: unknown;
+}
+
+/* --------------------------------- Users ---------------------------------- */
+
+/** `GET /users/me` and `GET /users/{id}` (identity diagnostics). */
+export interface MeliUser {
+  id?: number | string | null;
+  nickname?: string | null;
+  site_id?: string | null;
+  country_id?: string | null;
+  user_type?: string | null;
+  status?: { site_status?: string | null; [key: string]: unknown } | null;
+  tags?: string[] | null;
   [key: string]: unknown;
 }

@@ -7,12 +7,14 @@ import type {
 } from '@sac/shared';
 import type { MeliClient } from '../client/MeliClient';
 import {
+  asArray,
   asString,
   buildOrderSnapshot,
   directionFromUserIds,
   errorMessage,
   extractPackIdFromMessageResources,
   extractText,
+  isOpaqueMessageResource,
   normalizeActionGuide,
   normalizeAttachments,
   parseDate,
@@ -93,12 +95,18 @@ export class MessagesHydrator {
     const pack = await this.client.get<MeliPackMessagesResponse>(
       account.id,
       `/messages/packs/${packId}/sellers/${account.externalSellerId}`,
-      { tag: 'post_sale' },
+      // `mark_as_read=false`: hydrating must not consume the seller's unread
+      // messages (official parameter of the messaging-after-sale resource).
+      { tag: 'post_sale', mark_as_read: false },
     );
 
     const conversation = pack.conversation_status ?? null;
     const conversationStatus = asString(conversation?.status);
-    const conversationClaimId = asString(conversation?.claim_id);
+    // `blocked-messages` documents `claim_ids` (array); legacy payloads use
+    // `claim_id`.
+    const conversationClaimId =
+      asString(conversation?.claim_id) ??
+      asString(asArray<number | string>(conversation?.claim_ids)[0]);
     const existingTicket = await findActiveTicketForOrder(this.deps, orderId);
     const hasActiveClaim =
       existingTicket?.hasActiveClaim === true || conversationClaimId !== null;
@@ -110,6 +118,7 @@ export class MessagesHydrator {
         const guide = await this.client.get<MeliActionGuide>(
           account.id,
           `/messages/action_guide/packs/${packId}`,
+          { tag: 'post_sale' },
         );
         actionGuide = normalizeActionGuide(guide);
       } catch (error) {
@@ -250,30 +259,52 @@ export class MessagesHydrator {
     const messageMatch = /\/messages\/([^/]+)/.exec(clean);
     if (messageMatch?.[1]) {
       const messageKey = messageMatch[1];
-      // Pack ids are numeric; 32-char ids are individual messages.
+      // Pack ids are numeric; hash/hex values are individual messages.
       if (/^\d+$/.test(messageKey)) {
         return { packId: messageKey, orderId: payloadOrderId, order: null };
       }
-      try {
-        const detail = await this.client.get<MeliMessageDetail>(
-          account.id,
-          `/messages/${messageKey}`,
-        );
-        return {
-          packId: extractPackIdFromMessageResources(detail.message_resources) ?? messageKey,
-          orderId: asString(detail.resource_id) ?? payloadOrderId,
-          order: null,
-        };
-      } catch (error) {
-        this.logger.warn('meli.messages.message_lookup_failed', {
-          accountId: account.id,
-          messageKey,
-          error: errorMessage(error),
-        });
-        return null;
-      }
+      return this.resolveMessageHash(account, messageKey, payloadOrderId);
+    }
+
+    // New sub-topic model: `resource` is an opaque message hash with no path
+    // (`GET /messages/{resource}` resolves it, per the notifications docs).
+    if (isOpaqueMessageResource(clean)) {
+      return this.resolveMessageHash(account, clean, payloadOrderId);
     }
 
     return null;
+  }
+
+  /**
+   * Resolves an individual message id (the `resource` hash of a `messages`
+   * notification) to its pack/order ids via `GET /messages/{id}`.
+   */
+  private async resolveMessageHash(
+    account: MarketplaceAccountRecord,
+    messageKey: string,
+    payloadOrderId: string | null,
+  ): Promise<ResolvedPack | null> {
+    try {
+      const detail = await this.client.get<MeliMessageDetail>(
+        account.id,
+        `/messages/${messageKey}`,
+      );
+      const packId =
+        extractPackIdFromMessageResources(detail.message_resources) ??
+        asString(detail.pack_id) ??
+        messageKey;
+      const orderId =
+        asString(detail.order_id) ??
+        asString(detail.resource_id) ??
+        payloadOrderId;
+      return { packId, orderId, order: null };
+    } catch (error) {
+      this.logger.warn('meli.messages.message_lookup_failed', {
+        accountId: account.id,
+        messageKey,
+        error: errorMessage(error),
+      });
+      return null;
+    }
   }
 }

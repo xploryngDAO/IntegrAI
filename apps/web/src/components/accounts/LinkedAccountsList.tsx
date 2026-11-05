@@ -1,4 +1,4 @@
-import type { ChannelHealthView, Marketplace } from '@sac/shared';
+import type { AccountDiagnosis, ChannelHealthView, Marketplace } from '@sac/shared';
 import type { AccountRow } from '../../lib/types';
 import { Grid } from '@xploryng/convergencia';
 import { ConnectorCard } from './ConnectorCard';
@@ -8,8 +8,12 @@ const MARKETPLACES: readonly Marketplace[] = ['AMAZON', 'MERCADO_LIVRE', 'SHOPEE
 export interface LinkedAccountsListProps {
   accounts: AccountRow[];
   health?: ChannelHealthView[];
+  /** Last real diagnosis per accountId (store `accountDiagnoses` + system channels). */
+  diagnoses?: Record<string, AccountDiagnosis>;
+  diagnosingAccountId?: string | null;
   busyMarketplace?: Marketplace | null;
   onReconnect: (marketplace: Marketplace) => void;
+  onDiagnose: (account: AccountRow) => void;
   onRefreshToken: (account: AccountRow) => void;
   onDisconnect: (account: AccountRow) => void;
 }
@@ -28,8 +32,11 @@ function primaryAccountFor(accounts: AccountRow[], marketplace: Marketplace): Ac
 export function LinkedAccountsList({
   accounts,
   health = [],
+  diagnoses = {},
+  diagnosingAccountId = null,
   busyMarketplace = null,
   onReconnect,
+  onDiagnose,
   onRefreshToken,
   onDisconnect,
 }: LinkedAccountsListProps): JSX.Element {
@@ -37,15 +44,19 @@ export function LinkedAccountsList({
     <Grid min={300}>
       {MARKETPLACES.map((marketplace) => {
         const channelAccounts = accounts.filter((account) => account.marketplace === marketplace);
+        const primary = primaryAccountFor(accounts, marketplace);
         return (
           <ConnectorCard
             key={marketplace}
             marketplace={marketplace}
-            account={primaryAccountFor(accounts, marketplace)}
+            account={primary}
             health={health.find((entry) => entry.marketplace === marketplace) ?? null}
+            diagnosis={primary ? diagnoses[primary.id] ?? null : null}
+            diagnosing={Boolean(primary && diagnosingAccountId === primary.id)}
             extraAccounts={Math.max(0, channelAccounts.length - 1)}
             busy={busyMarketplace === marketplace}
             onReconnect={onReconnect}
+            onDiagnose={onDiagnose}
             onRefreshToken={onRefreshToken}
             onDisconnect={onDisconnect}
           />

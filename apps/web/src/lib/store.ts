@@ -18,7 +18,7 @@ import type {
   TicketStatus,
 } from '@sac/shared';
 
-import { api, isMockMode, subscribeMockMode } from './api';
+import { api } from './api';
 import { ROUTE_LABEL } from './labels';
 import { DEFAULT_FILTERS } from './types';
 import type {
@@ -35,7 +35,6 @@ import type {
  * ========================================================================== */
 
 let bootStarted = false;
-let mockUnsubscribe: (() => void) | null = null;
 let searchTimer: number | null = null;
 let queueSeq = 0;
 let detailSeq = 0;
@@ -88,7 +87,7 @@ function mergeHealthSnapshot(snapshot: ChannelHealthSnapshot): void {
 }
 
 function connectSocket(): void {
-  if (socket || isMockMode()) return;
+  if (socket) return;
   const token = readAuthToken();
   if (!token) return;
 
@@ -132,7 +131,7 @@ function connectSocket(): void {
 
   // Degrade silently: polling keeps the queue fresh when the socket dies.
   connection.on('connect_error', () => {
-    // no toast spam — the demo banner already covers offline mode
+    // no toast spam — the 20 s polling fallback keeps telemetry fresh
   });
 
   socket = connection;
@@ -142,7 +141,6 @@ function startPolling(): void {
   if (pollTimer) return;
   pollTimer = window.setInterval(() => {
     const state = useWorkspace.getState();
-    if (state.isMock) return;
     void state.refreshQueue();
     void state.refreshStats();
   }, POLL_INTERVAL_MS);
@@ -177,52 +175,41 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   filters: { ...DEFAULT_FILTERS },
   loadingQueue: true,
   loadingDetail: false,
-  isMock: isMockMode(),
   toasts: [],
   presence: 'ONLINE',
   sending: false,
   policy: null,
   currentAgent: null,
+  systemDiagnosis: null,
+  accountDiagnoses: {},
+  diagnosticsLoading: false,
+  diagnosticsError: null,
+  diagnosingAccountId: null,
 
   // ------------------------------------------------------------- actions
   async boot() {
     if (bootStarted) return;
     bootStarted = true;
 
-    if (!mockUnsubscribe) {
-      mockUnsubscribe = subscribeMockMode((active) => {
-        if (!active) return;
-        set({ isMock: true });
-        get().pushToast({
-          tone: 'info',
-          title: 'Modo demonstração ativado',
-          description: 'API indisponível — usando dados simulados em memória.',
-        });
-      });
-    }
-
-    set({ loadingQueue: true, isMock: isMockMode() });
+    set({ loadingQueue: true });
 
     try {
       const [agents, accounts, health, me] = await Promise.all([
         api.listAgents(),
         api.listAccounts(),
         api.channelHealth(),
-        api.me().catch(() => null),
+        api.me(),
       ]);
       set({
         agents,
         accounts,
         health,
         currentAgent: me,
-        presence: me?.presence ?? get().presence,
-        isMock: isMockMode(),
+        presence: me.presence,
       });
     } catch (error) {
-      // The API client already engaged the mock session; keep booting.
-      set({ isMock: isMockMode() });
       get().pushToast({
-        tone: 'warn',
+        tone: 'danger',
         title: 'Não foi possível carregar o workspace',
         description: errorMessage(error),
       });
@@ -265,6 +252,47 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       set({ stats });
     } catch {
       // stats are decorative: never block the workspace on them
+    }
+  },
+
+  async systemDiagnostics() {
+    set({ diagnosticsLoading: true, diagnosticsError: null });
+    try {
+      const result = await api.diagnostics();
+      set({ systemDiagnosis: result, diagnosticsLoading: false });
+      return result;
+    } catch (error) {
+      set({ diagnosticsLoading: false, diagnosticsError: errorMessage(error) });
+      get().pushToast({
+        tone: 'danger',
+        title: 'Falha no diagnóstico do sistema',
+        description: errorMessage(error),
+      });
+      throw error;
+    }
+  },
+
+  diagnostics() {
+    return get().systemDiagnostics();
+  },
+
+  async diagnoseAccount(accountId) {
+    set({ diagnosingAccountId: accountId, diagnosticsError: null });
+    try {
+      const result = await api.diagnoseAccount(accountId);
+      set((state) => ({
+        accountDiagnoses: { ...state.accountDiagnoses, [accountId]: result },
+        diagnosingAccountId: null,
+      }));
+      return result;
+    } catch (error) {
+      set({ diagnosingAccountId: null, diagnosticsError: errorMessage(error) });
+      get().pushToast({
+        tone: 'danger',
+        title: 'Falha no diagnóstico da conta',
+        description: errorMessage(error),
+      });
+      throw error;
     }
   },
 

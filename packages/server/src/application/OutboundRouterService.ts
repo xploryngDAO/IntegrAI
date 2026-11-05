@@ -513,8 +513,13 @@ export class OutboundRouterService implements IOutboundRouterService {
   /* Preview + route                                                      */
   /* ==================================================================== */
 
-  async previewPolicy(command: PreviewPolicyCommand): Promise<PolicyEvaluation> {
-    const context = await this.loadContext(command.ticketId);
+  /** True only when the buyer actually wrote to us (not a seller-panel note). */
+  private async hasBuyerInbound(ticketId: string): Promise<boolean> {
+    const last = await this.repos.messages.lastByDirection(ticketId, 'INBOUND_BUYER');
+    return last !== null;
+  }
+
+  async previewPolicy(command: PreviewPolicyCommand): Promise<PolicyEvaluation> {    const context = await this.loadContext(command.ticketId);
     const adapter = this.adapters.get(context.ticket.marketplace);
     const draft = command.draft;
     const input: OutboundValidationInput = {
@@ -527,7 +532,7 @@ export class OutboundRouterService implements IOutboundRouterService {
       recipient: draft.recipient ?? 'BUYER',
       attachments: draft.attachments ?? [],
       forceImportant: draft.forceImportant,
-      hasPriorInbound: context.ticket.lastInboundAt !== null,
+      hasPriorInbound: await this.hasBuyerInbound(context.ticket.id),
       allowedActions: context.order?.allowedActionsCache ?? {},
       closeWithoutResponse: draft.closeWithoutResponse,
       ...this.validationContext(context),
@@ -548,7 +553,7 @@ export class OutboundRouterService implements IOutboundRouterService {
       recipient: recipient ?? 'BUYER',
       attachments: [],
       forceImportant: false,
-      hasPriorInbound: context.ticket.lastInboundAt !== null,
+      hasPriorInbound: await this.hasBuyerInbound(context.ticket.id),
       allowedActions: context.order?.allowedActionsCache ?? {},
       closeWithoutResponse: false,
       ...this.validationContext(context),
@@ -908,7 +913,7 @@ export class OutboundRouterService implements IOutboundRouterService {
       recipient: fields.recipient,
       attachments: fields.attachments,
       forceImportant: fields.forceImportant,
-      hasPriorInbound: context.ticket.lastInboundAt !== null,
+      hasPriorInbound: await this.hasBuyerInbound(context.ticket.id),
       allowedActions: context.order?.allowedActionsCache ?? {},
       closeWithoutResponse: fields.closeWithoutResponse,
       ...this.validationContext(context),

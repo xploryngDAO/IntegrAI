@@ -50,7 +50,10 @@ export function buildAmazonPolicyEvaluation(
 
   if (routePreview.route === 'AMAZON_SP_API_MESSAGING' && routePreview.blocked) {
     violations.push({
-      code: 'NEED_PRIOR_INBOUND',
+      code:
+        routePreview.reason === 'need-prior-inbound'
+          ? 'NEED_PRIOR_INBOUND'
+          : 'PROACTIVE_ACTION_UNSUPPORTED',
       severity: 'BLOCK',
       field: 'body',
       message:

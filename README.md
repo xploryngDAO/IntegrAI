@@ -4,10 +4,11 @@
 [![Repo](https://img.shields.io/badge/github-xploryngDAO%2FIntegrAI-181717?logo=github)](https://github.com/xploryngDAO/IntegrAI)
 [![Design System](https://img.shields.io/badge/UI-Convergência-6367c9)](docs/CONVERGENCIA_ADOPTION.md)
 
-> **Demo ao vivo:** <https://integrai-dev.vercel.app> — a UI roda em modo
-> demonstração (fixtures em memória dos 3 canais), sem backend anexado.
+> **Status:** integrações 100% reais — **sem modo demonstração e sem dados
+> simulados**. O sistema opera apenas com credenciais reais dos marketplaces.
 > **Código:** <https://github.com/xploryngDAO/IntegrAI>.
-> O stack completo (API + Postgres + Redis + S3) sobe com Docker conforme abaixo.
+> **Setup de produção:** [docs/SETUP_PRODUCTION.md](docs/SETUP_PRODUCTION.md) ·
+> **Validação das integrações:** [docs/INTEGRATION_VALIDATION.md](docs/INTEGRATION_VALIDATION.md)
 
 Plataforma de SAC unificada para **Amazon (SP-API + SES)**, **Mercado Livre (API oficial)** e
 **Shopee (Open Platform v2)**, construída como sistema **event-driven** com
@@ -35,12 +36,11 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 ## Screenshots
 
-Interface re-fundada no **Convergência Design System** (tema claro canônico + escuro).
-A primeira imagem é a aplicação **publicada na Vercel**:
+Interface re-fundada no **Convergência Design System** (tema claro canônico + escuro):
 
-| Demo ao vivo em integrai-dev.vercel.app | Tema escuro |
+| Workspace 3 colunas | Tema escuro |
 |---|---|
-| ![Live](screenshots/vercel-live-desktop.png) | ![Workspace escuro](screenshots/ds-05-final-dark.png) |
+| ![Workspace claro](screenshots/ds-04-final-light.png) | ![Workspace escuro](screenshots/ds-05-final-dark.png) |
 
 | Workspace 3 colunas (claro) | Canais conectados / onboarding |
 |---|---|
@@ -57,22 +57,22 @@ Antes da adoção do DS (identidade escura própria), para comparação:
 
 | Destino | URL / configuração |
 |---|---|
-| **Vercel (demo web)** | <https://integrai-dev.vercel.app> — projeto `integrai-dev` (scope `xploryngdaos-projects`) ligado ao repositório; deploy automático a cada push em `main` |
+| **Frontend (Vercel)** | <https://integrai-dev.vercel.app> — projeto `integrai-dev` (scope `xploryngdaos-projects`), deploy automático a cada push em `main`. Exige `VITE_API_BASE_URL` apontando para a API pública |
 | **GitHub** | <https://github.com/xploryngDAO/IntegrAI> (público, MIT) |
 | Build na Vercel | `npm run build:shared && npm run build --workspace @sac/web` · output `apps/web/dist` · `vercel.json` na raiz |
-| Env na Vercel | `VITE_MOCK_MODE=true` (produção) — sem API anexada, a UI usa as fixtures; remova/defina `false` e aponte `VITE_API_BASE_URL` para um backend real |
-| Stack completo | `docker compose up -d --build` em qualquer host (API :4000 + web :8080 + Postgres/Redis) |
+| Backend (obrigatório) | `docker compose up -d --build` em VM/host com Docker (API :4000 + web :8080 + Postgres/Redis) — ver [SETUP_PRODUCTION](docs/SETUP_PRODUCTION.md) |
+| Validação | `npm run doctor` (infra + credenciais reais por canal) |
 
-A Vercel hospeda **somente o frontend** (SPA estática). O backend é um serviço
-long-running (Fastify + workers BullMQ + Postgres + Redis + S3), que não cabe no
-modelo serverless; por isso a demo pública roda em modo demonstração e o stack
-completo é publicado via Docker/VM/Kubernetes.
+A Vercel hospeda **somente o SPA**. O backend é um serviço long-running
+(Fastify + workers BullMQ + Postgres + Redis + S3) e precisa de Docker/VM/Kubernetes;
+sem ele, a UI mostra a tela de login e os endpoints retornam erro — **não há
+fallback simulado**.
 
 ## Sumário
 
 - [Stack](#stack)
 - [Quick start](#quick-start)
-- [Modo demonstração (sem backend)](#modo-demonstração-sem-backend)
+- [Diagnóstico e validação das integrações](#diagnóstico-e-validação-das-integrações)
 - [Como conectar cada marketplace](#como-conectar-cada-marketplace)
 - [Estrutura do repositório](#estrutura-do-repositório)
 - [Regras de ouro implementadas](#regras-de-ouro-implementadas)
@@ -131,13 +131,14 @@ docker compose --profile s3 up -d
 > `POSTGRES_HOST_PORT=55432` (e `REDIS_HOST_PORT=56379`, `WEB_HOST_PORT=58080`)
 > no `.env` e atualize `DATABASE_URL`/`REDIS_URL` para as mesmas portas.
 
-### 2. Banco, migrações e dados de demonstração
+### 2. Banco, migrações e operador inicial
 
 ```bash
 npm install
 npm run prisma:generate
 npm run prisma:migrate:deploy   # aplica prisma/migrations
-npm run db:seed                 # 7 atendimentos, 13 mensagens, 3 lojas, 4 operadores
+ADMIN_EMAIL=voce@suaempresa.com.br ADMIN_PASSWORD='uma-senha-forte-12+' npm run db:seed
+# cria apenas o operador ADMIN — nenhum dado de marketplace é semeado
 ```
 
 ### 3. Rodar
@@ -148,19 +149,9 @@ npm run dev        # API em :4000 + web em :5173 (proxy /api e /socket.io)
 npm run build && docker compose up -d --build   # API :4000 + web :8080
 ```
 
-A web app abre em dois modos, sem configuração extra:
-
-- **API real** — se a API responder, a tela de login aparece; use
-  **marina@sachub.demo / sac-hub-2024** (perfis `ana@`, `bruno@`, `carla@` com a
-  mesma senha). Os dados vêm do PostgreSQL (7 atendimentos semeados).
-- **Modo demonstração** — se a API estiver fora do ar (ou pelo botão *Entrar em
-  modo demonstração*), o cliente ativa os fixtures em memória e mostra a faixa
-  de demonstração. Funciona 100% offline, com os 6 cenários dos 3 canais.
-
-> As lojas do seed são criadas **sem credenciais reais** de propósito: a
-> telemetria de canal reporta `token expirado` até você conectar uma loja de
-> verdade em `/accounts`. Isso é o comportamento correto — o sistema nunca finge
-> que pode enviar sem token.
+A web app tem **apenas o modo real**: tela de login → API. Sem API, sem usuário e
+sem lojas conectadas, o sistema mostra erro honesto — **não existe fallback
+simulado**. Use o ADMIN criado no bootstrap e conecte as lojas em `/accounts`.
 
 ### 4. Verificar
 
@@ -168,23 +159,35 @@ A web app abre em dois modos, sem configuração extra:
 curl http://localhost:4000/api/v1/health
 curl -X POST http://localhost:4000/api/v1/auth/login \
   -H "content-type: application/json" \
-  -d '{"email":"marina@sachub.demo","password":"sac-hub-2024"}'
+  -d '{"email":"voce@suaempresa.com.br","password":"sua-senha"}'
+npm run doctor   # infra + credenciais reais de cada canal
 ```
 
-## Modo demonstração (sem backend)
+## Diagnóstico e validação das integrações
 
-A UI foi construída para demonstrar o produto **sem nenhuma dependência de infra**:
-se a API não responder, o cliente ativa automaticamente os fixtures
-(`apps/web/src/lib/mock`) e exibe a faixa “Modo demonstração”. O dataset cobre os
-6 cenários do blueprint: Amazon pós-venda + pré-venda com opt-out, Meli claim
-ativo + pergunta pré-venda, Shopee CRR em risco + disputa N2.
+Não há simulação. Para provar que cada canal está funcional com as **suas**
+credenciais, use o diagnóstico real:
 
 ```bash
-npm run build:shared
-npm run dev:web        # http://localhost:5173
+npm run doctor                      # infra + todas as lojas conectadas
+npm run doctor -- --account=<uuid>  # uma loja específica
 ```
 
-Para forçar mock: `VITE_MOCK_MODE=true npm run dev:web`.
+Cada check executa uma chamada real (token exchange + leitura barata) e retorna
+`ok | warn | fail | skipped`, latência e o que corrigir:
+
+| Canal | O que é chamado de verdade |
+|---|---|
+| Amazon | LWA token exchange + `GET /sellers/v1/marketplaceParticipations` (+ RDT opcional) |
+| Mercado Livre | refresh/token + `GET /users/me` + `GET /users/{id}` |
+| Shopee | `POST /api/v2/shop/get_shop_info` assinado (+ lost push opcional) |
+| Infra | Postgres, Redis e S3 |
+
+O mesmo diagnóstico está disponível na UI (`/accounts` → *Testar conexão*) e na
+API (`GET /api/v1/diagnostics` / `POST /api/v1/accounts/:id/diagnose`).
+
+- Matriz completa do que foi validado: [docs/INTEGRATION_VALIDATION.md](docs/INTEGRATION_VALIDATION.md)
+- Passo a passo de configuração: [docs/SETUP_PRODUCTION.md](docs/SETUP_PRODUCTION.md)
 
 ## Como conectar cada marketplace
 
@@ -209,7 +212,7 @@ URLs de webhook exibidas no wizard:
 prisma/
   schema.prisma                 modelo unificado (5 tabelas centrais + 5 de apoio)
   migrations/20251105000000_init/migration.sql
-  seed.ts                       dataset de demonstração dos 3 canais
+  seed.ts                       bootstrap do operador ADMIN (sem dados fake)
 packages/shared/src/            @sac/shared — contrato congelado
   enums.ts dto.ts adapter.ts constants.ts compliance.ts errors.ts
   ports/infra.ts ports/repositories.ts ports/services.ts
@@ -227,7 +230,7 @@ packages/server/src/
   http/                         Fastify app, rotas, controllers, middleware, Socket.IO
   queues/                       producers, workers, schedulers, DLQ
 apps/web/src/
-  lib/                          api client, store zustand, labels, fixtures de demonstração
+  lib/                          api client real, store zustand, labels, tema
   components/ui · layout · queue · chat · cockpit · accounts
   pages/                        WorkspacePage (3 colunas) · AccountsPage (onboarding)
 docs/                           ARCHITECTURE · API_CONTRACT · CHANNEL_CONTRACTS · UI_SPEC · UI_KIT
@@ -320,7 +323,7 @@ código de erro) para auditoria e reprocessamento.
 ```bash
 npm run typecheck        # shared + server + web (strict)
 npm run build            # shared + prisma client + server + web
-npm test                 # vitest (62 testes puros: policy, assinatura Shopee, rotas Meli, MIME Amazon)
+npm test                 # vitest (92 testes: policy, assinatura Shopee, rotas Meli, MIME Amazon, diagnose dos 3 canais)
 docker compose config    # valida o compose
 ```
 
@@ -332,15 +335,19 @@ Evidências coletadas neste repositório (ambiente local, Docker 27 / Node 24):
 | `prisma migrate deploy` | 1 migração aplicada em PostgreSQL 16 |
 | `npm run db:seed` | 4 operadores, 3 lojas, 5 pedidos, 7 atendimentos, 13 mensagens |
 | `npm run build` | shared + server + web sem erros (strict, 0 `any`, 0 `@ts-ignore`) |
-| `vitest run` | 62 testes / 7 arquivos, todos verdes |
+| `vitest run` | 92 testes / 11 arquivos, todos verdes |
 | `docker compose up -d --build` | `sac-api` healthy (auto-migra), `sac-web` (nginx) healthy |
 | `POST /webhooks/shopee` assinatura inválida | `401` |
 | `POST /webhooks/mercadolivre` duplicado | `200 {"status":"DUPLICATE"}` (idempotência Redis `SET NX EX 86400`) |
 | Latência webhook Meli (5 amostras) | 28–33 ms (primeira chamada 167 ms — JIT) |
-| Login via nginx (`:8080/api/v1/auth/login`) | `200` + JWT |
+| Login via nginx (`:8080/api/v1/auth/login`) | `200` + JWT (operador ADMIN do bootstrap) |
+| `npm run doctor` | Postgres ✓, Redis ✓, S3/MinIO ✕ acionável, 0 contas → warn; exit 1 só em falha real |
+| Diagnóstico por canal | adapter.diagnose real (LWA+participations / Meli users / Shopee get_shop_info) com 92 testes cobrindo o mapeamento |
 | UI 3 colunas — modo API real | 7 atendimentos do Postgres renderizados |
 | UI — guardrail Amazon | links externos + e-mail + WhatsApp bloqueiam o envio em tempo real |
-| UI — design system | `@xploryng/convergencia` v0.1.0 como dependência real, tema claro/escuro, 1440/1280/390 revisados |
+| UI — design system | Convergência v0.1.0, tema claro/escuro, 1440/1280/390 revisados |
+| `npm run doctor` | infra ok/fail + credenciais reais por canal (sem credencial = fail acionável, sem crash) |
+| Integrações | **sem modo simulado**: removidos fixtures, banners e `VITE_MOCK_MODE` |
 | `tsc -p apps/web` + `vite build` | 0 erros · CSS 58 kB · JS 498 kB (gzip 155 kB) |
 
 ## Roadmap técnico

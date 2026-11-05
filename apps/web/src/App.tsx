@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useWorkspace } from './lib/store';
-import { ApiClientError, api, isMockMode } from './lib/api';
+import { ApiClientError, api } from './lib/api';
 import { AppShell } from './components/layout/AppShell';
-import { DemoModeBanner } from './components/layout/DemoModeBanner';
 import { ToastViewport } from './components/layout/ToastViewport';
 import { LoginPage } from './pages/LoginPage';
 import { WorkspacePage } from './pages/WorkspacePage';
@@ -14,41 +13,37 @@ type AuthState = 'checking' | 'authenticated' | 'anonymous';
 /**
  * App shell + routes.
  *
- * Boot sequence:
- *  1. offline/demo session (`VITE_MOCK_MODE=true` or API unreachable) boots with
- *     the mock agent, no credential wall;
- *  2. a reachable API with a valid token boots straight into the workspace;
- *  3. a reachable API answering 401 shows the credential gate.
+ * Session resolution:
+ *  1. a valid API session (`GET /auth/me` succeeds) boots straight into the workspace;
+ *  2. 401 shows the credential gate;
+ *  3. any other failure shows the credential gate with the real error attached,
+ *     so the operator sees what the API actually reported.
  */
 export default function App(): JSX.Element {
   const boot = useWorkspace((state) => state.boot);
   const [authState, setAuthState] = useState<AuthState>('checking');
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function resolveSession(): Promise<void> {
-      if (isMockMode()) {
-        await boot();
-        if (!cancelled) setAuthState('authenticated');
-        return;
-      }
       try {
         await api.me();
         await boot();
         if (!cancelled) setAuthState('authenticated');
       } catch (error) {
-        if (isMockMode()) {
-          await boot();
-          if (!cancelled) setAuthState('authenticated');
-          return;
-        }
+        if (cancelled) return;
+        setAuthState('anonymous');
         if (error instanceof ApiClientError && error.status === 401) {
-          if (!cancelled) setAuthState('anonymous');
+          setSessionError(null);
           return;
         }
-        await boot();
-        if (!cancelled) setAuthState('authenticated');
+        setSessionError(
+          error instanceof Error && error.message
+            ? error.message
+            : 'Não foi possível verificar a sessão. Tente novamente.',
+        );
       }
     }
 
@@ -59,6 +54,7 @@ export default function App(): JSX.Element {
   }, [boot]);
 
   const handleAuthenticated = useCallback((): void => {
+    setSessionError(null);
     setAuthState('authenticated');
     void boot();
   }, [boot]);
@@ -75,7 +71,7 @@ export default function App(): JSX.Element {
   if (authState === 'anonymous') {
     return (
       <>
-        <LoginPage onAuthenticated={handleAuthenticated} />
+        <LoginPage onAuthenticated={handleAuthenticated} initialError={sessionError ?? undefined} />
         <ToastViewport />
       </>
     );
@@ -84,7 +80,7 @@ export default function App(): JSX.Element {
   return (
     <>
       <Routes>
-        <Route element={<AppShell banner={<DemoModeBanner />} />}>
+        <Route element={<AppShell />}>
           <Route path="/" element={<WorkspacePage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

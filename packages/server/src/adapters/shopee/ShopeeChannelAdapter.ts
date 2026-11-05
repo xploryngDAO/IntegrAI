@@ -8,6 +8,7 @@ import {
   type ChannelActionRequest,
   type ChannelActionResult,
   type ChannelRoute,
+  type DiagnosisCheck,
   type HydratedInboundMessage,
   type IMarketplaceChannelAdapter,
   type ILogger,
@@ -27,9 +28,18 @@ import { ShopeeAuth } from './client/ShopeeAuth';
 import { ShopeeWebhookParser } from './inbound/ShopeeWebhookParser';
 import { ShopeeHydrator } from './inbound/ShopeeHydrator';
 import { ShopeeChat } from './outbound/ShopeeChat';
-import { ShopeeReturns } from './outbound/ShopeeReturns';
+import { ShopeeReturns, type ShopeeDisputeImageModule } from './outbound/ShopeeReturns';
 import { ShopeeMaintenance, type ShopeeMaintenanceTask } from './ShopeeMaintenance';
-import { asNumber, asRecord, pickNumber, pickString, toEpochMs } from './mappers';
+import { ShopeeDiagnostics } from './ShopeeDiagnostics';
+import {
+  asNumber,
+  asRecord,
+  asString,
+  pickArray,
+  pickNumber,
+  pickString,
+  toEpochMs,
+} from './mappers';
 import { SHOPEE_CRR_METADATA_KEYS } from './types';
 
 const CRR_RISK_HOURS = 12;
@@ -55,6 +65,7 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
   private readonly chat: ShopeeChat;
   private readonly returns: ShopeeReturns;
   private readonly maintenance: ShopeeMaintenance;
+  private readonly diagnostics: ShopeeDiagnostics;
 
   constructor(deps: AdapterDependencies) {
     this.deps = deps;
@@ -72,6 +83,7 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
     this.chat = new ShopeeChat(deps, this.client);
     this.returns = new ShopeeReturns(deps, this.client, this.chat);
     this.maintenance = new ShopeeMaintenance(deps, this.client, this.auth);
+    this.diagnostics = new ShopeeDiagnostics(deps, this.client, this.auth);
   }
 
   /** Store authorization URL (`/api/v2/shop/auth_partner`) for the AccountService. */
@@ -186,6 +198,15 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
     return this.maintenance.run();
   }
 
+  /**
+   * Live diagnostics used by `GET /diagnostics` and `npm run doctor`.
+   * Performs real signed calls (get_shop_info, optional get_lost_push_message)
+   * and never simulates success.
+   */
+  diagnose(input: { accountId: string }): Promise<DiagnosisCheck[]> {
+    return this.diagnostics.diagnose(input);
+  }
+
   /* ==========================================================================
    * Structured cockpit actions
    * ========================================================================== */
@@ -254,16 +275,25 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
     const returnSn =
       request.returnSn ?? ticket?.returnSn ?? pickString(payload, ['return_sn', 'returnSn']);
     const attachments = request.attachments ?? [];
+    const channelConfig = await this.loadChannelConfig(request.accountId);
 
     const result = await this.returns.disputeReturn({
       accountId: request.accountId,
       returnSn: returnSn ?? '',
-      disputeReason:
-        pickNumber(payload, ['dispute_reason', 'disputeReason']) ??
-        pickNumber({ ...(ticket?.channelMetadata ?? {}) }, ['dispute_reason']),
+      // Official v2.returns.dispute requires the seller contact e-mail.
+      email:
+        pickString(payload, ['email', 'dispute_email']) ??
+        pickString(channelConfig, ['dispute_email', 'contact_email', 'seller_email']) ??
+        request.agent?.email ??
+        null,
+      // Official field: dispute_reason_id (legacy dispute_reason accepted as-is).
+      disputeReasonId:
+        pickNumber(payload, ['dispute_reason_id', 'disputeReasonId', 'dispute_reason']) ??
+        pickNumber(ticket?.channelMetadata ?? null, ['dispute_reason_id']),
       disputeTextReason:
         pickString(payload, ['dispute_text_reason', 'disputeTextReason', 'reason_text']) ??
         pickString(request.payload ?? null, ['text']),
+      imageList: this.readDisputeImageList(payload),
       attachments,
     });
 
@@ -277,6 +307,7 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
         request_id: result.requestId,
         return_sn: returnSn ?? null,
         image_urls: result.imageUrls,
+        image_list: result.imageModules,
         response: result.data,
       },
     };
@@ -379,6 +410,44 @@ export class ShopeeChannelAdapter implements IMarketplaceChannelAdapter {
       });
       return null;
     }
+  }
+
+  private async loadChannelConfig(accountId: string): Promise<Record<string, unknown>> {
+    try {
+      const account = await this.deps.repos.accounts.findById(accountId);
+      return account?.channelConfig ?? {};
+    } catch (error) {
+      this.logger.debug('Shopee: account config lookup failed', {
+        accountId,
+        error: this.describeError(error),
+      });
+      return {};
+    }
+  }
+
+  /**
+   * Optional official `image_list` supplied by the caller (evidence modules
+   * already resolved). Otherwise `ShopeeReturns` resolves the modules from
+   * `v2.returns.get_return_dispute_reason` and distributes the uploads.
+   */
+  private readDisputeImageList(
+    payload: Record<string, unknown>,
+  ): ShopeeDisputeImageModule[] | null {
+    const raw = payload['image_list'];
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    const modules = raw
+      .map(asRecord)
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((entry) => ({
+        module_index: pickNumber(entry, ['module_index']) ?? 0,
+        requirement:
+          pickString(entry, ['requirement']) ?? 'Evidência da devolução',
+        image_url: pickArray(entry, ['image_url'])
+          .map(asString)
+          .filter((url): url is string => url !== null),
+      }))
+      .filter((entry) => entry.module_index > 0 && entry.image_url.length > 0);
+    return modules.length > 0 ? modules : null;
   }
 
   private resolvePayloadMessageType(

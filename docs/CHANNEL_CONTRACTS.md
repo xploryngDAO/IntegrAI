@@ -265,3 +265,5 @@ inbound and older than 12h.
   and emit `realtime.channelHealth`.
 - Truncate all persisted text to 200k chars and redact PII from log lines with
   `redactPiiForLogs`.
+
+> **Nota de conformidade (Shopee push codes):** a matriz acima é a do produto; a matriz pública da Shopee usa outros códigos (3=status do pedido, 4=tracking, 10=webchat, 6=item banido, 7=promotion). O hydrator despacha **primeiro pelo formato do payload**, de modo que as duas matrizes funcionam e pushes de shop/item/promotion não criam tickets espúrios.

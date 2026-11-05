@@ -5,6 +5,7 @@ import { agentRoutes } from './agents.routes';
 import { ticketRoutes } from './tickets.routes';
 import { accountRoutes } from './accounts.routes';
 import { fileRoutes } from './files.routes';
+import { diagnosticsRoutes } from './diagnostics.routes';
 import { telemetryRoutes } from './telemetry.routes';
 import { healthRoutes } from './health.routes';
 import { webhookRoutes } from './webhooks.routes';
@@ -19,6 +20,7 @@ export async function registerApiRoutes(app: FastifyInstance, ctx: HttpRouteCont
   await app.register(ticketRoutes, { prefix: '/tickets', ...ctx });
   await app.register(accountRoutes, { prefix: '/accounts', ...ctx });
   await app.register(fileRoutes, { prefix: '/files', ...ctx });
+  await app.register(diagnosticsRoutes, ctx);
   await app.register(telemetryRoutes, ctx);
   await app.register(healthRoutes, ctx);
 }

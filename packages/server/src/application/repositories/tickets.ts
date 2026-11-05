@@ -79,7 +79,6 @@ export class PrismaTicketRepository implements ITicketRepository {
       assignedQueue: input.assignedQueue ?? null,
       channelMetadata: toInputJson(input.channelMetadata ?? {}),
       tags: input.tags ?? [],
-      isDemo: input.isDemo ?? false,
     };
 
     const record = await this.prisma.supportTicket.create({ data });
