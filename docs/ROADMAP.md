@@ -99,8 +99,8 @@ Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 
 - [x] Roadmap documentado
 - [x] Fase 0 — schema + migração (tenant_id nullable, backfill do tenant `integrai`)
-- [ ] Fase 0 — auth com tenant (próximo passo)
-- [ ] Fase 0 — escopo de leitura/escrita
+- [x] Fase 0 — auth com tenant (JWT/login/verify + middleware)
+- [ ] Fase 0 — escopo de leitura/escrita (contas/agentes ok; tickets pendentes)
 - [ ] Fase 0 — testes de isolamento
 - [ ] Fase 1 — signup/reset/convites
 - [ ] Fase 2 — onboarding guiado
