@@ -28,6 +28,7 @@ import {
 } from './application/OutboundRouterService';
 import { SlaEngine } from './application/sla/SlaEngine';
 import { TicketQueryService } from './application/TicketQueryService';
+import { TwoFactorService } from './application/TwoFactorService';
 import { UnifiedTicketService } from './application/UnifiedTicketService';
 import { WebhookIngressService } from './application/WebhookIngressService';
 import type {
@@ -210,6 +211,19 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  const twoFactor = new TwoFactorService({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    cipher: infra.cipher,
+    jwtSecret: config.jwtSecret,
+    agentsService: agents,
+    repos: {
+      agents: infra.agents,
+      twoFactor: infra.twoFactor,
+    },
+  });
+
   const auth = new AuthService({
     logger: infra.logger,
     clock: infra.clock,
@@ -322,6 +336,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     outbound,
     agents,
     auth,
+    twoFactor,
     sessions,
     invitations,
     webhooks,

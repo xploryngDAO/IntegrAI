@@ -202,27 +202,47 @@ model Tenant {
 // ----------------------------------------------------------------------------
 
 model Agent {
-  id              String              @id @default(uuid()) @db.Uuid
-  tenantId        String?             @map("tenant_id") @db.Uuid
-  email           String              @unique @db.VarChar(180)
-  name            String              @db.VarChar(120)
-  passwordHash    String              @map("password_hash") @db.VarChar(255)
-  role            AgentRole           @default(AGENT)
-  presence        AgentPresenceStatus @default(OFFLINE)
-  avatarColor     String              @default("#2563eb") @map("avatar_color") @db.VarChar(16)
-  maxConcurrent   Int                 @default(20) @map("max_concurrent")
-  isActive        Boolean             @default(true) @map("is_active")
-  lastSeenAt      DateTime?           @map("last_seen_at") @db.Timestamptz(6)
-  emailVerifiedAt DateTime?           @map("email_verified_at") @db.Timestamptz(6)
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String              @id @default(uuid()) @db.Uuid
+  tenantId           String?             @map("tenant_id") @db.Uuid
+  email              String              @unique @db.VarChar(180)
+  name               String              @db.VarChar(120)
+  passwordHash       String              @map("password_hash") @db.VarChar(255)
+  role               AgentRole           @default(AGENT)
+  presence           AgentPresenceStatus @default(OFFLINE)
+  avatarColor        String              @default("#2563eb") @map("avatar_color") @db.VarChar(16)
+  maxConcurrent      Int                 @default(20) @map("max_concurrent")
+  isActive           Boolean             @default(true) @map("is_active")
+  lastSeenAt         DateTime?           @map("last_seen_at") @db.Timestamptz(6)
+  emailVerifiedAt    DateTime?           @map("email_verified_at") @db.Timestamptz(6)
+  /// TOTP shared secret, encrypted with the AES-256-GCM `SecretCipher`
+  /// (`ISecretCipher`). Present while a setup is pending and while 2FA is on.
+  twoFactorSecretEnc String?             @map("two_factor_secret_enc") @db.Text
+  twoFactorEnabled   Boolean             @default(false) @map("two_factor_enabled")
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tickets  SupportTicket[]
-  messages TicketMessage[] @relation("MessageAuthor")
-  events   TicketEvent[]
+  tickets                SupportTicket[]
+  messages               TicketMessage[]         @relation("MessageAuthor")
+  events                 TicketEvent[]
+  twoFactorRecoveryCodes TwoFactorRecoveryCode[]
 
   @@index([tenantId])
   @@map("agents")
+}
+
+/// One-time 2FA recovery code. Only the SHA-256 of the normalized code is
+/// stored; `used_at` is the single-use marker (conditional update in the repo).
+model TwoFactorRecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @unique @map("code_hash") @db.VarChar(64)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user Agent @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("two_factor_recovery_codes")
 }
 
 // ----------------------------------------------------------------------------

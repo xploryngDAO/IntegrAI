@@ -18,6 +18,8 @@ import type {
   IRealtimePublisher,
   ITenantRepository,
   ITicketRepository,
+  LoginResult,
+  LoginSuccess,
   TenantRecord,
 } from '@sac/shared';
 
@@ -245,6 +247,8 @@ class InMemoryAgentRepository implements IAgentRepository {
       isActive: input.isActive ?? true,
       lastSeenAt: null,
       emailVerifiedAt: input.emailVerifiedAt ?? null,
+      twoFactorSecretEnc: null,
+      twoFactorEnabled: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -272,6 +276,8 @@ class InMemoryAgentRepository implements IAgentRepository {
       isActive: true,
       lastSeenAt: null,
       emailVerifiedAt: input.emailVerifiedAt ?? null,
+      twoFactorSecretEnc: null,
+      twoFactorEnabled: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -435,6 +441,14 @@ function buildAgentService(
     ...(sessions !== undefined ? { sessions } : {}),
     repos: { agents, tickets },
   });
+}
+
+/** Login returns a union (session | 2FA challenge); these tests expect a session. */
+function expectLoginSuccess(result: LoginResult): LoginSuccess {
+  if ('twoFactorRequired' in result) {
+    throw new Error('Expected an authenticated session, got a 2FA challenge');
+  }
+  return result;
 }
 
 let verifiedPasswordHash = '';
@@ -785,7 +799,7 @@ describe('AgentService.login + e-mail verification', () => {
     });
     const service = buildAgentService(agents, clock);
 
-    const result = await service.login('admin@integrai.test', TEST_PASSWORD);
+    const result = expectLoginSuccess(await service.login('admin@integrai.test', TEST_PASSWORD));
 
     expect(result.agent).toMatchObject({
       id: admin.id,
@@ -816,10 +830,12 @@ describe('AgentService.login + refresh token issuance', () => {
     });
     const service = buildAgentService(agents, clock, sessionService);
 
-    const result = await service.login('admin@tenant.test', TEST_PASSWORD, {
-      userAgent: 'Mozilla/5.0 (test)',
-      ip: '203.0.113.10',
-    });
+    const result = expectLoginSuccess(
+      await service.login('admin@tenant.test', TEST_PASSWORD, {
+        userAgent: 'Mozilla/5.0 (test)',
+        ip: '203.0.113.10',
+      }),
+    );
 
     expect(result.token.length).toBeGreaterThan(0);
     expect(typeof result.refreshToken).toBe('string');
@@ -859,7 +875,7 @@ describe('AgentService.login + refresh token issuance', () => {
     });
     const service = buildAgentService(agents, clock, sessionService);
 
-    const result = await service.login('legacy@tenant.test', TEST_PASSWORD);
+    const result = expectLoginSuccess(await service.login('legacy@tenant.test', TEST_PASSWORD));
 
     expect(result.refreshToken).toBeUndefined();
     expect(sessions.rows).toHaveLength(0);
@@ -890,7 +906,7 @@ describe('AgentService.login + refresh token issuance', () => {
     } as unknown as IAuthSessionService;
     const service = buildAgentService(agents, clock, failingSessions);
 
-    const result = await service.login('admin@broken.test', TEST_PASSWORD);
+    const result = expectLoginSuccess(await service.login('admin@broken.test', TEST_PASSWORD));
 
     expect(result.token.length).toBeGreaterThan(0);
     expect(result.refreshToken).toBeUndefined();

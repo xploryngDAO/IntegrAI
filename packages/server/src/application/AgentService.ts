@@ -15,11 +15,13 @@ import type {
   IRealtimePublisher,
   ITicketRepository,
   LoginResult,
+  LoginSuccess,
   SessionDeviceInfo,
 } from '@sac/shared';
 import { AppError, AuthenticationError, NotFoundError, ValidationError } from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
+import { signTwoFactorChallengeToken } from './auth/two-factor-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
 
 /**
@@ -60,6 +62,11 @@ interface AgentJwtClaims {
   name: string;
   role: string;
   tenantId?: string | null;
+  /**
+   * Scoped tokens (2FA challenge) are signed with the same secret but MUST NOT
+   * be accepted as a session: `verifyToken` rejects any `scope` claim.
+   */
+  scope?: string;
   iat?: number;
   exp?: number;
 }
@@ -134,16 +141,48 @@ export class AgentService implements IAgentService {
       );
     }
 
+    // Fase 1: 2FA-enabled operators get NOTHING but a 5 min challenge JWT.
+    // No access token, no refresh session and no presence change until the
+    // second factor is redeemed on `/auth/2fa/challenge`.
+    if (agent.twoFactorEnabled) {
+      this.logger.info('agent.login.two_factor_required', { agentId: agent.id });
+      return {
+        twoFactorRequired: true,
+        challengeToken: signTwoFactorChallengeToken({
+          userId: agent.id,
+          tenantId: agent.tenantId ?? null,
+          secret: this.jwtSecret,
+        }),
+      };
+    }
+
+    const session = await this.issueSessionFor(agent, device);
+    this.logger.info('agent.login.succeeded', { agentId: agent.id, role: agent.role });
+    return session;
+  }
+
+  /**
+   * Issues a session for an operator whose identity is already proven (password
+   * + e-mail verification, or a redeemed 2FA challenge). Keeps the refresh-token
+   * bookkeeping best effort: a legacy operator without a tenant (or a transient
+   * DB failure) must still be able to log in with the JWT alone.
+   */
+  async issueSession(agentId: string, device?: SessionDeviceInfo): Promise<LoginSuccess> {
+    const agent = await this.agents.findById(agentId);
+    if (agent === null || !agent.isActive) {
+      throw new AuthenticationError('Invalid credentials');
+    }
+    return this.issueSessionFor(agent, device);
+  }
+
+  private async issueSessionFor(
+    agent: AgentRecord,
+    device?: SessionDeviceInfo,
+  ): Promise<LoginSuccess> {
     const token = this.signToken(agent);
     await this.writePresence(agent.id, 'ONLINE', agent.name);
-
-    // Fase 1: a refresh token lets the SPA renew the short access token without
-    // asking for the password again. Session bookkeeping is best effort: a
-    // legacy operator without a tenant (or a transient DB failure) must still be
-    // able to log in with the JWT alone.
     const refreshToken = await this.issueRefreshToken(agent, device);
 
-    this.logger.info('agent.login.succeeded', { agentId: agent.id, role: agent.role });
     return {
       token,
       ...(refreshToken !== null ? { refreshToken } : {}),
@@ -168,6 +207,11 @@ export class AgentService implements IAgentService {
       }) as unknown as AgentJwtClaims;
       if (!decoded || typeof decoded.sub !== 'string') {
         throw new AuthenticationError('Malformed token payload');
+      }
+      // Defence in depth: a challenge JWT is not an access token. Even if a
+      // future change aligns the audience, the scope claim keeps the guard safe.
+      if (decoded.scope !== undefined) {
+        throw new AuthenticationError('Token is not an access token');
       }
       return {
         agentId: decoded.sub,

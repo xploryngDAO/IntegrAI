@@ -19,6 +19,7 @@ import type {
   ISlaPolicyRepository,
   ISecretCipher,
   ITenantRepository,
+  ITwoFactorRepository,
 } from '@sac/shared';
 import type { AppConfig } from '../config';
 import {
@@ -30,6 +31,7 @@ import {
   createSessionRepository,
   createSlaPolicyRepository,
   createTenantRepository,
+  createTwoFactorRepository,
 } from '../application/repositories';
 import { SecretCipher } from './crypto/cipher';
 import { SmtpEmailService } from './email/email-service';
@@ -68,6 +70,7 @@ export interface InfrastructureBundle {
   passwordResets: IPasswordResetRepository;
   sessions: ISessionRepository;
   slaPolicies: ISlaPolicyRepository;
+  twoFactor: ITwoFactorRepository;
   email: IEmailService;
 }
 
@@ -136,6 +139,7 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const passwordResets = createPasswordResetRepository(prisma);
   const sessions = createSessionRepository(prisma);
   const slaPolicies = createSlaPolicyRepository(prisma);
+  const twoFactor = createTwoFactorRepository(prisma);
 
   const email = new SmtpEmailService({
     host: config.smtp.host,
@@ -169,6 +173,7 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     passwordResets,
     sessions,
     slaPolicies,
+    twoFactor,
     email,
   };
 }

@@ -177,8 +177,27 @@ export interface AgentRecord {
   lastSeenAt: Date | null;
   /** `null` until the self-service e-mail verification is consumed (Fase 1). */
   emailVerifiedAt: Date | null;
+  /**
+   * TOTP secret encrypted with `ISecretCipher` (AES-256-GCM). Present while a
+   * setup is pending and while 2FA is enabled; `null` when 2FA is off.
+   */
+  twoFactorSecretEnc: string | null;
+  /** True only after `/auth/2fa/verify` accepted a valid TOTP code. */
+  twoFactorEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * One-time 2FA recovery code. Only the SHA-256 of the normalized code is
+ * persisted; `usedAt` is the single-use marker.
+ */
+export interface TwoFactorRecoveryCodeRecord {
+  id: string;
+  userId: string;
+  codeHash: string;
+  usedAt: Date | null;
+  createdAt: Date;
 }
 
 export interface TenantRecord {

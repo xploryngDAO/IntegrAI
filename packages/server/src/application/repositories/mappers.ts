@@ -271,10 +271,13 @@ export function mapAgent(record: Agent): AgentRecord {
     isActive: record.isActive,
     lastSeenAt: record.lastSeenAt,
     emailVerifiedAt: record.emailVerifiedAt,
+    twoFactorSecretEnc: record.twoFactorSecretEnc,
+    twoFactorEnabled: record.twoFactorEnabled,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
 }
+
 
 export function mapTenant(record: Tenant): TenantRecord {
   return {

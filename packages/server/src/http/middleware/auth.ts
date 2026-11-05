@@ -29,6 +29,9 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   '/api/v1/auth/accept-invitation',
   // Refresh authenticates itself with the rotating opaque token in the body.
   '/api/v1/auth/refresh',
+  // The short-lived challenge JWT in the body authenticates the second factor;
+  // a full access token does not exist yet at this point.
+  '/api/v1/auth/2fa/challenge',
 ];
 
 const OAUTH_CALLBACK_PATH = /^\/api\/v1\/accounts\/oauth\/[a-z]+\/callback$/;

@@ -2,6 +2,7 @@ import { NotFoundError } from '@sac/shared';
 import type {
   AuthResponse,
   IAgentSummary,
+  LoginSuccess,
   SessionDeviceInfo,
 } from '@sac/shared';
 import type { FastifyRequest } from 'fastify';
@@ -16,6 +17,9 @@ import {
   resendVerificationBodySchema,
   resetPasswordBodySchema,
   signupBodySchema,
+  twoFactorChallengeBodySchema,
+  twoFactorDisableBodySchema,
+  twoFactorVerifyBodySchema,
   verifyEmailBodySchema,
 } from '../schemas';
 import { parseInput } from '../schemas/common';
@@ -35,6 +39,27 @@ export interface AuthControllers {
   acceptInvitation: RouteHandler;
   refresh: RouteHandler;
   logout: RouteHandler;
+  twoFactorSetup: RouteHandler;
+  twoFactorVerify: RouteHandler;
+  twoFactorDisable: RouteHandler;
+  twoFactorStatus: RouteHandler;
+  twoFactorChallenge: RouteHandler;
+}
+
+/** The exact `AuthResponse` shape shared by login, refresh, invite and 2FA. */
+function toAuthResponse(result: LoginSuccess): AuthResponse {
+  return {
+    token: result.token,
+    ...(result.refreshToken !== undefined ? { refreshToken: result.refreshToken } : {}),
+    agent: {
+      id: result.agent.id,
+      name: result.agent.name,
+      email: result.agent.email,
+      role: toAgentRole(result.agent.role),
+      presence: result.agent.presence,
+      tenantId: result.agent.tenantId,
+    },
+  };
 }
 
 /**
@@ -61,8 +86,15 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
   };
 
   return {
-    /** `POST /auth/login` - public. */
-    async login(request) {
+    /**
+     * `POST /auth/login` - public.
+     *
+     * 200 with the `AuthResponse` for a normal login. When the operator has 2FA
+     * enabled, NO token is issued: 401 with `{ code: 'TWO_FACTOR_REQUIRED',
+     * challengeToken }` (top-level shape required by the 2FA contract; the token
+     * is redeemed on `/auth/2fa/challenge`).
+     */
+    async login(request, reply) {
       const body = parseInput(loginBodySchema, request.body, 'body');
       const result = await services.agents.login(
         body.email,
@@ -70,18 +102,12 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         deviceInfo(request, body.deviceName),
       );
 
-      const response: AuthResponse = {
-        token: result.token,
-        ...(result.refreshToken !== undefined ? { refreshToken: result.refreshToken } : {}),
-        agent: {
-          id: result.agent.id,
-          name: result.agent.name,
-          email: result.agent.email,
-          role: toAgentRole(result.agent.role),
-          presence: result.agent.presence,
-          tenantId: result.agent.tenantId,
-        },
-      };
+      if ('twoFactorRequired' in result) {
+        reply.code(401);
+        return { code: 'TWO_FACTOR_REQUIRED', challengeToken: result.challengeToken };
+      }
+
+      const response = toAuthResponse(result);
 
       publishPresence({
         id: result.agent.id,
@@ -251,6 +277,69 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
 
       reply.code(204);
       return undefined;
+    },
+
+    /**
+     * `POST /auth/2fa/setup` - JWT.
+     *
+     * Generates a 160-bit base32 secret, stores it encrypted as PENDING
+     * (`enabled = false`) and returns the secret + `otpauth://` URL exactly once.
+     */
+    async twoFactorSetup(request) {
+      const agent = requireAgent(request);
+      const result = await services.twoFactor.setup(agent.id);
+      return ok(result);
+    },
+
+    /**
+     * `POST /auth/2fa/verify` - JWT.
+     *
+     * Confirms the pending secret and enables 2FA; the 8 recovery codes are
+     * returned in this response only (only their SHA-256 is persisted).
+     */
+    async twoFactorVerify(request) {
+      const agent = requireAgent(request);
+      const body = parseInput(twoFactorVerifyBodySchema, request.body, 'body');
+      const result = await services.twoFactor.verify(agent.id, body.code);
+      return ok(result);
+    },
+
+    /** `POST /auth/2fa/disable` - JWT: password + TOTP/recovery code. */
+    async twoFactorDisable(request) {
+      const agent = requireAgent(request);
+      const body = parseInput(twoFactorDisableBodySchema, request.body, 'body');
+      await services.twoFactor.disable(agent.id, body.password, body.code);
+      return ok({ enabled: false });
+    },
+
+    /** `GET /auth/2fa/status` - JWT: `{ enabled }` for the security settings. */
+    async twoFactorStatus(request) {
+      const agent = requireAgent(request);
+      const result = await services.twoFactor.status(agent.id);
+      return ok(result);
+    },
+
+    /**
+     * `POST /auth/2fa/challenge` - public.
+     *
+     * Redeems the short-lived challenge JWT issued by login with a TOTP code or
+     * a one-time recovery code, then returns the same `AuthResponse` as login.
+     */
+    async twoFactorChallenge(request) {
+      const body = parseInput(twoFactorChallengeBodySchema, request.body, 'body');
+      const result = await services.twoFactor.challenge(
+        body.challengeToken,
+        body.code,
+        deviceInfo(request, body.deviceName),
+      );
+
+      publishPresence({
+        id: result.agent.id,
+        name: result.agent.name,
+        presence: result.agent.presence,
+      });
+
+      return ok(toAuthResponse(result));
     },
   };
 }

@@ -34,6 +34,10 @@ export const CACHE_KEYS = {
   /** Fixed-window throttle for `POST /auth/resend-verification` (1/min). */
   emailVerificationResend: (email: string): string =>
     `sac:auth:email-verification:resend:${email}`,
+  /** Single-use guard for a 2FA challenge JWT (`jti`, 5 min TTL). */
+  twoFactorChallenge: (jti: string): string => `sac:auth:2fa:challenge:${jti}`,
+  /** Last accepted TOTP time-step per operator (replay protection). */
+  twoFactorTotpStep: (userId: string): string => `sac:auth:2fa:totp-step:${userId}`,
 } as const;
 
 /** BullMQ job names (stable - used for metrics and DLQ replay). */

@@ -67,8 +67,41 @@ export const logoutBodySchema = z.object({
   refreshToken: z.string().trim().min(32).max(256).optional(),
 });
 
+/* ==========================================================================
+ * Two-factor authentication (Fase 1: TOTP)
+ * ========================================================================== */
+
+/** 6-digit TOTP, or a formatted recovery code (`XXXX-XXXX`). */
+const twoFactorCodeSchema = z.string().trim().min(6).max(32);
+
+/** `POST /auth/2fa/verify` - confirms the pending secret (JWT). */
+export const twoFactorVerifyBodySchema = z.object({
+  code: twoFactorCodeSchema,
+});
+
+/**
+ * `POST /auth/2fa/disable` - password AND a valid TOTP/recovery code (JWT).
+ * `code` is optional at the schema level so the service can answer the stable
+ * `INVALID_TOTP` error instead of a generic 422.
+ */
+export const twoFactorDisableBodySchema = z.object({
+  password: z.string().min(1).max(200),
+  code: twoFactorCodeSchema.optional(),
+});
+
+/** `POST /auth/2fa/challenge` - public redemption of the login challenge. */
+export const twoFactorChallengeBodySchema = z.object({
+  challengeToken: z.string().trim().min(20).max(4096),
+  code: twoFactorCodeSchema,
+  /** Optional device label, see `loginBodySchema`. */
+  deviceName: z.string().trim().min(1).max(120).optional(),
+});
+
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type PresenceBody = z.infer<typeof presenceBodySchema>;
+export type TwoFactorVerifyBody = z.infer<typeof twoFactorVerifyBodySchema>;
+export type TwoFactorDisableBody = z.infer<typeof twoFactorDisableBodySchema>;
+export type TwoFactorChallengeBody = z.infer<typeof twoFactorChallengeBodySchema>;
 export type SignupBody = z.infer<typeof signupBodySchema>;
 export type VerifyEmailBody = z.infer<typeof verifyEmailBodySchema>;
 export type ResendVerificationBody = z.infer<typeof resendVerificationBodySchema>;

@@ -466,6 +466,32 @@ export interface IInvitationRepository {
   revoke(id: string, tenantId: string, at: Date): Promise<boolean>;
 }
 
+/* ==========================================================================
+ * TWO-FACTOR AUTHENTICATION (Fase 1: TOTP + recovery codes)
+ * ========================================================================== */
+
+/**
+ * Persistence port for the 2FA slice. Kept separate from `IAgentRepository` so
+ * the profile/team repositories stay untouched: only `TwoFactorService` mutates
+ * `two_factor_secret_enc` / `two_factor_enabled` and the recovery-code table.
+ */
+export interface ITwoFactorRepository {
+  /** Stores a freshly generated secret, leaving 2FA disabled (pending setup). */
+  setPendingSecret(userId: string, secretEnc: string): Promise<void>;
+  /**
+   * Atomically flips `two_factor_enabled` and replaces the whole recovery-code
+   * set: an operator can never end up enabled without usable backup codes.
+   */
+  enable(userId: string, codeHashes: string[]): Promise<void>;
+  /** Atomically disables 2FA, wipes the secret and deletes every recovery code. */
+  disable(userId: string): Promise<void>;
+  /**
+   * Single-use consumption scoped to the operator: conditional `updateMany`
+   * (`used_at IS NULL`) so two concurrent requests cannot redeem the same code.
+   */
+  consumeRecoveryCode(userId: string, codeHash: string, at: Date): Promise<boolean>;
+}
+
 export interface CreateSessionInput {
   userId: string;
   tenantId: string;

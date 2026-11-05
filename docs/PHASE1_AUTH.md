@@ -44,6 +44,8 @@ Decisões:
 | GET | `/users` | ADMIN | lista equipe do tenant |
 | PATCH | `/users/:id` | ADMIN | papel/ativo |
 | POST | `/auth/2fa/setup` \| `/auth/2fa/verify` \| `/auth/2fa/disable` | JWT | TOTP |
+| GET | `/auth/2fa/status` | JWT | `{ enabled }` |
+| POST | `/auth/2fa/challenge` | pública | troca o `challengeToken` (login) + código por `AuthResponse` |
 
 ## Fluxos
 

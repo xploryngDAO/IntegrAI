@@ -20,4 +20,12 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/logout', controllers.logout);
   app.get('/me', controllers.me);
   app.put('/presence', controllers.setPresence);
+
+  // Fase 1 - 2FA TOTP. `/challenge` is public (the short-lived challenge JWT in
+  // the body authenticates the second step); the management routes need a JWT.
+  app.post('/2fa/setup', controllers.twoFactorSetup);
+  app.post('/2fa/verify', controllers.twoFactorVerify);
+  app.post('/2fa/disable', controllers.twoFactorDisable);
+  app.get('/2fa/status', controllers.twoFactorStatus);
+  app.post('/2fa/challenge', controllers.twoFactorChallenge);
 };

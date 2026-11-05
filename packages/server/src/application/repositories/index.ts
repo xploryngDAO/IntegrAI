@@ -20,6 +20,7 @@ import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-poli
 import { createTenantRepository, PrismaTenantRepository } from './tenants';
 import { createTicketEventRepository, PrismaTicketEventRepository } from './ticket-events';
 import { createTicketRepository, PrismaTicketRepository } from './tickets';
+import { createTwoFactorRepository, PrismaTwoFactorRepository } from './two-factor';
 import { createWebhookEventRepository, PrismaWebhookEventRepository } from './webhook-events';
 
 /**
@@ -59,6 +60,7 @@ export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
 export { createTenantRepository, PrismaTenantRepository };
 export { createTicketEventRepository, PrismaTicketEventRepository };
 export { createTicketRepository, PrismaTicketRepository };
+export { createTwoFactorRepository, PrismaTwoFactorRepository };
 export { createWebhookEventRepository, PrismaWebhookEventRepository };
 
 export { isRecordNotFound, isUniqueConstraintViolation } from './errors';

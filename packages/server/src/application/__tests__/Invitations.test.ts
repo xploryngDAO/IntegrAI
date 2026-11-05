@@ -148,6 +148,8 @@ class InMemoryAgentRepository implements IAgentRepository {
       isActive: input.isActive ?? true,
       lastSeenAt: null,
       emailVerifiedAt: input.emailVerifiedAt ?? null,
+      twoFactorSecretEnc: null,
+      twoFactorEnabled: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -175,6 +177,8 @@ class InMemoryAgentRepository implements IAgentRepository {
       isActive: true,
       lastSeenAt: null,
       emailVerifiedAt: input.emailVerifiedAt ?? null,
+      twoFactorSecretEnc: null,
+      twoFactorEnabled: false,
       createdAt: at,
       updatedAt: at,
     };

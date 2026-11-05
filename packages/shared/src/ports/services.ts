@@ -197,12 +197,25 @@ export interface IAccountService {
  * Agents / auth
  * ========================================================================== */
 
-export interface LoginResult {
+/** Authenticated session issued by login, 2FA challenge, refresh or invitation. */
+export interface LoginSuccess {
   token: string;
   /** Rotating refresh token; absent when the session store is unavailable. */
   refreshToken?: string;
   agent: { id: string; name: string; email: string; role: string; presence: AgentPresenceStatus; tenantId: string | null };
 }
+
+/**
+ * Password accepted but the operator has 2FA enabled: NO access/refresh token is
+ * issued. The caller must redeem `challengeToken` (5 min, `scope: '2fa'`) on
+ * `POST /auth/2fa/challenge` with a TOTP or recovery code.
+ */
+export interface LoginTwoFactorRequired {
+  twoFactorRequired: true;
+  challengeToken: string;
+}
+
+export type LoginResult = LoginSuccess | LoginTwoFactorRequired;
 
 /** Optional device fingerprint captured on login/refresh (no PII beyond the UA). */
 export interface SessionDeviceInfo {
@@ -212,6 +225,12 @@ export interface SessionDeviceInfo {
 
 export interface IAgentService {
   login(email: string, password: string, device?: SessionDeviceInfo): Promise<LoginResult>;
+  /**
+   * Issues an access + refresh token for an already authenticated operator.
+   * Used by login (after every gate) and by the 2FA challenge completion, so
+   * both paths share the exact same claim/session shape.
+   */
+  issueSession(agentId: string, device?: SessionDeviceInfo): Promise<LoginSuccess>;
   verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;
@@ -249,6 +268,46 @@ export interface IAuthService {
 }
 
 /* ==========================================================================
+ * Two-factor authentication (Fase 1: TOTP, JWT-authenticated management)
+ * ========================================================================== */
+
+export interface TwoFactorSetupResult {
+  /** Base32 TOTP secret; returned only by `/auth/2fa/setup` (never again). */
+  secret: string;
+  /** `otpauth://totp/...` URL the client renders as a QR code. */
+  otpauthUrl: string;
+}
+
+export interface TwoFactorVerifyResult {
+  enabled: true;
+  /** 8 one-time recovery codes shown only in this response. */
+  recoveryCodes: string[];
+}
+
+export interface TwoFactorStatusResult {
+  enabled: boolean;
+}
+
+export interface ITwoFactorService {
+  /** Generates and encrypts a pending secret; 409 when 2FA is already enabled. */
+  setup(userId: string): Promise<TwoFactorSetupResult>;
+  /** Confirms the pending secret, enables 2FA and returns the recovery codes. */
+  verify(userId: string, code: string): Promise<TwoFactorVerifyResult>;
+  /** Requires the account password AND a valid TOTP/recovery code. */
+  disable(userId: string, password: string, code?: string): Promise<void>;
+  status(userId: string): Promise<TwoFactorStatusResult>;
+  /**
+   * Redeems a short-lived challenge JWT (issued by login) with a TOTP or a
+   * one-time recovery code and returns the same session shape as login.
+   */
+  challenge(
+    challengeToken: string,
+    code: string,
+    device?: SessionDeviceInfo,
+  ): Promise<LoginSuccess>;
+}
+
+/* ==========================================================================
  * Sessions (Fase 1: rotating refresh tokens)
  * ========================================================================== */
 
@@ -260,7 +319,7 @@ export interface IssuedSession {
 export interface RefreshSessionResult {
   token: string;
   refreshToken: string;
-  agent: LoginResult['agent'];
+  agent: LoginSuccess['agent'];
   expiresAt: Date;
 }
 
@@ -422,6 +481,7 @@ export interface IAppServices {
   readonly outbound: IOutboundRouterService;
   readonly agents: IAgentService;
   readonly auth: IAuthService;
+  readonly twoFactor: ITwoFactorService;
   readonly sessions: IAuthSessionService;
   readonly invitations: IInvitationService;
   readonly webhooks: IWebhookIngressService;
