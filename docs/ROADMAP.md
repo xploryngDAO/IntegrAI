@@ -72,6 +72,9 @@ Critérios: cliente cria conta sozinho, verifica e-mail, entra e convida equipe 
 
 Critérios: cliente novo conecta Meli/Shopee em <3 min sem suporte; Amazon guiada.
 
+- [x] Fase 2 — wizard /onboarding (5 passos, status real, diagnóstico)
+- [x] Fase 2 — Amazon via OAuth (start/callback SP-API) — produção depende de app público aprovado (Fase 3)
+
 ### Fase 3 — Apps de marketplace em produção
 Checklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSION.md).
 
