@@ -39,10 +39,14 @@ export default function App(): JSX.Element {
           setSessionError(null);
           return;
         }
+        const infrastructureFailure =
+          error instanceof ApiClientError && (error.status === 0 || error.status >= 500);
         setSessionError(
-          error instanceof Error && error.message
-            ? error.message
-            : 'Não foi possível verificar a sessão. Tente novamente.',
+          infrastructureFailure
+            ? 'API indisponível ou não configurada. Defina VITE_API_BASE_URL apontando para a API publicada (passo 4 de docs/SETUP_PRODUCTION.md) e recarregue esta página.'
+            : error instanceof Error && error.message
+              ? error.message
+              : 'Não foi possível verificar a sessão. Tente novamente.',
         );
       }
     }
