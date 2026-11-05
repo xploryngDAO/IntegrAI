@@ -101,7 +101,7 @@ Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 - [x] Fase 0 — schema + migração (tenant_id nullable, backfill do tenant `integrai`)
 - [x] Fase 0 — auth com tenant (JWT/login/verify + middleware)
 - [x] Fase 0 — escopo de leitura (contas, agentes, tickets lista/detalhe) + escrita de tickets com tenant
-- [x] Fase 0 — testes de isolamento (A≠B verificado: contas, tickets lista/detalhe 404)
+- [x] Fase 0 — testes de isolamento automatizados (`npm run test:isolation` 5/5: conta, tickets, detalhe 404, cleanup)
 - [ ] Fase 1 — signup/reset/convites
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados

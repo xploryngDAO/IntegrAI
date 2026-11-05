@@ -31,6 +31,7 @@
         "test": "vitest run",
         "doctor": "tsx scripts/doctor.ts",
     "validate:live": "node scripts/validate-live.mjs",
+    "test:isolation": "node scripts/isolation-test.mjs",
         "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
         "db:down": "docker compose down",
         "docker:up": "docker compose up -d --build"
