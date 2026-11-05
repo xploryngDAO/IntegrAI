@@ -130,7 +130,11 @@ export class AccountService implements IAccountService {
       authExpiresAt: string | null;
     }>
   > {
-    // undefined = chamada interna (todos os tenants); null = sessao sem tenant -> nada.\n    if (tenantId === null) return [];\n    const accounts =\n      tenantId === undefined ? await this.accounts.list() : await this.accounts.list({ tenantId });\n    return accounts
+    // undefined = chamada interna (todos os tenants); null = sessao sem tenant -> nada.
+    if (tenantId === null) return [];
+    const accounts =
+      tenantId === undefined ? await this.accounts.list() : await this.accounts.list({ tenantId });
+    return accounts
       .map((account) => ({
         id: account.id,
         marketplace: account.marketplace,
