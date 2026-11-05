@@ -38,3 +38,7 @@ Thumbs.db
 tmp/
 uploads/
 .vercel
+
+tools/cloudflared.exe
+.s3-data/
+

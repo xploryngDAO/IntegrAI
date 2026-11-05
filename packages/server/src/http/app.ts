@@ -99,7 +99,12 @@ export async function buildHttpApp(
   });
 
   await app.register(cors, {
-    origin: options.webOrigin,
+    // `WEB_ORIGIN` accepts a comma-separated list so the same API can serve the
+    // operators app, the hosted SPA and local development at once.
+    origin: options.webOrigin
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['content-type', 'authorization', 'idempotency-key', 'x-request-id'],

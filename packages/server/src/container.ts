@@ -368,8 +368,14 @@ async function probeStorage(storage: IObjectStorage): Promise<void> {
   } catch (error) {
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : String(error);
-    const combined = `${name} ${message}`;
-    if (/NoSuchKey|NotFound|not exist|404/i.test(combined)) {
+    const code =
+      typeof (error as { code?: unknown }).code === 'string'
+        ? String((error as { code?: unknown }).code)
+        : '';
+    const combined = `${name} ${code} ${message}`;
+    // A missing sentinel object proves the bucket exists and the credentials are
+    // accepted (this is the HeadBucket signal, without needing ListBucket).
+    if (/NoSuchKey|NotFound|not found|not exist|STORAGE_OBJECT_NOT_FOUND|404/i.test(combined)) {
       return;
     }
     throw error;

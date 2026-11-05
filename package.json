@@ -1,50 +1,51 @@
 {
-    "name":  "@sac/root",
-    "version":  "1.0.0",
-    "private":  true,
-    "description":  "SAC Hub - Omnichannel marketplace support integrator (Amazon SP-API/SES, Mercado Livre, Shopee Open Platform v2)",
-    "license":  "UNLICENSED",
-    "workspaces":  [
-                       "packages/*",
-                       "apps/*"
-                   ],
-    "engines":  {
-                    "node":  "22.x"
-                },
-    "scripts":  {
-                    "build:shared":  "tsc -p packages/shared/tsconfig.json",
-                    "build:server":  "tsc -p packages/server/tsconfig.json",
-                    "build:web":  "npm run build --workspace @sac/web",
-                    "build":  "npm run build:shared \u0026\u0026 npm run prisma:generate \u0026\u0026 npm run build:server \u0026\u0026 npm run build:web",
-                    "prisma:generate":  "prisma generate --schema prisma/schema.prisma",
-                    "prisma:migrate:dev":  "prisma migrate dev --schema prisma/schema.prisma",
-                    "prisma:migrate:deploy":  "prisma migrate deploy --schema prisma/schema.prisma",
-                    "db:push":  "prisma db push --schema prisma/schema.prisma",
-                    "db:seed":  "tsx prisma/seed.ts",
-                    "typecheck:shared":  "tsc -p packages/shared/tsconfig.json --noEmit",
-                    "typecheck:server":  "npm run build:shared \u0026\u0026 tsc -p packages/server/tsconfig.json --noEmit",
-                    "typecheck:web":  "npm run typecheck --workspace @sac/web",
-                    "typecheck":  "npm run typecheck:server \u0026\u0026 npm run typecheck:web",
-                    "dev:server":  "npm run dev --workspace @sac/server",
-                    "dev:web":  "npm run dev --workspace @sac/web",
-                    "dev":  "npm run build:shared \u0026\u0026 concurrently -n api,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
-                    "test":  "vitest run",
-                    "doctor":  "tsx scripts/doctor.ts",
-                    "db:up":  "docker compose up -d postgres redis minio minio-init mailpit",
-                    "db:down":  "docker compose down",
-                    "docker:up":  "docker compose up -d --build"
-                },
-    "devDependencies":  {
-                            "@types/node":  "^22.10.2",
-                            "concurrently":  "^9.1.0",
-                            "prisma":  "^6.1.0",
-                            "tsx":  "^4.19.2",
-                            "typescript":  "^5.7.2",
-                            "vitest":  "^2.1.8"
-                        },
-    "homepage":  "https://integrai-dev.vercel.app",
-    "repository":  {
-                       "type":  "git",
-                       "url":  "https://github.com/xploryngDAO/IntegrAI.git"
-                   }
+    "name": "@sac/root",
+    "version": "1.0.0",
+    "private": true,
+    "description": "SAC Hub - Omnichannel marketplace support integrator (Amazon SP-API/SES, Mercado Livre, Shopee Open Platform v2)",
+    "license": "UNLICENSED",
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "engines": {
+        "node": "22.x"
+    },
+    "scripts": {
+        "build:shared": "tsc -p packages/shared/tsconfig.json",
+        "build:server": "tsc -p packages/server/tsconfig.json",
+        "build:web": "npm run build --workspace @sac/web",
+        "build": "npm run build:shared && npm run prisma:generate && npm run build:server && npm run build:web",
+        "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+        "prisma:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
+        "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+        "db:push": "prisma db push --schema prisma/schema.prisma",
+        "db:seed": "tsx prisma/seed.ts",
+        "typecheck:shared": "tsc -p packages/shared/tsconfig.json --noEmit",
+        "typecheck:server": "npm run build:shared && tsc -p packages/server/tsconfig.json --noEmit",
+        "typecheck:web": "npm run typecheck --workspace @sac/web",
+        "typecheck": "npm run typecheck:server && npm run typecheck:web",
+        "dev:server": "npm run dev --workspace @sac/server",
+        "dev:web": "npm run dev --workspace @sac/web",
+        "dev": "npm run build:shared && concurrently -n api,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+        "test": "vitest run",
+        "doctor": "tsx scripts/doctor.ts",
+        "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
+        "db:down": "docker compose down",
+        "docker:up": "docker compose up -d --build"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "concurrently": "^9.1.0",
+        "prisma": "^6.1.0",
+        "s3rver": "^3.7.1",
+        "tsx": "^4.19.2",
+        "typescript": "^5.7.2",
+        "vitest": "^2.1.8"
+    },
+    "homepage": "https://integrai-dev.vercel.app",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/xploryngDAO/IntegrAI.git"
+    }
 }
