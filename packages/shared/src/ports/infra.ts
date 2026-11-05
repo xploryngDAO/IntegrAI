@@ -1,0 +1,186 @@
+import type { AgentPresenceStatus } from '../enums';
+
+/* This file deliberately avoids importing DTOs to keep infra ports dependency
+ * free; only primitive shapes cross the boundary. */
+
+export interface ILogger {
+  child(bindings: Record<string, unknown>): ILogger;
+  trace(message: string, meta?: Record<string, unknown>): void;
+  debug(message: string, meta?: Record<string, unknown>): void;
+  info(message: string, meta?: Record<string, unknown>): void;
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
+export interface IClock {
+  now(): Date;
+}
+
+export interface ICache {
+  get<T>(key: string): Promise<T | null>;
+  set<T>(key: string, value: T, ttlSeconds: number): Promise<void>;
+  /** Atomic SET NX EX. Returns true when the key was created by this call. */
+  setNx(key: string, value: string, ttlSeconds: number): Promise<boolean>;
+  del(key: string): Promise<void>;
+  exists(key: string): Promise<boolean>;
+  ttl(key: string): Promise<number>;
+  /** Fixed-window counter; returns the value after increment. */
+  incr(key: string, ttlSeconds: number): Promise<number>;
+  hset(key: string, values: Record<string, string>): Promise<void>;
+  hgetall<T extends Record<string, string>>(key: string): Promise<T | null>;
+  /** Set membership helpers used for the presence index. */
+  sadd(key: string, members: string[]): Promise<void>;
+  srem(key: string, members: string[]): Promise<void>;
+  smembers(key: string): Promise<string[]>;
+}
+
+export interface IDistributedLock {
+  /**
+   * Acquire a Redlock over `resources`, run `fn`, always release.
+   * Throws `LockAcquisitionError` when the lock cannot be acquired in time.
+   */
+  withLock<T>(
+    resources: string[],
+    ttlMs: number,
+    fn: () => Promise<T>,
+    options?: { retryDelayMs?: number; maxAttempts?: number },
+  ): Promise<T>;
+  /** Best-effort: returns false instead of throwing when the lock is busy. */
+  tryWithLock<T>(resources: string[], ttlMs: number, fn: () => Promise<T>): Promise<{ acquired: boolean; value?: T }>;
+}
+
+export interface RateLimitOptions {
+  cost?: number;
+  /** Milliseconds to wait for a token before giving up (0 = fail fast). */
+  timeoutMs?: number;
+}
+
+export interface IRateLimiter {
+  /** Token bucket; resolves true when a token was consumed. */
+  consume(bucket: string, options?: RateLimitOptions): Promise<boolean>;
+  /** Waits (with backoff) until a token is available; throws RateLimitError. */
+  acquire(bucket: string, options?: RateLimitOptions): Promise<void>;
+  reset(bucket: string): Promise<void>;
+}
+
+export interface PutObjectInput {
+  key: string;
+  body: Buffer | string;
+  contentType?: string;
+  metadata?: Record<string, string>;
+  /** Content-MD5 base64 (Amazon uploadDestinations requirement). */
+  contentMd5?: string;
+}
+
+export interface StoredObject {
+  key: string;
+  uri: string;
+  size: number;
+  sha256: string;
+}
+
+export interface IObjectStorage {
+  putObject(input: PutObjectInput): Promise<StoredObject>;
+  getObject(key: string): Promise<Buffer>;
+  /** Uploads a binary buffer to an external pre-signed S3 URL (Amazon PUT). */
+  putToPresignedUrl(url: string, body: Buffer, headers?: Record<string, string>): Promise<void>;
+  presignGet(key: string, expiresInSeconds?: number): Promise<string>;
+  buildUri(key: string): string;
+}
+
+export interface ISecretCipher {
+  /** AES-256-GCM. Format: `v1:<keyId>:<ivB64>:<tagB64>:<cipherB64>`. */
+  encrypt(plaintext: string): string;
+  decrypt(ciphertext: string): string;
+  /** Deterministic HMAC-SHA256 (hex) for equality lookups on encrypted data. */
+  hash(value: string): string;
+  keyId: string;
+}
+
+export interface HttpRequestOptions {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string | number | boolean | undefined | null>;
+  body?: unknown;
+  formData?: FormData;
+  timeoutMs?: number;
+  retries?: number;
+  /** Certificate/agent hints are intentionally not exposed. */
+  signal?: AbortSignal;
+}
+
+export interface HttpResponse<T = unknown> {
+  status: number;
+  ok: boolean;
+  headers: Record<string, string>;
+  body: T;
+  durationMs: number;
+  requestId?: string;
+}
+
+export interface IHttpClient {
+  request<T = unknown>(options: HttpRequestOptions): Promise<HttpResponse<T>>;
+  requestBinary(options: HttpRequestOptions): Promise<HttpResponse<Buffer>>;
+}
+
+export interface PublishOptions {
+  jobId?: string;
+  delayMs?: number;
+  attempts?: number;
+  priority?: number;
+  /** Deduplicate identical jobs by this key (BullMQ jobId strategy). */
+  dedupeKey?: string;
+}
+
+export interface IQueuePublisher {
+  publish<TPayload extends object>(queue: string, payload: TPayload, options?: PublishOptions): Promise<string>;
+  /** Publishes to the dead-letter queue with the original failure context. */
+  publishToDlq(originalQueue: string, payload: object, error: unknown): Promise<void>;
+}
+
+/* ------------------------------ Realtime ---------------------------------- */
+
+export interface TicketRealtimeEvent {
+  ticketId: string;
+  marketplace: string;
+  status: string;
+  priority: string;
+  slaDeadlineAt: string;
+  assignedAgentId: string | null;
+  unreadCount: number;
+  updatedAt: string;
+}
+
+export interface MessageRealtimeEvent {
+  ticketId: string;
+  messageId: string;
+  direction: string;
+  channelRouteUsed: string;
+  preview: string;
+  marketplaceCreatedAt: string;
+}
+
+export interface ChannelHealthSnapshot {
+  marketplace: string;
+  accountId: string;
+  healthy: boolean;
+  detail: string;
+  at: string;
+}
+
+export interface AgentPresenceEvent {
+  agentId: string;
+  agentName: string;
+  presence: AgentPresenceStatus;
+  queueChange?: string;
+  at: string;
+}
+
+export interface IRealtimePublisher {
+  ticketUpdated(event: TicketRealtimeEvent): void;
+  messageCreated(event: MessageRealtimeEvent): void;
+  queueChanged(payload: { reason: string; ticketId?: string; at: string }): void;
+  channelHealth(snapshot: ChannelHealthSnapshot): void;
+  agentPresence(event: AgentPresenceEvent): void;
+}

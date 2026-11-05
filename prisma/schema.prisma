@@ -1,0 +1,479 @@
+// ============================================================================
+// SAC Hub - Unified omnichannel schema
+// PostgreSQL 16 / Prisma 6
+//
+// Design notes
+// - `channel_metadata` / `content_payload` / `items_snapshot` JSONB columns keep
+//   marketplace-specific structures without polluting the unified model.
+// - Every outbound/inbound message is idempotent on `external_message_id`.
+// - Amazon restricted PII (buyer name, document, address, phone, email) is NOT
+//   stored on `support_tickets`: it lives in `buyer_pii_vault` (auto-purged) and
+//   in Redis with short TTL. See README "PII compliance".
+// - Timestamps are TIMESTAMPTZ(6); `marketplace_created_at` is the marketplace's
+//   authoritative clock and is the only acceptable ordering key for threads.
+// ============================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum Marketplace {
+  AMAZON
+  MERCADO_LIVRE
+  SHOPEE
+}
+
+enum AccountStatus {
+  ACTIVE
+  TOKEN_EXPIRED
+  DISCONNECTED
+}
+
+enum TicketType {
+  PRE_SALE
+  POST_SALE_ORDER
+  CLAIM_DISPUTE
+  RETURN_REFUND
+  CANCELLATION
+  PROACTIVE
+}
+
+enum TicketStatus {
+  UNREAD
+  OPEN_WAITING_AGENT
+  WAITING_BUYER
+  NO_RESPONSE_NEEDED
+  MEDIATION
+  RESOLVED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL_SLA
+}
+
+enum MessageDirection {
+  INBOUND_BUYER
+  OUTBOUND_AGENT
+  OUTBOUND_SYSTEM
+  EXTERNAL_SELLER_PANEL
+  MEDIATOR
+}
+
+enum ChannelRoute {
+  AMAZON_EMAIL_RELAY
+  AMAZON_SP_API_MESSAGING
+  MELI_QUESTIONS_API
+  MELI_MESSAGES_API
+  MELI_CLAIMS_API
+  SHOPEE_CHAT_API
+  SHOPEE_RETURNS_API
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  BOUNCED_BLOCKED
+  MODERATION_REJECTED
+  FAILED
+}
+
+enum AgentPresenceStatus {
+  ONLINE
+  PAUSED
+  OFFLINE
+}
+
+enum AgentRole {
+  ADMIN
+  SUPERVISOR
+  AGENT
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  DUPLICATE
+  PROCESSED
+  FAILED
+  DEAD_LETTER
+}
+
+enum SlaState {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+  MET
+}
+
+// ----------------------------------------------------------------------------
+// AGENTS (operators) - JWT auth + Redis presence mirror
+// ----------------------------------------------------------------------------
+
+model Agent {
+  id            String              @id @default(uuid()) @db.Uuid
+  email         String              @unique @db.VarChar(180)
+  name          String              @db.VarChar(120)
+  passwordHash  String              @map("password_hash") @db.VarChar(255)
+  role          AgentRole           @default(AGENT)
+  presence      AgentPresenceStatus @default(OFFLINE)
+  avatarColor   String              @default("#2563eb") @map("avatar_color") @db.VarChar(16)
+  maxConcurrent Int                 @default(20) @map("max_concurrent")
+  isActive      Boolean             @default(true) @map("is_active")
+  lastSeenAt    DateTime?           @map("last_seen_at") @db.Timestamptz(6)
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tickets       SupportTicket[]
+  messages      TicketMessage[]     @relation("MessageAuthor")
+  events        TicketEvent[]
+
+  @@map("agents")
+}
+
+// ----------------------------------------------------------------------------
+// MARKETPLACE ACCOUNTS (multi-tenant connected stores)
+// ----------------------------------------------------------------------------
+
+model MarketplaceAccount {
+  id                String        @id @default(uuid()) @db.Uuid
+  marketplace       Marketplace
+  displayName       String        @map("display_name") @db.VarChar(160)
+  externalSellerId  String        @map("external_seller_id") @db.VarChar(128)
+  marketplaceSiteId String        @map("marketplace_site_id") @db.VarChar(32)
+  accessTokenEnc    String?       @map("access_token_enc") @db.Text
+  refreshTokenEnc   String?       @map("refresh_token_enc") @db.Text
+  tokenExpiresAt    DateTime?     @map("token_expires_at") @db.Timestamptz(6)
+  authExpiresAt     DateTime?     @map("auth_expires_at") @db.Timestamptz(6)
+  /// Marketplace specific configuration. Amazon: inbound_email_route,
+  /// smtp_sender_email, approved_sender_domains, seller_central_region.
+  /// Meli: site_id, tags, mediator_enabled. Shopee: shop_id, region, crr_target.
+  channelConfig     Json          @default("{}") @map("channel_config")
+  status            AccountStatus @default(ACTIVE)
+  lastTokenRefreshAt DateTime?    @map("last_token_refresh_at") @db.Timestamptz(6)
+  lastErrorAt       DateTime?     @map("last_error_at") @db.Timestamptz(6)
+  lastError         String?       @map("last_error") @db.Text
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tickets    SupportTicket[]
+  orders     OrderCache[]
+  webhooks   WebhookEvent[]
+  slaPolicies SlaPolicy[]
+
+  @@unique([marketplace, externalSellerId, marketplaceSiteId])
+  @@index([marketplace, status])
+  @@map("marketplace_accounts")
+}
+
+// ----------------------------------------------------------------------------
+// ORDER CACHE (enriched mirror of each marketplace order)
+// ----------------------------------------------------------------------------
+
+model OrderCache {
+  id                 String      @id @default(uuid()) @db.Uuid
+  accountId          String      @map("account_id") @db.Uuid
+  marketplace        Marketplace
+  externalOrderId    String      @map("external_order_id") @db.VarChar(128)
+  /// Mercado Livre pack id groups multiple orders into one post-sale thread.
+  packId             String?     @map("pack_id") @db.VarChar(128)
+  buyerExternalId    String?     @map("buyer_external_id") @db.VarChar(128)
+  buyerNameOrNick    String?     @map("buyer_name_or_nick") @db.VarChar(180)
+  /// Amazon anonymized buyer email (e.g. abc123@marketplace.amazon.com.br).
+  buyerAnonymizedEmail String?   @map("buyer_anonymized_email") @db.VarChar(180)
+  orderStatus        String      @map("order_status") @db.VarChar(64)
+  fulfillmentType    String?     @map("fulfillment_type") @db.VarChar(64)
+  totalAmount        Decimal     @default(0) @map("total_amount") @db.Decimal(14, 2)
+  currency           String      @default("BRL") @db.VarChar(8)
+  trackingNumber     String?     @map("tracking_number") @db.VarChar(120)
+  carrierName        String?     @map("carrier_name") @db.VarChar(120)
+  /// [{ sku, asin, mlb, itemId, title, quantity, unitPrice, imageUrl }]
+  itemsSnapshot      Json        @default("[]") @map("items_snapshot")
+  /// Amazon allowed_spapi_actions / Meli available_actions / Shopee actions.
+  allowedActionsCache Json       @default("{}") @map("allowed_actions_cache")
+  shippingSnapshot   Json        @default("{}") @map("shipping_snapshot")
+  estimatedDeliveryAt DateTime?  @map("estimated_delivery_at") @db.Timestamptz(6)
+  shippedAt          DateTime?   @map("shipped_at") @db.Timestamptz(6)
+  deliveredAt        DateTime?   @map("delivered_at") @db.Timestamptz(6)
+  lastSyncedAt       DateTime    @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tickets SupportTicket[]
+
+  @@unique([accountId, externalOrderId])
+  @@unique([marketplace, externalOrderId])
+  @@index([marketplace, orderStatus])
+  @@index([trackingNumber])
+  @@map("orders_cache")
+}
+
+// ----------------------------------------------------------------------------
+// SUPPORT TICKETS (unified master table with SLA)
+// ----------------------------------------------------------------------------
+
+model SupportTicket {
+  id                   String         @id @default(uuid()) @db.Uuid
+  accountId            String         @map("account_id") @db.Uuid
+  marketplace          Marketplace
+  ticketType           TicketType     @map("ticket_type")
+  /// question_id | pack_id | claim_id (Meli) | conversation_id | return_sn
+  /// (Shopee) | amazon_order_id | buyer_anonymized_email (Amazon).
+  externalReferenceId  String         @map("external_reference_id") @db.VarChar(180)
+  externalOrderId      String?        @map("external_order_id") @db.VarChar(128)
+  orderCacheId         String?        @map("order_cache_id") @db.Uuid
+  packId               String?        @map("pack_id") @db.VarChar(128)
+  claimId              String?        @map("claim_id") @db.VarChar(128)
+  conversationId       String?        @map("conversation_id") @db.VarChar(128)
+  returnSn             String?        @map("return_sn") @db.VarChar(128)
+  subject              String?        @db.VarChar(400)
+  buyerExternalId      String?        @map("buyer_external_id") @db.VarChar(180)
+  buyerDisplayName     String?        @map("buyer_display_name") @db.VarChar(180)
+  buyerAnonymizedEmail String?        @map("buyer_anonymized_email") @db.VarChar(180)
+  buyerContactHash      String?       @map("buyer_contact_hash") @db.VarChar(128)
+  hasActiveClaim       Boolean        @default(false) @map("has_active_claim")
+  status               TicketStatus   @default(UNREAD)
+  priority             TicketPriority @default(MEDIUM)
+  slaDeadlineAt        DateTime       @map("sla_deadline_at") @db.Timestamptz(6)
+  slaTargetAt          DateTime?      @map("sla_target_at") @db.Timestamptz(6)
+  slaLegMinutes        Int?           @map("sla_leg_minutes")
+  slaBreached          Boolean        @default(false) @map("sla_breached")
+  slaState             SlaState       @default(ON_TRACK) @map("sla_state")
+  firstResponseAt      DateTime?      @map("first_response_at") @db.Timestamptz(6)
+  resolvedAt           DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  lastInboundAt        DateTime?      @map("last_inbound_at") @db.Timestamptz(6)
+  lastOutboundAt       DateTime?      @map("last_outbound_at") @db.Timestamptz(6)
+  lastMessageAt        DateTime?      @map("last_message_at") @db.Timestamptz(6)
+  unreadCount          Int            @default(0) @map("unread_count")
+  assignedAgentId      String?        @map("assigned_agent_id") @db.Uuid
+  assignedQueue        String?        @map("assigned_queue") @db.VarChar(80)
+  /// Amazon no_response_link, Meli conversation_status, Shopee crr_safe/status.
+  channelMetadata      Json           @default("{}") @map("channel_metadata")
+  tags                 String[]       @default([])
+  isDemo               Boolean        @default(false) @map("is_demo")
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account     MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  orderCache  OrderCache?        @relation(fields: [orderCacheId], references: [id], onDelete: SetNull)
+  assignedAgent Agent?           @relation(fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  messages    TicketMessage[]
+  events      TicketEvent[]
+  piiVault    BuyerPiiVault?
+  outboundAttempts OutboundAttempt[]
+
+  @@index([slaDeadlineAt, status])
+  @@index([status, priority, slaDeadlineAt])
+  @@index([externalReferenceId])
+  @@index([marketplace, ticketType])
+  @@index([accountId, status])
+  @@index([externalOrderId])
+  @@index([assignedAgentId, status])
+  @@index([buyerAnonymizedEmail])
+  @@index([claimId])
+  @@index([conversationId])
+  @@index([lastMessageAt(sort: Desc)])
+  @@map("support_tickets")
+}
+
+// ----------------------------------------------------------------------------
+// TICKET MESSAGES (unified conversation history)
+// ----------------------------------------------------------------------------
+
+model TicketMessage {
+  id                  String          @id @default(uuid()) @db.Uuid
+  ticketId            String          @map("ticket_id") @db.Uuid
+  /// Message-ID (Amazon) | id (Meli) | shopee message_id. Unique => idempotency.
+  externalMessageId   String?         @map("external_message_id") @db.VarChar(400)
+  inReplyToId         String?         @map("in_reply_to_id") @db.VarChar(400)
+  referencesIds       String[]        @default([]) @map("references_ids")
+  direction           MessageDirection
+  channelRouteUsed    ChannelRoute    @map("channel_route_used")
+  messageType         String          @default("text") @map("message_type") @db.VarChar(32)
+  bodyCleanText       String          @default("") @map("body_clean_text") @db.Text
+  bodyHtml            String?         @map("body_html") @db.Text
+  /// Route-specific metadata: spapi action, claim receiver_role, meli attachment ids.
+  contentPayload      Json            @default("{}") @map("content_payload")
+  /// S3 URI of the immutable raw artifact (`.eml`, JSON push payload, evidence).
+  bodyRawS3Uri        String?         @map("body_raw_s3_uri") @db.VarChar(512)
+  deliveryStatus      DeliveryStatus  @default(QUEUED) @map("delivery_status")
+  errorDetail         String?         @map("error_detail") @db.Text
+  isInternalNote      Boolean         @default(false) @map("is_internal_note")
+  authorAgentId       String?         @map("author_agent_id") @db.Uuid
+  /// Marketplace authoritative clock - the ONLY ordering key for threads.
+  marketplaceCreatedAt DateTime        @map("marketplace_created_at") @db.Timestamptz(6)
+  sentAt              DateTime?       @map("sent_at") @db.Timestamptz(6)
+  deliveredAt         DateTime?       @map("delivered_at") @db.Timestamptz(6)
+  readAt              DateTime?       @map("read_at") @db.Timestamptz(6)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  ticket     SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorAgent Agent?            @relation("MessageAuthor", fields: [authorAgentId], references: [id], onDelete: SetNull)
+  attachments MessageAttachment[]
+
+  @@unique([externalMessageId])
+  @@index([ticketId, marketplaceCreatedAt])
+  @@index([ticketId, direction])
+  @@index([inReplyToId])
+  @@index([deliveryStatus])
+  @@map("ticket_messages")
+}
+
+// ----------------------------------------------------------------------------
+// MESSAGE ATTACHMENTS (evidence, NF-e, dispute media)
+// ----------------------------------------------------------------------------
+
+model MessageAttachment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  messageId          String   @map("message_id") @db.Uuid
+  fileName           String   @map("file_name") @db.VarChar(255)
+  mimeType           String   @map("mime_type") @db.VarChar(120)
+  sizeBytes          Int      @default(0) @map("size_bytes")
+  sha256             String?  @db.VarChar(64)
+  s3Uri              String   @map("s3_uri") @db.VarChar(512)
+  /// Amazon uploadDestinationId | Meli attachment_id | Shopee image key.
+  externalUploadId   String?  @map("external_upload_id") @db.VarChar(255)
+  isEvidence         Boolean  @default(false) @map("is_evidence")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  message TicketMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+// ----------------------------------------------------------------------------
+// BUYER PII VAULT (Amazon restricted data - segregated + auto purge)
+// 30 days after shipment. Never joined into default ticket projections.
+// ----------------------------------------------------------------------------
+
+model BuyerPiiVault {
+  id              String      @id @default(uuid()) @db.Uuid
+  ticketId        String      @unique @map("ticket_id") @db.Uuid
+  marketplace     Marketplace
+  buyerName       String?     @map("buyer_name") @db.VarChar(255)
+  buyerEmail      String?     @map("buyer_email") @db.VarChar(255)
+  buyerDocument   String?     @map("buyer_document") @db.VarChar(64)
+  buyerPhone      String?     @map("buyer_phone") @db.VarChar(64)
+  shippingAddress Json        @default("{}") @map("shipping_address")
+  sourceEndpoints String[]    @default([]) @map("source_endpoints")
+  collectedAt     DateTime    @default(now()) @map("collected_at") @db.Timestamptz(6)
+  expiresAt       DateTime    @map("expires_at") @db.Timestamptz(6)
+  purgedAt        DateTime?   @map("purged_at") @db.Timestamptz(6)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("buyer_pii_vault")
+}
+
+// ----------------------------------------------------------------------------
+// TICKET EVENTS (audit timeline rendered in the cockpit)
+// ----------------------------------------------------------------------------
+
+model TicketEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  ticketId     String   @map("ticket_id") @db.Uuid
+  eventType    String   @map("event_type") @db.VarChar(64)
+  actorAgentId String?  @map("actor_agent_id") @db.Uuid
+  actorLabel   String?  @map("actor_label") @db.VarChar(120)
+  payload      Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorAgent Agent?        @relation(fields: [actorAgentId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_events")
+}
+
+// ----------------------------------------------------------------------------
+// OUTBOUND ATTEMPTS (routing audit: which route, which policy, which response)
+// ----------------------------------------------------------------------------
+
+model OutboundAttempt {
+  id             String        @id @default(uuid()) @db.Uuid
+  ticketId       String        @map("ticket_id") @db.Uuid
+  messageId      String?       @map("message_id") @db.Uuid
+  channelRoute   ChannelRoute  @map("channel_route")
+  status         DeliveryStatus
+  requestPayload Json          @default("{}") @map("request_payload")
+  responsePayload Json         @default("{}") @map("response_payload")
+  httpStatus     Int?          @map("http_status")
+  attempt        Int           @default(1)
+  errorCode      String?       @map("error_code") @db.VarChar(96)
+  errorMessage   String?       @map("error_message") @db.Text
+  durationMs     Int?          @map("duration_ms")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@index([channelRoute, status])
+  @@map("outbound_attempts")
+}
+
+// ----------------------------------------------------------------------------
+// WEBHOOK EVENTS (signature/idempotency audit trail + replay source)
+// ----------------------------------------------------------------------------
+
+model WebhookEvent {
+  id             String                  @id @default(uuid()) @db.Uuid
+  marketplace    Marketplace
+  accountId      String?                 @map("account_id") @db.Uuid
+  eventId        String?                 @map("event_id") @db.VarChar(255)
+  topic          String?                 @map("topic") @db.VarChar(120)
+  resource       String?                 @db.VarChar(512)
+  status         WebhookProcessingStatus @default(RECEIVED)
+  signatureValid Boolean                 @default(false) @map("signature_valid")
+  payload        Json                    @default("{}")
+  payloadS3Uri   String?                 @map("payload_s3_uri") @db.VarChar(512)
+  attempts       Int                     @default(0)
+  error          String?                 @db.Text
+  receivedAt     DateTime                @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt    DateTime?               @map("processed_at") @db.Timestamptz(6)
+
+  account MarketplaceAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@unique([marketplace, eventId])
+  @@index([marketplace, receivedAt])
+  @@index([status])
+  @@map("webhook_events")
+}
+
+// ----------------------------------------------------------------------------
+// SLA POLICIES (per account / ticket type overrides of the global defaults)
+// ----------------------------------------------------------------------------
+
+model SlaPolicy {
+  id                    String      @id @default(uuid()) @db.Uuid
+  accountId             String?     @map("account_id") @db.Uuid
+  marketplace           Marketplace
+  ticketType            TicketType  @map("ticket_type")
+  firstResponseMinutes  Int         @map("first_response_minutes")
+  targetMinutes         Int         @map("target_minutes")
+  warningMinutes        Int         @default(120) @map("warning_minutes")
+  businessHoursOnly     Boolean     @default(false) @map("business_hours_only")
+  isActive              Boolean     @default(true) @map("is_active")
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account MarketplaceAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, marketplace, ticketType])
+  @@map("sla_policies")
+}

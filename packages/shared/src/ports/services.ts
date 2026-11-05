@@ -1,0 +1,318 @@
+import type {
+  AgentPresenceStatus,
+  ChannelActionKind,
+  DeliveryStatus,
+  Marketplace,
+  TicketPriority,
+  TicketStatus,
+  TicketType,
+} from '../enums';
+import type {
+  AgentLoad,
+  ApiEnvelope,
+  AvailableActionView,
+  ChannelHealthView,
+  ConnectorDescriptor,
+  PageRequest,
+  Paginated,
+  QueueSnapshot,
+  TicketDetail,
+  TicketListItem,
+  TicketStats,
+} from '../dto';
+import type { SupportTicketRecord, TicketMessageRecord, TicketListFilter } from '../dto';
+import type {
+  ChannelActionResult,
+  ChannelRuntimeConfig,
+  HydratedInboundMessage,
+  IMarketplaceChannelAdapter,
+  InboundEnvelope,
+  OutboundAttachmentInput,
+  OutboundValidationInput,
+  PolicyEvaluation,
+  RawWebhookRequest,
+  RouteDecision,
+} from '../adapter';
+import type { ICache, IClock, ILogger, IQueuePublisher, IRealtimePublisher } from './infra';
+
+/* ==========================================================================
+ * Ticket ingestion + commands
+ * ========================================================================== */
+
+export interface IngestOutcome {
+  ticketId: string;
+  created: boolean;
+  messageId: string | null;
+  duplicate: boolean;
+  warnings: string[];
+}
+
+export interface IUnifiedTicketService {
+  ingest(message: HydratedInboundMessage): Promise<IngestOutcome>;
+  assign(ticketId: string, agentId: string, actorLabel?: string): Promise<SupportTicketRecord>;
+  changeStatus(
+    ticketId: string,
+    status: TicketStatus,
+    actor?: { agentId?: string; label?: string },
+  ): Promise<SupportTicketRecord>;
+  closeWithoutResponse(ticketId: string, agent: { id: string; name: string }): Promise<SupportTicketRecord>;
+  markAsRead(ticketId: string, agent?: { id: string; name: string }): Promise<SupportTicketRecord>;
+  addInternalNote(
+    ticketId: string,
+    agent: { id: string; name: string },
+    text: string,
+  ): Promise<TicketMessageRecord>;
+  refreshSla(ticketId: string): Promise<SupportTicketRecord>;
+}
+
+/* ==========================================================================
+ * Outbound routing
+ * ========================================================================== */
+
+export interface SendMessageCommand {
+  ticketId: string;
+  agent: { id: string; name: string; email: string };
+  bodyText: string;
+  bodyHtml?: string | null;
+  subject?: string | null;
+  recipient?: 'BUYER' | 'MEDIATOR';
+  forceImportant?: boolean;
+  closeWithoutResponse?: boolean;
+  attachmentS3Keys?: string[];
+  meliActionGuideReasonId?: string | null;
+  shopeeMessageType?: 'text' | 'image' | 'order' | 'item';
+  shopeeOrderCardOrderSn?: string | null;
+  shopeeItemCardItemId?: number | null;
+  /** Idempotency-Key header from the UI, prevents double-send on retry. */
+  idempotencyKey?: string | null;
+}
+
+export interface SendMessageResult {
+  messageId: string;
+  routeUsed: string;
+  deliveryStatus: DeliveryStatus;
+  warnings: string[];
+  ticket: SupportTicketRecord;
+}
+
+export interface ExecuteActionCommand {
+  ticketId: string;
+  agent: { id: string; name: string; email: string };
+  kind: ChannelActionKind;
+  bodyText?: string;
+  attachments?: OutboundAttachmentInput[];
+  lastReadMessageId?: string | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface PreviewPolicyCommand {
+  ticketId: string;
+  draft: Omit<OutboundValidationInput, 'marketplace' | 'ticketType' | 'hasActiveClaim' | 'hasPriorInbound'>;
+}
+
+export interface IOutboundRouterService {
+  send(command: SendMessageCommand): Promise<SendMessageResult>;
+  executeAction(command: ExecuteActionCommand): Promise<ChannelActionResult>;
+  previewPolicy(command: PreviewPolicyCommand): Promise<PolicyEvaluation>;
+  resolveRoute(ticketId: string, recipient?: 'BUYER' | 'MEDIATOR'): Promise<RouteDecision>;
+}
+
+/* ==========================================================================
+ * Query side (read models for the UI)
+ * ========================================================================== */
+
+export interface IAgentSummary {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  presence: AgentPresenceStatus;
+  avatarColor: string;
+  activeTickets: number;
+}
+
+export interface ITicketQueryService {
+  listQueue(filter: TicketListFilter, page: PageRequest): Promise<Paginated<TicketListItem>>;
+  getDetail(ticketId: string): Promise<TicketDetail>;
+  getStats(filter?: TicketListFilter): Promise<TicketStats>;
+  getQueueSnapshot(filter?: TicketListFilter): Promise<QueueSnapshot>;
+  getAvailableActions(ticketId: string): Promise<AvailableActionView[]>;
+  listAgents(): Promise<IAgentSummary[]>;
+  agentLoads(): Promise<AgentLoad[]>;
+}
+
+/* ==========================================================================
+ * Accounts / onboarding / OAuth
+ * ========================================================================== */
+
+export interface ConnectAccountRequest {
+  marketplace: Marketplace;
+  displayName: string;
+  externalSellerId: string;
+  marketplaceSiteId: string;
+  /** Amazon: LWA refresh token + SMTP sender + inbound email route. */
+  refreshToken?: string;
+  accessToken?: string;
+  tokenExpiresAt?: Date;
+  channelConfig?: Record<string, unknown>;
+}
+
+export interface OAuthStartResult {
+  authorizeUrl: string;
+  state: string;
+  marketplace: Marketplace;
+}
+
+export interface OAuthCallbackInput {
+  code: string;
+  state: string;
+  shopId?: string;
+  rawQuery: Record<string, string>;
+}
+
+export interface IAccountService {
+  listAccounts(): Promise<Array<{
+    id: string;
+    marketplace: Marketplace;
+    displayName: string;
+    externalSellerId: string;
+    marketplaceSiteId: string;
+    status: string;
+    channelConfig: Record<string, unknown>;
+    tokenExpiresAt: string | null;
+    authExpiresAt: string | null;
+  }>>;
+  describeConnectors(): ConnectorDescriptor[];
+  startOAuth(marketplace: Marketplace, displayName: string): Promise<OAuthStartResult>;
+  completeOAuth(marketplace: Marketplace, input: OAuthCallbackInput): Promise<{ accountId: string; displayName: string }>;
+  connectWithCredentials(input: ConnectAccountRequest): Promise<{ accountId: string; displayName: string }>;
+  disconnect(accountId: string): Promise<void>;
+  refreshNow(accountId: string): Promise<{ ok: boolean; detail: string }>;
+}
+
+/* ==========================================================================
+ * Agents / auth
+ * ========================================================================== */
+
+export interface LoginResult {
+  token: string;
+  agent: { id: string; name: string; email: string; role: string; presence: AgentPresenceStatus };
+}
+
+export interface IAgentService {
+  login(email: string, password: string): Promise<LoginResult>;
+  verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string }>;
+  setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
+  heartbeat(agentId: string): Promise<void>;
+  list(): Promise<IAgentSummary[]>;
+}
+
+/* ==========================================================================
+ * Webhook ingress
+ * ========================================================================== */
+
+export interface WebhookAck {
+  accepted: boolean;
+  duplicate: boolean;
+  status: 'ACCEPTED' | 'DUPLICATE' | 'REJECTED';
+  httpStatus: number;
+  body: Record<string, unknown>;
+  eventId?: string | null;
+  durationMs: number;
+}
+
+export interface IWebhookIngressService {
+  accept(marketplace: Marketplace, request: RawWebhookRequest): Promise<WebhookAck>;
+}
+
+/* ==========================================================================
+ * Health / adapter registry / container
+ * ========================================================================== */
+
+export interface HealthReport {
+  status: 'ok' | 'degraded' | 'down';
+  uptimeSeconds: number;
+  checks: Array<{ name: string; ok: boolean; detail: string; latencyMs?: number }>;
+  channels: ChannelHealthView[];
+}
+
+export interface IHealthService {
+  health(): Promise<HealthReport>;
+  channels(): Promise<ChannelHealthView[]>;
+}
+
+export interface IAdapterRegistry {
+  get(marketplace: Marketplace): IMarketplaceChannelAdapter;
+}
+
+/* ==========================================================================
+ * File storage facade (attachments: NF-e, evidence, dispute media)
+ * ========================================================================== */
+
+export interface UploadedFile {
+  key: string;
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+export interface IFileService {
+  upload(input: { fileName: string; mimeType: string; buffer: Buffer }): Promise<UploadedFile>;
+  signedUrl(key: string, expiresInSeconds?: number): Promise<string>;
+  /** Resolves storage keys into attachment payloads accepted by adapters. */
+  resolveAttachmentInputs(keys: string[]): Promise<OutboundAttachmentInput[]>;
+}
+
+export interface IAppServices {
+  readonly config: ChannelRuntimeConfig;
+  readonly logger: ILogger;
+  readonly clock: IClock;
+  readonly cache: ICache;
+  readonly queue: IQueuePublisher;
+  readonly realtime: IRealtimePublisher;
+  readonly adapters: IAdapterRegistry;
+  readonly accounts: IAccountService;
+  readonly tickets: ITicketQueryService;
+  readonly ticketCommands: IUnifiedTicketService;
+  readonly outbound: IOutboundRouterService;
+  readonly agents: IAgentService;
+  readonly webhooks: IWebhookIngressService;
+  readonly health: IHealthService;
+  readonly files: IFileService;
+}
+
+/* ==========================================================================
+ * Worker job payloads (shared with the HTTP layer for manual replays)
+ * ========================================================================== */
+
+export interface InboundJobPayload {
+  marketplace: Marketplace;
+  accountId: string;
+  topic?: string | null;
+  resource?: string | null;
+  eventId?: string | null;
+  payload: Record<string, unknown>;
+  rawS3Uri?: string | null;
+  receivedAt: string;
+  webhookEventId?: string | null;
+}
+
+export interface EnrichmentJobPayload {
+  ticketId: string;
+  accountId: string;
+  marketplace: Marketplace;
+  externalOrderId?: string | null;
+  reason: string;
+}
+
+export interface OutboundJobPayload {
+  ticketId: string;
+  messageId: string;
+  accountId: string;
+  marketplace: Marketplace;
+  attempt: number;
+}
+
+export type { ApiEnvelope, InboundEnvelope };
