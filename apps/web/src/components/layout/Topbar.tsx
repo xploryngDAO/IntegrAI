@@ -43,6 +43,19 @@ export function Topbar(): JSX.Element {
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
   const onAccounts = pathname.startsWith('/accounts');
+  const onOnboarding = pathname.startsWith('/onboarding');
+  // Onboarding is a focused flow: channel health, SLA and the queue badge are
+  // hidden so the wizard keeps a single primary action per step.
+  const focusMode = onAccounts || onOnboarding;
+
+  const title = onOnboarding ? 'Primeiros passos' : onAccounts ? 'Canais' : 'Atendimento';
+  const subtitle = onOnboarding
+    ? 'Conecte os canais e faça o primeiro atendimento'
+    : onAccounts
+      ? `${accounts.length} loja(s) · tokens, webhooks e autorizações`
+      : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
+          totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
+        }`;
 
   const selected = filters.marketplaces;
   const allSelected = selected.length === 0 || selected.length === MARKET_ORDER.length;
@@ -68,17 +81,11 @@ export function Topbar(): JSX.Element {
   return (
     <header className="sac-topbar">
       <div className="sac-topbar__title">
-        <strong>{onAccounts ? 'Canais' : 'Atendimento'}</strong>
-        <span>
-          {onAccounts
-            ? `${accounts.length} loja(s) · tokens, webhooks e autorizações`
-            : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
-                totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
-              }`}
-        </span>
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
       </div>
 
-      {onAccounts ? null : (
+      {focusMode ? null : (
         <div className="sac-topbar__channels" role="group" aria-label="Saúde e filtro de canais">
           {MARKET_ORDER.map((marketplace) => {
             const active = allSelected || selected.includes(marketplace);
@@ -110,7 +117,7 @@ export function Topbar(): JSX.Element {
 
       <div className="sac-topbar__spacer" />
 
-      {onAccounts ? null : (
+      {focusMode ? null : (
         <div className="sac-topbar__metric" title="Tempo médio até a primeira resposta">
           <strong className="sac-num">{formatMinutes(avgFirstResponse)}</strong>
           <span>SLA médio</span>

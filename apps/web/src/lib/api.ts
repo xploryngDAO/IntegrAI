@@ -33,6 +33,7 @@ import type {
   PolicyCheckBody,
   SendMessageBody,
   SignupBody,
+  TenantProfile,
   UploadedFile,
   WorkspaceFilters,
 } from './types';
@@ -196,6 +197,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
  * Client interface (docs/UI_KIT.md §1 + `me()` used by the boot sequence)
  * ========================================================================== */
 
+/**
+ * Slugs accepted by `POST /accounts/oauth/:marketplace/start`.
+ *
+ * `amazon` is the Fase 2 flow (docs/PHASE2_ONBOARDING.md §2). The endpoint is
+ * optional: while the server has no Amazon OAuth it answers 404/405/422 and the
+ * onboarding UI degrades to "indisponível, fale com o suporte".
+ */
+export type OAuthMarketplaceSlug = 'mercadolivre' | 'shopee' | 'amazon';
+
 export interface ApiClient {
   login(email: string, password: string): Promise<AuthResponse>;
   me(): Promise<IAgentSummary>;
@@ -239,7 +249,7 @@ export interface ApiClient {
   listAccounts(): Promise<AccountRow[]>;
   connectors(): Promise<ConnectorDescriptor[]>;
   startOAuth(
-    marketplace: 'mercadolivre' | 'shopee',
+    marketplace: OAuthMarketplaceSlug,
     displayName: string,
   ): Promise<{ authorizeUrl: string; state: string }>;
   connectAccount(payload: ConnectAccountPayload): Promise<{ accountId: string; displayName: string }>;
@@ -247,6 +257,14 @@ export interface ApiClient {
   refreshAccount(id: string): Promise<{ ok: boolean; detail: string }>;
   uploadFile(file: File): Promise<UploadedFile>;
   signedUrl(key: string): Promise<{ url: string }>;
+  /**
+   * Marks the tenant onboarding as completed (`PATCH /tenants/me`).
+   * Optional endpoint (docs/PHASE2_ONBOARDING.md §3): callers must treat 404/405
+   * as "not deployed" and simply navigate.
+   */
+  completeOnboarding(): Promise<unknown>;
+  /** Workspace profile of the authenticated tenant (`GET /tenants/me`). */
+  tenantProfile(): Promise<TenantProfile>;
   /** Live infrastructure + every connected account (ADMIN). */
   diagnostics(): Promise<SystemDiagnosis>;
   /** Real marketplace token/profile checks for a single account (ADMIN). */
@@ -487,6 +505,19 @@ export const api: ApiClient = {
 
   signedUrl(key) {
     return request<{ url: string }>(`/files/signed${encodeQuery({ key })}`);
+  },
+
+  completeOnboarding() {
+    return request<unknown>('/tenants/me', {
+      method: 'PATCH',
+      body: { onboardingCompleted: true },
+      // Optional endpoint: a 404/405 is answered immediately, so no extra headroom.
+      timeoutMs: 10_000,
+    });
+  },
+
+  tenantProfile() {
+    return request<TenantProfile>('/tenants/me', { timeoutMs: 8_000 });
   },
 
   diagnostics() {

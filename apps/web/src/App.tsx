@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from './lib/store';
 import { ApiClientError, api } from './lib/api';
+import {
+  claimOnboardingRedirect,
+  dismissOnboarding,
+  isTenantProfileCompleted,
+  loadTenantProfile,
+  shouldOfferOnboarding,
+} from './lib/onboarding';
 import { AppShell } from './components/layout/AppShell';
 import { ToastViewport } from './components/layout/ToastViewport';
 import { LoginPage } from './pages/LoginPage';
@@ -12,6 +19,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { InvitePage } from './pages/InvitePage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
+import { OnboardingPage } from './pages/OnboardingPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
@@ -74,12 +82,19 @@ function probeSession(): Promise<void> {
  *
  * The public routes above bypass the gate; an authenticated operator who lands
  * on `/login` or `/signup` is sent back to the workspace.
+ *
+ * Fase 2: the first authenticated visit to `/` hands a brand-new tenant to
+ * `/onboarding` exactly once. The wizard never blocks the workspace — finishing
+ * or skipping writes the per-tenant dismissal (`lib/onboarding.ts`) — and a deep
+ * link straight to another page is left untouched.
  */
 export default function App(): JSX.Element {
   const boot = useWorkspace((state) => state.boot);
+  const currentAgent = useWorkspace((state) => state.currentAgent);
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [sessionError, setSessionError] = useState<string | null>(null);
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const path = normalizePath(pathname);
   const publicRoute = PUBLIC_PATHS.has(path);
 
@@ -124,6 +139,38 @@ export default function App(): JSX.Element {
     setAuthState('authenticated');
     void boot();
   }, [boot]);
+
+  // Fase 2 hand-off: only from the workspace landing (`/`), only for a tenant
+  // that is neither completed nor locally dismissed, and only once per tab.
+  // `currentAgent` is a dependency because a fresh login resolves the workspace
+  // asynchronously (the store update is what re-runs this effect).
+  //
+  // `GET /tenants/me` is authoritative when available: a tenant finished in
+  // another browser must not be sent back to the wizard. The probe is cached for
+  // the page load and a failure keeps the local decision (older API deployments).
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+    if (path !== '/') return;
+    if (currentAgent === null) return;
+    if (!shouldOfferOnboarding(currentAgent)) return;
+
+    let cancelled = false;
+    void loadTenantProfile().then((profile) => {
+      if (cancelled) return;
+      if (isTenantProfileCompleted(profile)) {
+        dismissOnboarding(currentAgent);
+        return;
+      }
+      // The operator may have navigated while the probe was in flight.
+      if (window.location.pathname !== '/') return;
+      if (!claimOnboardingRedirect(currentAgent)) return;
+      navigate('/onboarding', { replace: true });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authState, currentAgent, navigate, path]);
 
   if (publicRoute) {
     if (authState === 'authenticated' && (path === '/login' || path === '/signup')) {
@@ -183,6 +230,7 @@ export default function App(): JSX.Element {
         <Route element={<AppShell />}>
           <Route path="/" element={<WorkspacePage />} />
           <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

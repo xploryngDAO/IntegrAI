@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { AccountDiagnosis, Marketplace } from '@sac/shared';
 import { Grid, Icon, PageHeader } from '@xploryng/convergencia';
 import { Check, Copy } from 'lucide-react';
@@ -55,7 +55,7 @@ function CopyRow({ label, value }: { label: string; value: string }): JSX.Elemen
   }
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-[var(--cv-radius-small)] border border-[var(--cv-color-border)] bg-[var(--cv-color-surface-subtle)] px-2.5 py-1.5">
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-[var(--cv-radius-small)] border border-[var(--cv-color-border)] bg-[var(--cv-color-surface-subtle)] px-2.5 py-1.5">
       <div className="min-w-0">
         <p className="sac-label m-0">{label}</p>
         <p className="sac-num m-0 truncate text-[var(--cv-font-meta)]" title={value}>
@@ -85,6 +85,7 @@ export function AccountsPage(): JSX.Element {
   const diagnoseAccount = useWorkspace((state) => state.diagnoseAccount);
   const systemDiagnostics = useWorkspace((state) => state.systemDiagnostics);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [hydrating, setHydrating] = useState(true);
   const [modalMarketplace, setModalMarketplace] = useState<Marketplace | null>(null);
@@ -217,6 +218,9 @@ export function AccountsPage(): JSX.Element {
         description="Autorize as lojas de cada marketplace para centralizar mensagens, pedidos e ações de pós-venda no SAC Hub. Tokens são cifrados em repouso e renovados automaticamente."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" icon="spark" onClick={() => navigate('/onboarding')}>
+              Primeiros passos
+            </Button>
             <Button
               variant="secondary"
               icon="pulse"
@@ -310,7 +314,7 @@ export function AccountsPage(): JSX.Element {
       )}
 
       <Card title="Como conectar">
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
           <div>
             <p className="sac-label m-0">Passos</p>
             <ol className="m-0 mt-1.5 list-decimal space-y-1 pl-4 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">

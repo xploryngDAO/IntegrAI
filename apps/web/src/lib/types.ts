@@ -157,6 +157,19 @@ export interface UploadedFile {
   sha256: string;
 }
 
+/**
+ * Client projection of `GET /tenants/me` (Fase 2).
+ *
+ * The API serialises the timestamp, so the browser sees an ISO string (or null
+ * when the guided onboarding was never completed).
+ */
+export interface TenantProfile {
+  id: string;
+  slug: string;
+  name: string;
+  onboardingCompletedAt: string | null;
+}
+
 /* ==========================================================================
  * Store shape (single zustand hook — see docs/UI_KIT.md §3)
  * ========================================================================== */
