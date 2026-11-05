@@ -63,7 +63,7 @@ Design detalhado, endpoints, modelo de dados e migração: [PHASE1_AUTH](PHASE1_
 
 Critérios: cliente cria conta sozinho, verifica e-mail, entra e convida equipe sem suporte.
 
-### Fase 2 — Onboarding guiado
+### Fase 2 — Onboarding guiado`n`nFluxo e design do Amazon OAuth: [PHASE2_ONBOARDING](PHASE2_ONBOARDING.md).
 
 - Wizard "Conectar lojas" com checklist por canal e status ao vivo (diagnóstico real).
 - Amazon: substituir formulário LWA por "Autorizar na Amazon" (OAuth SP-API) + guia SES/relay.
