@@ -51,7 +51,7 @@ Critérios de aceite:
 
 Riscos: migração em dados existentes; esquecer um `findMany` sem filtro (mitigado por extensão Prisma + testes de isolamento).
 
-### Fase 1 — Contas e autenticação self-service
+### Fase 1 — Contas e autenticação self-service`n`nDesign detalhado, endpoints, modelo de dados e migração: [PHASE1_AUTH](PHASE1_AUTH.md).
 
 - Signup com verificação de e-mail (SMTP/SES), criação automática de tenant.
 - Reset de senha, convite de operadores, papéis e permissões na UI.
