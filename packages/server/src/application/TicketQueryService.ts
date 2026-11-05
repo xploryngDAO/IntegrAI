@@ -123,7 +123,10 @@ export class TicketQueryService implements ITicketQueryService {
 
   async listQueue(filter: TicketListFilter, page: PageRequest): Promise<Paginated<TicketListItem>> {
     const safePage = normalizePage(page);
-    const repoFilter = this.mapQueueFilter(filter);
+    if (filter.tenantId === null) {
+      return { items: [], total: 0, page: safePage.page, pageSize: safePage.pageSize, totalPages: 0 };
+    }
+    const repoFilter = { ...this.mapQueueFilter(filter), tenantId: filter.tenantId };
     const result = await this.repos.tickets.list(repoFilter, safePage);
 
     const [accounts, agents] = await Promise.all([this.loadAccountMap(), this.loadAgentMap()]);
@@ -180,9 +183,12 @@ export class TicketQueryService implements ITicketQueryService {
   /* Detail                                                               */
   /* ==================================================================== */
 
-  async getDetail(ticketId: string): Promise<TicketDetail> {
+  async getDetail(ticketId: string, tenantId?: string | null): Promise<TicketDetail> {
     const ticket = await this.repos.tickets.findById(ticketId);
     if (!ticket) throw new NotFoundError('SupportTicket', ticketId);
+    if (tenantId !== undefined && (tenantId === null || ticket.tenantId !== tenantId)) {
+      throw new NotFoundError('SupportTicket', ticketId);
+    }
 
     const [account, agent, order, messages, events, pii] = await Promise.all([
       this.repos.accounts.findById(ticket.accountId),

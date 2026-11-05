@@ -446,7 +446,9 @@ export class UnifiedTicketService implements IUnifiedTicketService {
       channelMetadata['marketplace_site'] = message.marketplace;
     }
 
+    const accountForTenant = await this.repos.accounts.findById(message.accountId);
     const ticket = await this.repos.tickets.create({
+      tenantId: accountForTenant?.tenantId ?? null,
       accountId: message.accountId,
       marketplace: message.marketplace,
       ticketType: message.ticketType,

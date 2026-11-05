@@ -55,6 +55,7 @@ export class PrismaTicketRepository implements ITicketRepository {
 
   async create(input: CreateTicketInput): Promise<SupportTicketRecord> {
     const data: Prisma.SupportTicketUncheckedCreateInput = {
+      tenantId: input.tenantId ?? null,
       accountId: input.accountId,
       marketplace: input.marketplace,
       ticketType: input.ticketType,
@@ -418,6 +419,8 @@ export class PrismaTicketRepository implements ITicketRepository {
   private buildWhere(filter: TicketListFilter): Prisma.SupportTicketWhereInput {
     const where: Prisma.SupportTicketWhereInput = {};
     const and: Prisma.SupportTicketWhereInput[] = [];
+
+    if (filter.tenantId) where.tenantId = filter.tenantId;
 
     if (filter.marketplace && filter.marketplace.length > 0) {
       where.marketplace = { in: filter.marketplace };

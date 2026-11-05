@@ -133,7 +133,7 @@ export interface IAgentSummary {
 
 export interface ITicketQueryService {
   listQueue(filter: TicketListFilter, page: PageRequest): Promise<Paginated<TicketListItem>>;
-  getDetail(ticketId: string): Promise<TicketDetail>;
+  getDetail(ticketId: string, tenantId?: string | null): Promise<TicketDetail>;
   getStats(filter?: TicketListFilter): Promise<TicketStats>;
   getQueueSnapshot(filter?: TicketListFilter): Promise<QueueSnapshot>;
   getAvailableActions(ticketId: string): Promise<AvailableActionView[]>;

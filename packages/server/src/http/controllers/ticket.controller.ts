@@ -31,14 +31,15 @@ export function createTicketControllers(ctx: HttpRouteContext): TicketController
     async list(request) {
       const query = parseInput(ticketListQuerySchema, request.query, 'query');
       const agent = requireAgent(request);
-      const filter = toTicketFilter(query, agent.id);
+      const filter = { ...toTicketFilter(query, agent.id), tenantId: agent.tenantId };
       return ok(await services.tickets.listQueue(filter, { page: query.page, pageSize: query.pageSize }));
     },
 
     /** `GET /tickets/:id` - full workspace payload (order, PII-gated customer, thread). */
     async detail(request) {
       const { id } = parseInput(ticketIdParamsSchema, request.params, 'params');
-      return ok(await services.tickets.getDetail(id));
+      const agent = requireAgent(request);
+      return ok(await services.tickets.getDetail(id, agent.tenantId));
     },
 
     /** `POST /tickets/:id/assign`. */

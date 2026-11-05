@@ -68,6 +68,7 @@ function toNumber(value: Prisma.Decimal | number | string): number {
 export function mapAccount(record: MarketplaceAccount): MarketplaceAccountRecord {
   return {
     id: record.id,
+    tenantId: record.tenantId,
     marketplace: record.marketplace,
     displayName: record.displayName,
     externalSellerId: record.externalSellerId,
@@ -117,6 +118,7 @@ export function mapOrder(record: OrderCache): OrderCacheRecord {
 export function mapTicket(record: SupportTicket): SupportTicketRecord {
   return {
     id: record.id,
+    tenantId: record.tenantId,
     accountId: record.accountId,
     marketplace: record.marketplace,
     ticketType: record.ticketType,

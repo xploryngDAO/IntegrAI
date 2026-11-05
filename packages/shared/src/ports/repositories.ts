@@ -78,6 +78,7 @@ export interface IAccountRepository {
  * ========================================================================== */
 
 export interface CreateTicketInput {
+  tenantId?: string | null;
   accountId: string;
   marketplace: Marketplace;
   ticketType: TicketType;

@@ -18,6 +18,8 @@ import type {
 
 export interface MarketplaceAccountRecord {
   id: string;
+  tenantId?: string | null;
+
   marketplace: Marketplace;
   displayName: string;
   externalSellerId: string;
@@ -75,6 +77,7 @@ export interface OrderCacheRecord {
 
 export interface SupportTicketRecord {
   id: string;
+  tenantId: string | null;
   accountId: string;
   marketplace: Marketplace;
   ticketType: TicketType;
@@ -240,6 +243,7 @@ export interface Paginated<T> {
 export type QueueFilterKey = 'ALL' | 'SLA_CRITICAL' | 'CLAIMS' | 'PRE_SALE' | 'WAITING_ME' | 'UNASSIGNED';
 
 export interface TicketListFilter {
+  tenantId?: string | null;
   search?: string;
   marketplace?: Marketplace[];
   accountId?: string;
