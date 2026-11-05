@@ -20,6 +20,8 @@ export class PrismaAgentRepository implements IAgentRepository {
         role: input.role,
         avatarColor: input.avatarColor,
         maxConcurrent: input.maxConcurrent,
+        tenantId: input.tenantId ?? null,
+        emailVerifiedAt: input.emailVerifiedAt ?? null,
       },
     });
     return mapAgent(record);
@@ -66,6 +68,13 @@ export class PrismaAgentRepository implements IAgentRepository {
 
   async updatePassword(id: string, passwordHash: string): Promise<void> {
     await this.prisma.agent.update({ where: { id }, data: { passwordHash } });
+  }
+
+  async markEmailVerified(id: string, at: Date): Promise<void> {
+    await this.prisma.agent.update({
+      where: { id },
+      data: { emailVerifiedAt: at },
+    });
   }
 }
 

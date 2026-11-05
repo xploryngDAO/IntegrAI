@@ -12,8 +12,18 @@ import {
 import type { AuthenticatedAgent } from '../types';
 import { stripQuery } from '../utils/query';
 
-/** Routes reachable without a JWT (contract §7 + health probes + OAuth callback). */
-const PUBLIC_EXACT_PATHS: readonly string[] = ['/health', '/api/v1/health', '/api/v1/auth/login'];
+/**
+ * Routes reachable without a JWT (contract §7 + health probes + OAuth callback +
+ * the Fase 1 self-service auth flows reachable before a session exists).
+ */
+const PUBLIC_EXACT_PATHS: readonly string[] = [
+  '/health',
+  '/api/v1/health',
+  '/api/v1/auth/login',
+  '/api/v1/auth/signup',
+  '/api/v1/auth/verify-email',
+  '/api/v1/auth/resend-verification',
+];
 
 const OAUTH_CALLBACK_PATH = /^\/api\/v1\/accounts\/oauth\/[a-z]+\/callback$/;
 const WEBHOOK_PREFIX = '/webhooks/';

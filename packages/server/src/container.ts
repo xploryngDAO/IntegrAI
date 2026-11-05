@@ -15,6 +15,7 @@ import { createInfrastructure } from './infrastructure';
 
 import { AccountService } from './application/AccountService';
 import { AgentService } from './application/AgentService';
+import { AuthService } from './application/AuthService';
 import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
@@ -195,6 +196,22 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  const auth = new AuthService({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    email: infra.email,
+    config: {
+      webOrigin: config.webOrigin,
+      appBaseUrl: config.appBaseUrl,
+    },
+    repos: {
+      agents: infra.agents,
+      tenants: infra.tenants,
+      emailVerifications: infra.emailVerifications,
+    },
+  });
+
   const webhooks = new WebhookIngressService({
     logger: infra.logger,
     clock: infra.clock,
@@ -270,6 +287,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     ticketCommands,
     outbound,
     agents,
+    auth,
     webhooks,
     health,
     files,

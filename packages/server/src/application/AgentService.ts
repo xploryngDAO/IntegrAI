@@ -16,7 +16,7 @@ import type {
   ITicketRepository,
   LoginResult,
 } from '@sac/shared';
-import { AuthenticationError, NotFoundError, ValidationError } from '@sac/shared';
+import { AppError, AuthenticationError, NotFoundError, ValidationError } from '@sac/shared';
 
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
 
@@ -113,6 +113,19 @@ export class AgentService implements IAgentService {
     if (!agent || !passwordMatches || !agent.isActive) {
       this.logger.warn('agent.login.failed', { email: normalizedEmail });
       throw new AuthenticationError('Invalid credentials');
+    }
+
+    // Fase 1: self-service accounts must prove e-mail ownership before a session
+    // is issued. The check runs only AFTER a valid password so an attacker
+    // cannot use it to enumerate accounts (wrong password still answers 401).
+    // Legacy operators were backfilled with `email_verified_at = now()`.
+    if (agent.emailVerifiedAt === null) {
+      this.logger.warn('agent.login.email_not_verified', { agentId: agent.id });
+      throw new AppError(
+        'EMAIL_NOT_VERIFIED',
+        'E-mail address is not verified. Check your inbox for the verification link.',
+        403,
+      );
     }
 
     const token = this.signToken(agent);

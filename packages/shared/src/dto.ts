@@ -175,8 +175,28 @@ export interface AgentRecord {
   maxConcurrent: number;
   isActive: boolean;
   lastSeenAt: Date | null;
+  /** `null` until the self-service e-mail verification is consumed (Fase 1). */
+  emailVerifiedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface TenantRecord {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EmailVerificationRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
 }
 
 export interface WebhookEventRecord {

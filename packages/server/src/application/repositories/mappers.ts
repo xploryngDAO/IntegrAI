@@ -1,12 +1,14 @@
 import type {
   Agent,
   BuyerPiiVault,
+  EmailVerification,
   MarketplaceAccount,
   MessageAttachment,
   OrderCache,
   Prisma,
   SlaPolicy,
   SupportTicket,
+  Tenant,
   TicketEvent,
   TicketMessage,
   WebhookEvent,
@@ -14,12 +16,14 @@ import type {
 import type {
   AgentRecord,
   BuyerPiiRecord,
+  EmailVerificationRecord,
   MarketplaceAccountRecord,
   MessageAttachmentRecord,
   OrderCacheRecord,
   OrderItemSnapshot,
   SlaPolicyRecord,
   SupportTicketRecord,
+  TenantRecord,
   TicketEventRecord,
   TicketMessageRecord,
   WebhookEventRecord,
@@ -260,8 +264,31 @@ export function mapAgent(record: Agent): AgentRecord {
     maxConcurrent: record.maxConcurrent,
     isActive: record.isActive,
     lastSeenAt: record.lastSeenAt,
+    emailVerifiedAt: record.emailVerifiedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  };
+}
+
+export function mapTenant(record: Tenant): TenantRecord {
+  return {
+    id: record.id,
+    slug: record.slug,
+    name: record.name,
+    status: record.status,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+export function mapEmailVerification(record: EmailVerification): EmailVerificationRecord {
+  return {
+    id: record.id,
+    userId: record.userId,
+    tokenHash: record.tokenHash,
+    expiresAt: record.expiresAt,
+    usedAt: record.usedAt,
+    createdAt: record.createdAt,
   };
 }
 

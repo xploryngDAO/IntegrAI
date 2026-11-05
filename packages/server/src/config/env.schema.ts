@@ -149,6 +149,8 @@ export const envSchema = z.object({
   SMTP_SECURE: boolFromEnv(false),
   SMTP_USER: stringFromEnv(''),
   SMTP_PASSWORD: stringFromEnv(''),
+  /** Envelope/From address for transactional auth e-mail. */
+  SMTP_FROM: stringFromEnv('no-reply@integrai.app'),
 
   /* ----------------------------- Mercado Livre ---------------------------- */
   MELI_CLIENT_ID: stringFromEnv(''),

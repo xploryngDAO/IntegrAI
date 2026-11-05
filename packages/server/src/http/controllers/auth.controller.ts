@@ -1,7 +1,13 @@
 import { NotFoundError } from '@sac/shared';
 import type { AuthResponse, IAgentSummary } from '@sac/shared';
 import type { HttpRouteContext, RouteHandler } from '../types';
-import { loginBodySchema, presenceBodySchema } from '../schemas';
+import {
+  loginBodySchema,
+  presenceBodySchema,
+  resendVerificationBodySchema,
+  signupBodySchema,
+  verifyEmailBodySchema,
+} from '../schemas';
 import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
 import { requireAgent } from '../middleware/auth';
@@ -11,6 +17,9 @@ export interface AuthControllers {
   login: RouteHandler;
   me: RouteHandler;
   setPresence: RouteHandler;
+  signup: RouteHandler;
+  verifyEmail: RouteHandler;
+  resendVerification: RouteHandler;
 }
 
 export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
@@ -77,6 +86,34 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
       const summary = await services.agents.setPresence(agent.id, body.presence);
       publishPresence(summary);
       return ok(summary);
+    },
+
+    /** `POST /auth/signup` - public: creates tenant + ADMIN, sends verification. */
+    async signup(request, reply) {
+      const body = parseInput(signupBodySchema, request.body, 'body');
+      const result = await services.auth.signup(body);
+      reply.code(201);
+      return ok(result);
+    },
+
+    /** `POST /auth/verify-email` - public: consumes the single-use token. */
+    async verifyEmail(request) {
+      const body = parseInput(verifyEmailBodySchema, request.body, 'body');
+      await services.auth.verifyEmail(body.token);
+      return ok({ verified: true });
+    },
+
+    /**
+     * `POST /auth/resend-verification` - public.
+     *
+     * Always 202 with the same body, whether the account exists, is already
+     * verified or was throttled (no account enumeration).
+     */
+    async resendVerification(request, reply) {
+      const body = parseInput(resendVerificationBodySchema, request.body, 'body');
+      await services.auth.resendVerification(body.email);
+      reply.code(202);
+      return ok({ status: 'accepted' });
     },
   };
 }

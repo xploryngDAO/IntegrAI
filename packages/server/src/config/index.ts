@@ -24,6 +24,8 @@ export interface AppConfig extends ChannelRuntimeConfig {
   encryptionMasterKey: string;
   encryptionKeyId: string;
   agentPresenceTtlSeconds: number;
+  /** `From:` address used by the transactional e-mail service. */
+  smtpFrom: string;
   logLevel: string;
   cron: {
     slaScan: string;
@@ -121,6 +123,7 @@ function buildConfig(env: Env): AppConfig {
     encryptionMasterKey: env.ENCRYPTION_MASTER_KEY,
     encryptionKeyId: env.ENCRYPTION_KEY_ID,
     agentPresenceTtlSeconds: env.AGENT_PRESENCE_TTL,
+    smtpFrom: env.SMTP_FROM,
     logLevel,
     piiRetentionDays: env.PII_RETENTION_DAYS,
     cron: {

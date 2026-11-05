@@ -31,6 +31,9 @@ export const CACHE_KEYS = {
   outboundDedupe: (ticketId: string, key: string): string => `sac:outbound:dedupe:${ticketId}:${key}`,
   healthChannel: (marketplace: Marketplace, accountId: string): string =>
     `sac:health:${marketplace}:${accountId}`,
+  /** Fixed-window throttle for `POST /auth/resend-verification` (1/min). */
+  emailVerificationResend: (email: string): string =>
+    `sac:auth:email-verification:resend:${email}`,
 } as const;
 
 /** BullMQ job names (stable - used for metrics and DLQ replay). */

@@ -3,10 +3,15 @@ import type { AdapterRepositories } from '@sac/shared';
 import { PrismaAccountRepository, createAccountRepository } from './accounts';
 import { createAgentRepository, PrismaAgentRepository } from './agents';
 import { createAttachmentRepository, PrismaAttachmentRepository } from './attachments';
+import {
+  createEmailVerificationRepository,
+  PrismaEmailVerificationRepository,
+} from './email-verifications';
 import { createMessageRepository, PrismaMessageRepository } from './messages';
 import { createOrderRepository, PrismaOrderRepository } from './orders';
 import { createPiiVaultRepository, PrismaPiiVaultRepository } from './pii-vault';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
+import { createTenantRepository, PrismaTenantRepository } from './tenants';
 import { createTicketEventRepository, PrismaTicketEventRepository } from './ticket-events';
 import { createTicketRepository, PrismaTicketRepository } from './tickets';
 import { createWebhookEventRepository, PrismaWebhookEventRepository } from './webhook-events';
@@ -31,10 +36,15 @@ export function createRepositories(prisma: PrismaClient): AdapterRepositories {
 export { createAccountRepository, PrismaAccountRepository };
 export { createAgentRepository, PrismaAgentRepository };
 export { createAttachmentRepository, PrismaAttachmentRepository };
+export {
+  createEmailVerificationRepository,
+  PrismaEmailVerificationRepository,
+};
 export { createMessageRepository, PrismaMessageRepository };
 export { createOrderRepository, PrismaOrderRepository };
 export { createPiiVaultRepository, PrismaPiiVaultRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
+export { createTenantRepository, PrismaTenantRepository };
 export { createTicketEventRepository, PrismaTicketEventRepository };
 export { createTicketRepository, PrismaTicketRepository };
 export { createWebhookEventRepository, PrismaWebhookEventRepository };
@@ -44,10 +54,12 @@ export {
   mapAccount,
   mapAgent,
   mapAttachment,
+  mapEmailVerification,
   mapMessage,
   mapOrder,
   mapPii,
   mapSlaPolicy,
+  mapTenant,
   mapTicket,
   mapTicketEvent,
   mapWebhookEvent,

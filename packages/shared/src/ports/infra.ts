@@ -88,6 +88,16 @@ export interface IObjectStorage {
   buildUri(key: string): string;
 }
 
+/**
+ * Transactional e-mail port.
+ *
+ * Implementations must never log the raw token/link in production and must
+ * degrade gracefully (log-only) when SMTP is not configured outside production.
+ */
+export interface IEmailService {
+  sendVerificationEmail(to: string, link: string, name?: string): Promise<void>;
+}
+
 export interface ISecretCipher {
   /** AES-256-GCM. Format: `v1:<keyId>:<ivB64>:<tagB64>:<cipherB64>`. */
   encrypt(plaintext: string): string;

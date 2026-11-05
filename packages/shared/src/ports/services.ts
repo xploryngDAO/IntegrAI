@@ -209,6 +209,32 @@ export interface IAgentService {
 }
 
 /* ==========================================================================
+ * Self-service auth (Fase 1: signup + e-mail verification)
+ * ========================================================================== */
+
+export interface SignupCommand {
+  companyName: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface SignupResult {
+  tenantId: string;
+  userId: string;
+  emailVerificationRequired: true;
+}
+
+export interface IAuthService {
+  /** Creates the tenant + ADMIN operator and sends the verification e-mail. */
+  signup(command: SignupCommand): Promise<SignupResult>;
+  /** Consumes a single-use verification token (hash + TTL checked). */
+  verifyEmail(token: string): Promise<void>;
+  /** Always resolves (no account enumeration); throttled to 1/min per e-mail. */
+  resendVerification(email: string): Promise<void>;
+}
+
+/* ==========================================================================
  * Webhook ingress
  * ========================================================================== */
 
@@ -290,6 +316,7 @@ export interface IAppServices {
   readonly ticketCommands: IUnifiedTicketService;
   readonly outbound: IOutboundRouterService;
   readonly agents: IAgentService;
+  readonly auth: IAuthService;
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
   readonly files: IFileService;

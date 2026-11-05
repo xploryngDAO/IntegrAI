@@ -6,6 +6,8 @@ import type {
   ICache,
   IClock,
   IDistributedLock,
+  IEmailService,
+  IEmailVerificationRepository,
   IHttpClient,
   ILogger,
   IObjectStorage,
@@ -13,10 +15,18 @@ import type {
   IRateLimiter,
   ISlaPolicyRepository,
   ISecretCipher,
+  ITenantRepository,
 } from '@sac/shared';
 import type { AppConfig } from '../config';
-import { createRepositories, createAgentRepository, createSlaPolicyRepository } from '../application/repositories';
+import {
+  createRepositories,
+  createAgentRepository,
+  createEmailVerificationRepository,
+  createSlaPolicyRepository,
+  createTenantRepository,
+} from '../application/repositories';
 import { SecretCipher } from './crypto/cipher';
+import { SmtpEmailService } from './email/email-service';
 import { FetchHttpClient } from './http/client';
 import { Redlock } from './lock/redlock';
 import { createLogger } from './logger';
@@ -46,7 +56,10 @@ export interface InfrastructureBundle {
   queue: IQueuePublisher;
   repos: AdapterRepositories;
   agents: IAgentRepository;
+  tenants: ITenantRepository;
+  emailVerifications: IEmailVerificationRepository;
   slaPolicies: ISlaPolicyRepository;
+  email: IEmailService;
 }
 
 /** Wall-clock `IClock`; services take `IClock` so tests can freeze time. */
@@ -108,7 +121,20 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
 
   const repos = createRepositories(prisma);
   const agents = createAgentRepository(prisma);
+  const tenants = createTenantRepository(prisma);
+  const emailVerifications = createEmailVerificationRepository(prisma);
   const slaPolicies = createSlaPolicyRepository(prisma);
+
+  const email = new SmtpEmailService({
+    host: config.smtp.host,
+    port: config.smtp.port,
+    secure: config.smtp.secure,
+    user: config.smtp.user,
+    password: config.smtp.password,
+    from: config.smtpFrom,
+    nodeEnv: config.nodeEnv,
+    logger,
+  });
 
   return {
     config,
@@ -125,7 +151,10 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     queue,
     repos,
     agents,
+    tenants,
+    emailVerifications,
     slaPolicies,
+    email,
   };
 }
 

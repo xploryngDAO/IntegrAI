@@ -14,6 +14,7 @@ import type {
 import type {
   AgentRecord,
   BuyerPiiRecord,
+  EmailVerificationRecord,
   MarketplaceAccountRecord,
   MessageAttachmentRecord,
   OrderCacheRecord,
@@ -22,6 +23,7 @@ import type {
   Paginated,
   SlaPolicyRecord,
   SupportTicketRecord,
+  TenantRecord,
   TicketEventRecord,
   TicketListFilter,
   TicketMessageRecord,
@@ -355,9 +357,12 @@ export interface CreateAgentInput {
   email: string;
   name: string;
   passwordHash: string;
+  tenantId?: string | null;
   role?: AgentRole;
   avatarColor?: string;
   maxConcurrent?: number;
+  /** `null` for self-service signup; set for the verified bootstrap ADMIN. */
+  emailVerifiedAt?: Date | null;
 }
 
 export interface IAgentRepository {
@@ -367,6 +372,40 @@ export interface IAgentRepository {
   list(filter?: { presence?: AgentPresenceStatus; activeOnly?: boolean; tenantId?: string | null }): Promise<AgentRecord[]>;
   updatePresence(id: string, presence: AgentPresenceStatus, at: Date): Promise<AgentRecord>;
   updatePassword(id: string, passwordHash: string): Promise<void>;
+  /** Marks the operator e-mail as verified (idempotent, `null` -> `at`). */
+  markEmailVerified(id: string, at: Date): Promise<void>;
+}
+
+/* ==========================================================================
+ * TENANTS + E-MAIL VERIFICATIONS (Fase 1 self-service signup)
+ * ========================================================================== */
+
+export interface CreateTenantInput {
+  slug: string;
+  name: string;
+  status?: string;
+}
+
+export interface ITenantRepository {
+  create(input: CreateTenantInput): Promise<TenantRecord>;
+  findBySlug(slug: string): Promise<TenantRecord | null>;
+  findById(id: string): Promise<TenantRecord | null>;
+  /** Compensating delete used when the ADMIN insert fails after tenant creation. */
+  delete(id: string): Promise<void>;
+}
+
+export interface CreateEmailVerificationInput {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}
+
+export interface IEmailVerificationRepository {
+  create(input: CreateEmailVerificationInput): Promise<EmailVerificationRecord>;
+  findByTokenHash(tokenHash: string): Promise<EmailVerificationRecord | null>;
+  markUsed(id: string, at: Date): Promise<void>;
+  /** Single-use guarantee: burns every still-unused token of the operator. */
+  invalidateUnused(userId: string, at: Date): Promise<number>;
 }
 
 export interface ISlaPolicyRepository {

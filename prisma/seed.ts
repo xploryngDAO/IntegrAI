@@ -46,6 +46,9 @@ async function main(): Promise<void> {
       role: 'ADMIN',
       isActive: true,
       tenantId: tenant.id,
+      // Bootstrap operator (ADMIN_EMAIL/ADMIN_PASSWORD) is trusted by design:
+      // it never goes through the self-service signup verification flow.
+      emailVerifiedAt: new Date(),
     },
     create: {
       email: EMAIL,
@@ -56,6 +59,7 @@ async function main(): Promise<void> {
       maxConcurrent: 20,
       isActive: true,
       tenantId: tenant.id,
+      emailVerifiedAt: new Date(),
     },
   });
 
