@@ -70,7 +70,7 @@ Critérios: cliente cria conta sozinho, verifica e-mail, entra e convida equipe 
 
 Critérios: cliente novo conecta Meli/Shopee em <3 min sem suporte; Amazon guiada.
 
-### Fase 3 — Apps de marketplace em produção
+### Fase 3 — Apps de marketplace em produção`n`nChecklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSION.md).
 
 - Meli: certificação do app (quando exigida) e revisão de escopos.
 - Shopee: aprovação do app parceiro, push URL e sandbox validados.
