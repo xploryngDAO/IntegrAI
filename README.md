@@ -34,6 +34,17 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
         PostgreSQL 16 (JSONB) · Redis 7 · S3/MinIO (.eml, NF-e, evidências)
 ```
 
+## Estado atual da publicação
+
+| Item | Estado |
+|---|---|
+| **SPA** | <https://integrai-dev.vercel.app> — login real (sem mock) |
+| **API real** | túnel HTTPS temporário do ambiente de setup (ver [DEPLOY_LOCAL_TUNNEL](docs/DEPLOY_LOCAL_TUNNEL.md)); Postgres, Redis e S3 verificados ok |
+| **Operador** | criado por 
+pm run db:seed com ADMIN_EMAIL/ADMIN_PASSWORD (não versionado) |
+| **Marketplaces** | aguardando os apps/credenciais reais — GET /api/v1/diagnostics lista o que falta por canal |
+| **Evidência E2E** | 
+ode scripts/verify-live.mjs <url> <email> <senha> faz login em navegador limpo, abre /accounts e roda o diagnóstico real, salvando capturas em screenshots/ |
 ## Screenshots
 
 Interface no **Convergência Design System** (tema claro canônico + escuro). As imagens abaixo usam dados ilustrativos de layout — **a aplicação não gera nem exibe dados simulados**; sem API/credenciais ela mostra a tela de login ou estado vazio real.
