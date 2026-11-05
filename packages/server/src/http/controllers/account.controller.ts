@@ -21,6 +21,8 @@ export interface AccountControllers {
   connectors: RouteHandler;
   oauthStart: RouteHandler;
   oauthCallback: RouteHandler;
+  amazonOAuthStart: RouteHandler;
+  amazonOAuthCallback: RouteHandler;
   connect: RouteHandler;
   disconnect: RouteHandler;
   refresh: RouteHandler;
@@ -100,6 +102,62 @@ export function createAccountControllers(ctx: HttpRouteContext): AccountControll
           requestId: request.id,
         });
         return reply.redirect(redirectLocation(options.webOrigin, { error: code }), 302);
+      }
+    },
+
+    /**
+     * `POST /accounts/oauth/amazon/start`.
+     *
+     * Same signed, single-use state as Meli/Shopee (tenantId + displayName), but
+     * the URL is the Seller Central consent screen. `AMAZON_APP_ID` missing =>
+     * 409 `AMAZON_OAUTH_NOT_CONFIGURED` with remediation.
+     */
+    async amazonOAuthStart(request) {
+      const body = parseInput(oauthStartBodySchema, request.body, 'body');
+      const agent = requireAgent(request);
+      const result = await services.accounts.startOAuth('AMAZON', body.displayName, agent.tenantId);
+      return ok(result);
+    },
+
+    /**
+     * `GET /accounts/oauth/amazon/callback` (public allowlist).
+     *
+     * Amazon returns `spapi_oauth_code` + `selling_partner_id`. The browser is
+     * always redirected back to the SPA; failures become `?error=<code>`.
+     */
+    async amazonOAuthCallback(request, reply) {
+      const rawQuery = queryToStringRecord(request.query);
+      const code = asString(rawQuery['spapi_oauth_code']);
+      const state = asString(rawQuery['state']);
+      const sellingPartnerId = asString(rawQuery['selling_partner_id']);
+
+      if (
+        code === undefined ||
+        code.length === 0 ||
+        state === undefined ||
+        state.length === 0 ||
+        sellingPartnerId === undefined ||
+        sellingPartnerId.length === 0
+      ) {
+        return reply.redirect(redirectLocation(options.webOrigin, { error: 'VALIDATION_ERROR' }), 302);
+      }
+
+      try {
+        await services.accounts.completeOAuth('AMAZON', {
+          code,
+          state,
+          sellingPartnerId,
+          rawQuery,
+        });
+        return reply.redirect(redirectLocation(options.webOrigin, { connected: 'amazon' }), 302);
+      } catch (error) {
+        const errorCode = isAppError(error) ? error.code : 'INTERNAL_ERROR';
+        log.warn('oauth.callback_failed', {
+          marketplace: 'AMAZON',
+          errorCode,
+          requestId: request.id,
+        });
+        return reply.redirect(redirectLocation(options.webOrigin, { error: errorCode }), 302);
       }
     },
 

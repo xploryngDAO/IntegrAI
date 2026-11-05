@@ -134,6 +134,11 @@ export const envSchema = z.object({
   /* -------------------------- Amazon SP-API / SES ------------------------- */
   AMAZON_LWA_CLIENT_ID: stringFromEnv(''),
   AMAZON_LWA_CLIENT_SECRET: stringFromEnv(''),
+  /** Fase 2: public SP-API app used by the "Autorizar na Amazon" OAuth flow. */
+  AMAZON_APP_ID: optionalString(),
+  AMAZON_APP_REDIRECT_URI: optionalString(),
+  /** Empty falls back to the NA consent page inside AccountService. */
+  AMAZON_OAUTH_AUTHORIZE_URL: optionalString(),
   AMAZON_SPAPI_ENDPOINT: stringFromEnv('https://sellingpartnerapi-na.amazon.com'),
   AMAZON_LWA_TOKEN_URL: stringFromEnv('https://api.amazon.com/auth/o2/token'),
   AMAZON_RDT_ENDPOINT: stringFromEnv(

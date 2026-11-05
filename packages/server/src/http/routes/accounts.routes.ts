@@ -8,6 +8,10 @@ export const accountRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, c
 
   app.get('/', controllers.list);
   app.get('/connectors', controllers.connectors);
+  // Static Amazon routes MUST exist alongside the parametric Meli/Shopee routes;
+  // find-my-way serves the static segment first, so `/oauth/amazon/*` wins.
+  app.post('/oauth/amazon/start', controllers.amazonOAuthStart);
+  app.get('/oauth/amazon/callback', controllers.amazonOAuthCallback);
   app.post('/oauth/:marketplace/start', controllers.oauthStart);
   app.get('/oauth/:marketplace/callback', controllers.oauthCallback);
   app.post('/connect', controllers.connect);

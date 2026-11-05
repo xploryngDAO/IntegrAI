@@ -16,6 +16,7 @@ export class PrismaAccountRepository implements IAccountRepository {
   async create(input: CreateAccountInput): Promise<MarketplaceAccountRecord> {
     const record = await this.prisma.marketplaceAccount.create({
       data: {
+        tenantId: input.tenantId ?? null,
         marketplace: input.marketplace,
         displayName: input.displayName,
         externalSellerId: input.externalSellerId,
@@ -96,6 +97,7 @@ export class PrismaAccountRepository implements IAccountRepository {
     if (patch.lastTokenRefreshAt !== undefined) data.lastTokenRefreshAt = patch.lastTokenRefreshAt;
     if (patch.lastError !== undefined) data.lastError = patch.lastError;
     if (patch.lastErrorAt !== undefined) data.lastErrorAt = patch.lastErrorAt;
+    if (patch.tenantId !== undefined) data.tenantId = patch.tenantId;
 
     const record = await this.prisma.marketplaceAccount.update({ where: { id }, data });
     return mapAccount(record);

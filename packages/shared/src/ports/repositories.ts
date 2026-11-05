@@ -61,6 +61,8 @@ export interface AccountTokenPatch {
   lastTokenRefreshAt?: Date;
   lastError?: string | null;
   lastErrorAt?: Date | null;
+  /** Used when an OAuth reconnect attaches a legacy (tenantless) account. */
+  tenantId?: string | null;
 }
 
 export interface IAccountRepository {
@@ -389,10 +391,19 @@ export interface CreateTenantInput {
   status?: string;
 }
 
+/** Fields an operator may change on its own workspace (Fase 2 onboarding). */
+export interface UpdateTenantInput {
+  name?: string;
+  /** `null` clears the completion marker; a `Date` stamps it. */
+  onboardingCompletedAt?: Date | null;
+}
+
 export interface ITenantRepository {
   create(input: CreateTenantInput): Promise<TenantRecord>;
   findBySlug(slug: string): Promise<TenantRecord | null>;
   findById(id: string): Promise<TenantRecord | null>;
+  /** Tenant-scoped update (the id comes from the JWT, never from the body). */
+  update(id: string, input: UpdateTenantInput): Promise<TenantRecord>;
   /** Compensating delete used when the ADMIN insert fails after tenant creation. */
   delete(id: string): Promise<void>;
 }

@@ -24,6 +24,16 @@ export interface AmazonChannelConfig {
   region: string;
   sesInboundSharedSecret: string;
   emailDomainAllowlist: string[];
+  /**
+   * Public SP-API application id (`AMAZON_APP_ID`). Optional: when it is empty
+   * the Amazon "authorize in Seller Central" OAuth flow is unavailable and the
+   * API answers `AMAZON_OAUTH_NOT_CONFIGURED` with remediation.
+   */
+  appId?: string;
+  /** Consent redirect registered in Seller Central (`AMAZON_APP_REDIRECT_URI`). */
+  appRedirectUri?: string;
+  /** Regional consent page (`AMAZON_OAUTH_AUTHORIZE_URL`). */
+  oauthAuthorizeUrl?: string;
 }
 
 export interface MeliChannelConfig {

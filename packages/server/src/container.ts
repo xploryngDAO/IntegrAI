@@ -27,6 +27,7 @@ import {
   type OutboundAttemptRecordInput,
 } from './application/OutboundRouterService';
 import { SlaEngine } from './application/sla/SlaEngine';
+import { TenantService } from './application/TenantService';
 import { TicketQueryService } from './application/TicketQueryService';
 import { TwoFactorService } from './application/TwoFactorService';
 import { UnifiedTicketService } from './application/UnifiedTicketService';
@@ -185,6 +186,12 @@ export function createContainer(args: ContainerArgs): IAppServices {
     repos: { accounts: infra.repos.accounts },
   });
 
+  const tenants = new TenantService({
+    logger: infra.logger,
+    clock: infra.clock,
+    repos: { tenants: infra.tenants },
+  });
+
   const sessions = new AuthSessionService({
     logger: infra.logger,
     clock: infra.clock,
@@ -331,6 +338,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     realtime,
     adapters,
     accounts,
+    tenants,
     tickets,
     ticketCommands,
     outbound,

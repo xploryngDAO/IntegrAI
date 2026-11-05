@@ -192,6 +192,8 @@ model Tenant {
   slug      String   @unique @db.VarChar(80)
   name      String   @db.VarChar(160)
   status    String   @default("ACTIVE") @db.VarChar(24)
+  /// Fase 2: first completion of the guided onboarding wizard (null = pending).
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

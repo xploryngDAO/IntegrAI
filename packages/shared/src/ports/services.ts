@@ -18,6 +18,7 @@ import type {
   PageRequest,
   Paginated,
   QueueSnapshot,
+  TenantProfile,
   TicketDetail,
   TicketListItem,
   TicketStats,
@@ -170,6 +171,8 @@ export interface OAuthCallbackInput {
   code: string;
   state: string;
   shopId?: string;
+  /** Amazon SP-API consent returns the seller id as `selling_partner_id`. */
+  sellingPartnerId?: string;
   rawQuery: Record<string, string>;
 }
 
@@ -191,6 +194,24 @@ export interface IAccountService {
   connectWithCredentials(input: ConnectAccountRequest, tenantId?: string | null): Promise<{ accountId: string; displayName: string }>;
   disconnect(accountId: string): Promise<void>;
   refreshNow(accountId: string): Promise<{ ok: boolean; detail: string }>;
+}
+
+/* ==========================================================================
+ * Tenants (Fase 2: workspace identity + onboarding completion)
+ * ========================================================================== */
+
+export interface UpdateTenantCommand {
+  /** New workspace display name (trimmed, 1..160 chars). */
+  name?: string;
+  /** `true` stamps `onboarding_completed_at`; `false` clears it (wizard rerun). */
+  onboardingCompleted?: boolean;
+}
+
+export interface ITenantService {
+  /** Workspace projection for `GET /tenants/me`; 404 when the id is unknown. */
+  get(tenantId: string): Promise<TenantProfile>;
+  /** Updates only the caller tenant (id comes from the JWT, never the body). */
+  update(tenantId: string, command: UpdateTenantCommand): Promise<TenantProfile>;
 }
 
 /* ==========================================================================
@@ -476,6 +497,7 @@ export interface IAppServices {
   readonly realtime: IRealtimePublisher;
   readonly adapters: IAdapterRegistry;
   readonly accounts: IAccountService;
+  readonly tenants: ITenantService;
   readonly tickets: ITicketQueryService;
   readonly ticketCommands: IUnifiedTicketService;
   readonly outbound: IOutboundRouterService;

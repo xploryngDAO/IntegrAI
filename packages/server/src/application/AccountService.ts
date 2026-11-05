@@ -20,7 +20,7 @@ import type {
   OAuthCallbackInput,
   OAuthStartResult,
 } from '@sac/shared';
-import { MarketplaceApiError, NotFoundError, ValidationError } from '@sac/shared';
+import { AmazonOAuthNotConfiguredError, MarketplaceApiError, NotFoundError, ValidationError } from '@sac/shared';
 
 /**
  * ============================================================================
@@ -28,9 +28,9 @@ import { MarketplaceApiError, NotFoundError, ValidationError } from '@sac/shared
  * ============================================================================
  *
  * Store onboarding for the three channels:
- *  - Amazon: HYBRID — self-authorized LWA refresh token + verified SMTP sender +
- *    SES inbound route. No OAuth browser round-trip (the seller authorizes the
- *    app in Seller Central).
+ *  - Amazon: HYBRID — OAuth consent in Seller Central (`AMAZON_APP_ID`) or the
+ *    legacy self-authorized LWA refresh token + verified SMTP sender + SES
+ *    inbound route.
  *  - Mercado Livre: OAuth2 authorization-code (`auth.mercadolivre.com.br`).
  *  - Shopee: OAuth2 shop authorization with partner-key HMAC signature.
  *
@@ -43,6 +43,11 @@ const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 const OAUTH_STATE_CACHE_PREFIX = 'sac:oauth:state:';
 const MELI_AUTHORIZE_URL = 'https://auth.mercadolivre.com.br/authorization';
 const DEFAULT_SITE_ID = 'MLB';
+const DEFAULT_AMAZON_AUTHORIZE_URL = 'https://sellercentral.amazon.com/apps/authorize/consent';
+const AMAZON_OAUTH_NOT_CONFIGURED_REMEDIATION =
+  'Configure AMAZON_APP_ID (and AMAZON_LWA_CLIENT_ID/AMAZON_LWA_CLIENT_SECRET) in the API ' +
+  'environment, register AMAZON_APP_REDIRECT_URI in Seller Central, then restart the API.';
+const AMAZON_DEFAULT_TOKEN_TTL_SECONDS = 3_600;
 
 export interface AccountServiceDependencies {
   logger: ILogger;
@@ -89,6 +94,15 @@ interface ShopeeTokenResponse {
   shop_id?: number | string;
   error?: string;
   message?: string;
+}
+
+interface AmazonLwaTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+  error?: string;
+  error_description?: string;
 }
 
 export class AccountService implements IAccountService {
@@ -155,6 +169,18 @@ export class AccountService implements IAccountService {
   }
 
   private describeAmazon(): ConnectorDescriptor {
+    const appId = readString(this.config.amazon.appId);
+    // The connector list is the UI capability probe: a non-null template means
+    // "Autorizar na Amazon" is available in this environment. The manual LWA
+    // path stays advertised (authMode HYBRID) for private-app deployments.
+    const authorizeUrlTemplate =
+      appId === null
+        ? null
+        : `${(this.config.amazon.oauthAuthorizeUrl ?? DEFAULT_AMAZON_AUTHORIZE_URL).replace(
+            /\/+$/,
+            '',
+          )}?application_id=${encodeURIComponent(appId)}&state=<state>&version=beta`;
+
     return {
       marketplace: 'AMAZON',
       authMode: 'HYBRID',
@@ -230,10 +256,11 @@ export class AccountService implements IAccountService {
           ],
         },
       ],
-      authorizeUrlTemplate: null,
+      authorizeUrlTemplate,
       webhookPath: '/webhooks/amazon/ses',
       docsUrl: 'https://developer-docs.amazon.com/sp-api/docs/buyer-seller-messaging',
       notes: [
+        'Com AMAZON_APP_ID configurado, "Autorizar na Amazon" usa o OAuth SP-API e dispensa colar o refresh token.',
         'A Amazon exige que a primeira resposta ao comprador use o relay SMTP aprovado (Route 1); nunca envie e-mail direto por SES.',
         'Mensagens proativas só são permitidas dentro da janela de 24h da Buyer-Seller Messaging e passam por getMessagingActionsForOrder.',
         'Dados restritos do comprador exigem RDT e são expurgados 30 dias após o envio (buyer_pii_vault).',
@@ -363,16 +390,15 @@ export class AccountService implements IAccountService {
   /* ==================================================================== */
 
   async startOAuth(marketplace: Marketplace, displayName: string, tenantId?: string | null): Promise<OAuthStartResult> {
-    if (marketplace === 'AMAZON') {
-      throw new ValidationError(
-        'Amazon uses a self-authorized LWA refresh token; use POST /accounts/connect instead.',
-        { marketplace },
-      );
-    }
-
     const trimmedName = (displayName ?? '').trim();
     if (trimmedName === '') {
       throw new ValidationError('displayName is required to start the OAuth flow');
+    }
+
+    if (marketplace === 'AMAZON') {
+      // Fail before writing the state: an unconfigured app must not create a
+      // consent URL that Amazon will reject.
+      this.assertAmazonOAuthConfigured(['AMAZON_APP_ID']);
     }
 
     const payload: OAuthStatePayload = {
@@ -386,7 +412,11 @@ export class AccountService implements IAccountService {
     await this.cache.set(`${OAUTH_STATE_CACHE_PREFIX}${payload.nonce}`, payload, OAUTH_STATE_TTL_SECONDS);
 
     const authorizeUrl =
-      marketplace === 'MERCADO_LIVRE' ? this.buildMeliAuthorizeUrl(state) : this.buildShopeeAuthorizeUrl(state);
+      marketplace === 'AMAZON'
+        ? this.buildAmazonAuthorizeUrl(state)
+        : marketplace === 'MERCADO_LIVRE'
+          ? this.buildMeliAuthorizeUrl(state)
+          : this.buildShopeeAuthorizeUrl(state);
 
     return { authorizeUrl, state, marketplace };
   }
@@ -427,6 +457,42 @@ export class AccountService implements IAccountService {
     return `${this.config.shopee.apiBase}/api/v2/shop/auth_partner?${params.toString()}`;
   }
 
+  /**
+   * Seller Central consent URL (SP-API OAuth).
+   *
+   * `version=beta` is the value Amazon documents for the self-service consent
+   * screen; `state` is the same signed, single-use token used by Meli/Shopee.
+   */
+  private buildAmazonAuthorizeUrl(state: string): string {
+    const base = (
+      this.config.amazon.oauthAuthorizeUrl ?? DEFAULT_AMAZON_AUTHORIZE_URL
+    ).replace(/\/+$/, '');
+    const params = new URLSearchParams({
+      application_id: this.config.amazon.appId ?? '',
+      state,
+      version: 'beta',
+    });
+    return `${base}?${params.toString()}`;
+  }
+
+  /**
+   * Fails with `AMAZON_OAUTH_NOT_CONFIGURED` (409) plus the exact missing
+   * variables, so the UI can render remediation instead of a generic 500.
+   */
+  private assertAmazonOAuthConfigured(required: readonly string[]): void {
+    const values: Record<string, string | undefined> = {
+      AMAZON_APP_ID: this.config.amazon.appId,
+      AMAZON_LWA_CLIENT_ID: this.config.amazon.lwaClientId,
+      AMAZON_LWA_CLIENT_SECRET: this.config.amazon.lwaClientSecret,
+      AMAZON_APP_REDIRECT_URI: this.config.amazon.appRedirectUri,
+    };
+
+    const missing = required.filter((key) => readString(values[key]) === null);
+    if (missing.length > 0) {
+      throw new AmazonOAuthNotConfiguredError(missing, AMAZON_OAUTH_NOT_CONFIGURED_REMEDIATION);
+    }
+  }
+
   /* ==================================================================== */
   /* OAuth callback                                                       */
   /* ==================================================================== */
@@ -435,15 +501,13 @@ export class AccountService implements IAccountService {
     marketplace: Marketplace,
     input: OAuthCallbackInput,
   ): Promise<{ accountId: string; displayName: string }> {
-    if (marketplace === 'AMAZON') {
-      throw new ValidationError('Amazon does not use OAuth', { marketplace });
-    }
     if (!input.code || input.code.trim() === '') {
       throw new ValidationError('Missing authorization code', { marketplace });
     }
 
     const state = await this.consumeState(input.state, marketplace);
 
+    if (marketplace === 'AMAZON') return this.completeAmazonOAuth(state, input);
     if (marketplace === 'MERCADO_LIVRE') return this.completeMeliOAuth(state, input);
     return this.completeShopeeOAuth(state, input);
   }
@@ -677,6 +741,118 @@ export class AccountService implements IAccountService {
     return account;
   }
 
+  /**
+   * Amazon SP-API OAuth callback.
+   *
+   * 1. `state` was already validated + burned by `consumeState` (tenantId,
+   *    displayName and single use).
+   * 2. `spapi_oauth_code` is exchanged for LWA tokens at `AMAZON_LWA_TOKEN_URL`
+   *    (grant_type=authorization_code) using the app client id/secret and the
+   *    redirect URI registered in Seller Central.
+   * 3. The returned `refresh_token` (long-lived) is encrypted and the account is
+   *    upserted for the tenant from the state, keyed by `selling_partner_id`.
+   */
+  private async completeAmazonOAuth(
+    state: OAuthStatePayload,
+    input: OAuthCallbackInput,
+  ): Promise<{ accountId: string; displayName: string }> {
+    this.assertAmazonOAuthConfigured([
+      'AMAZON_APP_ID',
+      'AMAZON_LWA_CLIENT_ID',
+      'AMAZON_LWA_CLIENT_SECRET',
+      'AMAZON_APP_REDIRECT_URI',
+    ]);
+
+    const sellingPartnerId =
+      readString(input.sellingPartnerId) ?? readString(input.rawQuery['selling_partner_id']);
+    if (!sellingPartnerId) {
+      throw new ValidationError('Amazon callback is missing selling_partner_id');
+    }
+
+    const redirectUri = readString(this.config.amazon.appRedirectUri);
+    if (!redirectUri) {
+      // Defensive: `assertAmazonOAuthConfigured` already guarantees this.
+      throw new AmazonOAuthNotConfiguredError(
+        ['AMAZON_APP_REDIRECT_URI'],
+        AMAZON_OAUTH_NOT_CONFIGURED_REMEDIATION,
+      );
+    }
+
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: input.code,
+      client_id: this.config.amazon.lwaClientId,
+      client_secret: this.config.amazon.lwaClientSecret,
+      redirect_uri: redirectUri,
+    });
+
+    const response = await this.http.request<AmazonLwaTokenResponse>({
+      method: 'POST',
+      url: this.config.amazon.lwaTokenUrl,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        accept: 'application/json',
+      },
+      body: form.toString(),
+      timeoutMs: 15_000,
+      retries: 1,
+    });
+
+    const refreshToken = readString(response.body?.refresh_token);
+    if (!response.ok || refreshToken === null) {
+      const reason =
+        readString(response.body?.error_description) ??
+        readString(response.body?.error) ??
+        'no refresh_token returned';
+      throw new MarketplaceApiError(
+        'AMAZON',
+        response.status,
+        `LWA authorization-code exchange failed: ${reason}`,
+        {
+          error: readString(response.body?.error) ?? null,
+          keys: Object.keys(response.body ?? {}),
+        },
+      );
+    }
+
+    const accessToken = readString(response.body?.access_token);
+    const expiresIn = Number(response.body?.expires_in);
+    const tokenExpiresAt = new Date(
+      this.clock.now().getTime() +
+        (Number.isFinite(expiresIn) && expiresIn > 0
+          ? expiresIn
+          : AMAZON_DEFAULT_TOKEN_TTL_SECONDS) *
+          1000,
+    );
+    const region = this.config.amazon.region;
+
+    const account = await this.upsertAccount({
+      tenantId: state.tenantId ?? null,
+      marketplace: 'AMAZON',
+      displayName: state.displayName,
+      externalSellerId: sellingPartnerId,
+      marketplaceSiteId: sellingPartnerId,
+      accessToken,
+      refreshToken,
+      tokenExpiresAt,
+      channelConfig: {
+        selling_partner_id: sellingPartnerId,
+        seller_id: sellingPartnerId,
+        site_id: sellingPartnerId,
+        region,
+        seller_central_region: region,
+        auth_flow: 'oauth2',
+      },
+    });
+
+    this.logger.info('account.oauth.completed', {
+      marketplace: 'AMAZON',
+      accountId: account.accountId,
+      region,
+    });
+    return account;
+  }
+
   /* ==================================================================== */
   /* Credential connection (Amazon / manual)                             */
   /* ==================================================================== */
@@ -857,6 +1033,9 @@ export class AccountService implements IAccountService {
       if (existing.tenantId && input.tenantId && existing.tenantId !== input.tenantId) {
         throw new ValidationError('Account already belongs to another tenant');
       }
+      // A legacy (tenantless) account reconnected through OAuth adopts the tenant
+      // from the signed state; an already-scoped account keeps its tenant.
+      const tenantId = existing.tenantId ?? input.tenantId ?? null;
       await this.accounts.updateTokens(existing.id, {
         ...(accessTokenEnc ? { accessTokenEnc } : {}),
         ...(refreshTokenEnc ? { refreshTokenEnc } : {}),
@@ -865,6 +1044,7 @@ export class AccountService implements IAccountService {
         lastTokenRefreshAt: now,
         lastError: null,
         lastErrorAt: null,
+        tenantId,
       });
       const mergedChannelConfig = {
         ...existing.channelConfig,

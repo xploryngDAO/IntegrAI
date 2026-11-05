@@ -58,6 +58,24 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * Amazon SP-API OAuth prerequisite missing (Fase 2).
+ *
+ * `409` (not `500`) because the API is healthy and the operator can fix it by
+ * setting the listed environment variables; `details.missing` and
+ * `details.remediation` are rendered verbatim by the accounts UI.
+ */
+export class AmazonOAuthNotConfiguredError extends AppError {
+  constructor(missing: string[], remediation: string) {
+    super(
+      'AMAZON_OAUTH_NOT_CONFIGURED',
+      `Amazon OAuth is not configured (missing: ${missing.join(', ')}). ${remediation}`,
+      409,
+      { provider: 'AMAZON', missing, remediation },
+    );
+  }
+}
+
 export class PolicyViolationError extends AppError {
   public readonly violations: Array<{ code: string; message: string; match?: string }>;
 

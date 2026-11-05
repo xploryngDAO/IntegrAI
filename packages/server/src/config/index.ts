@@ -141,6 +141,13 @@ function buildConfig(env: Env): AppConfig {
     amazon: {
       lwaClientId: env.AMAZON_LWA_CLIENT_ID,
       lwaClientSecret: env.AMAZON_LWA_CLIENT_SECRET,
+      appId: env.AMAZON_APP_ID,
+      // Defaulting to APP_BASE_URL keeps local/staging usable without an extra
+      // variable; production registers the exact URL in Seller Central.
+      appRedirectUri:
+        env.AMAZON_APP_REDIRECT_URI ??
+        `${env.APP_BASE_URL.replace(/\/+$/, '')}/api/v1/accounts/oauth/amazon/callback`,
+      oauthAuthorizeUrl: env.AMAZON_OAUTH_AUTHORIZE_URL,
       spApiEndpoint: env.AMAZON_SPAPI_ENDPOINT,
       lwaTokenUrl: env.AMAZON_LWA_TOKEN_URL,
       rdtEndpoint: env.AMAZON_RDT_ENDPOINT,

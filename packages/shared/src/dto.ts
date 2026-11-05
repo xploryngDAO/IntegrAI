@@ -205,8 +205,18 @@ export interface TenantRecord {
   slug: string;
   name: string;
   status: string;
+  /** Fase 2: first time the guided onboarding wizard was completed. */
+  onboardingCompletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Projection returned by `GET/PATCH /tenants/me` (no internal status column). */
+export interface TenantProfile {
+  id: string;
+  slug: string;
+  name: string;
+  onboardingCompletedAt: Date | null;
 }
 
 export interface EmailVerificationRecord {

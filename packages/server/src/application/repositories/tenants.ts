@@ -1,8 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
-import type { CreateTenantInput, ITenantRepository, TenantRecord } from '@sac/shared';
+import type {
+  CreateTenantInput,
+  ITenantRepository,
+  TenantRecord,
+  UpdateTenantInput,
+} from '@sac/shared';
 import { mapTenant } from './mappers';
 
-/** Prisma implementation of `ITenantRepository` (Fase 1 signup). */
+/** Prisma implementation of `ITenantRepository` (Fase 1 signup / Fase 2 onboarding). */
 export class PrismaTenantRepository implements ITenantRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -25,6 +30,17 @@ export class PrismaTenantRepository implements ITenantRepository {
   async findById(id: string): Promise<TenantRecord | null> {
     const record = await this.prisma.tenant.findUnique({ where: { id } });
     return record ? mapTenant(record) : null;
+  }
+
+  async update(id: string, input: UpdateTenantInput): Promise<TenantRecord> {
+    const data: { name?: string; onboardingCompletedAt?: Date | null } = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.onboardingCompletedAt !== undefined) {
+      data.onboardingCompletedAt = input.onboardingCompletedAt;
+    }
+
+    const record = await this.prisma.tenant.update({ where: { id }, data });
+    return mapTenant(record);
   }
 
   async delete(id: string): Promise<void> {

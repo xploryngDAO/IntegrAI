@@ -285,6 +285,7 @@ export function mapTenant(record: Tenant): TenantRecord {
     slug: record.slug,
     name: record.name,
     status: record.status,
+    onboardingCompletedAt: record.onboardingCompletedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };

@@ -198,6 +198,7 @@ class InMemoryTenantRepository implements ITenantRepository {
       slug: input.slug,
       name: input.name,
       status: input.status ?? 'ACTIVE',
+      onboardingCompletedAt: null,
       createdAt: at,
       updatedAt: at,
     };
@@ -211,6 +212,20 @@ class InMemoryTenantRepository implements ITenantRepository {
 
   async findById(id: string): Promise<TenantRecord | null> {
     return this.rows.find((row) => row.id === id) ?? null;
+  }
+
+  async update(
+    id: string,
+    input: { name?: string; onboardingCompletedAt?: Date | null },
+  ): Promise<TenantRecord> {
+    const row = this.rows.find((entry) => entry.id === id);
+    if (row === undefined) throw new Error(`Tenant not found: ${id}`);
+    if (input.name !== undefined) row.name = input.name;
+    if (input.onboardingCompletedAt !== undefined) {
+      row.onboardingCompletedAt = input.onboardingCompletedAt;
+    }
+    row.updatedAt = this.clock.now();
+    return row;
   }
 
   async delete(id: string): Promise<void> {
