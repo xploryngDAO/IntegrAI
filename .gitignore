@@ -42,3 +42,5 @@ uploads/
 tools/cloudflared.exe
 .s3-data/
 
+
+artifacts/
