@@ -1,3 +1,4 @@
+import { AppError } from '@sac/shared';
 import { createHash, randomUUID } from 'node:crypto';
 
 import {
@@ -447,6 +448,9 @@ export class UnifiedTicketService implements IUnifiedTicketService {
     }
 
     const accountForTenant = await this.repos.accounts.findById(message.accountId);
+    if (!accountForTenant?.tenantId) {
+      throw new AppError('TENANT_REQUIRED', 'Marketplace account has no tenant', 500);
+    }
     const ticket = await this.repos.tickets.create({
       tenantId: accountForTenant?.tenantId ?? null,
       accountId: message.accountId,
