@@ -6,6 +6,8 @@ import {
   type AgentRole,
   type IAgentService,
   type ILogger,
+  type ITicketQueryService,
+  NotFoundError,
 } from '@sac/shared';
 import type { AuthenticatedAgent } from '../types';
 import { stripQuery } from '../utils/query';
@@ -38,6 +40,7 @@ function extractBearerToken(header: string | string[] | undefined): string | nul
 
 export interface AuthGuardOptions {
   agents: IAgentService;
+  tickets: ITicketQueryService;
   logger: ILogger;
 }
 
@@ -68,6 +71,18 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         role: claims.role,
         tenantId: claims.tenantId,
       };
+
+      // Mutations on a ticket must belong to the caller's tenant (404 otherwise).
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        const match = /^\/api\/v1\/tickets\/([0-9a-fA-F-]{36})(?:\/|$)/.exec(stripQuery(request.url));
+        if (match) {
+          try {
+            await options.tickets.getDetail(match[1], claims.tenantId);
+          } catch {
+            throw new NotFoundError('SupportTicket', match[1]);
+          }
+        }
+      }
     } catch (error) {
       if (isAppError(error) && error.code === 'AUTHENTICATION_ERROR') throw error;
       log.warn('http.auth.rejected', {

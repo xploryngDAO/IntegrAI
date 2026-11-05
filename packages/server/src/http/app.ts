@@ -134,7 +134,11 @@ export async function buildHttpApp(
     logger: options.logger,
     exposeDetails: !isProductionBuild(),
   });
-  registerAuthGuard(app, { agents: services.agents, logger: options.logger });
+  registerAuthGuard(app, {
+    agents: services.agents,
+    tickets: services.tickets,
+    logger: options.logger,
+  });
 
   // Authenticated JSON must never be served from a shared/browser cache: the
   // same URL can return different data per operator and per store state.
