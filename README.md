@@ -1,5 +1,14 @@
 # SAC Hub — Integrador Omnichannel de Atendimento
 
+[![Demo](https://img.shields.io/badge/demo-integrai--dev.vercel.app-6367c9)](https://integrai-dev.vercel.app)
+[![Repo](https://img.shields.io/badge/github-xploryngDAO%2FIntegrAI-181717?logo=github)](https://github.com/xploryngDAO/IntegrAI)
+[![Design System](https://img.shields.io/badge/UI-Convergência-6367c9)](docs/CONVERGENCIA_ADOPTION.md)
+
+> **Demo ao vivo:** <https://integrai-dev.vercel.app> — a UI roda em modo
+> demonstração (fixtures em memória dos 3 canais), sem backend anexado.
+> **Código:** <https://github.com/xploryngDAO/IntegrAI>.
+> O stack completo (API + Postgres + Redis + S3) sobe com Docker conforme abaixo.
+
 Plataforma de SAC unificada para **Amazon (SP-API + SES)**, **Mercado Livre (API oficial)** e
 **Shopee (Open Platform v2)**, construída como sistema **event-driven** com
 **Hexagonal / Ports & Adapters**: webhooks respondem em milissegundos, o trabalho
@@ -26,15 +35,16 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 ## Screenshots
 
-Interface re-fundada no **Convergência Design System** (tema claro canônico + escuro):
+Interface re-fundada no **Convergência Design System** (tema claro canônico + escuro).
+A primeira imagem é a aplicação **publicada na Vercel**:
 
-| Workspace 3 colunas (claro) | Tema escuro |
+| Demo ao vivo em integrai-dev.vercel.app | Tema escuro |
 |---|---|
-| ![Workspace claro](screenshots/ds-04-final-light.png) | ![Workspace escuro](screenshots/ds-05-final-dark.png) |
+| ![Live](screenshots/vercel-live-desktop.png) | ![Workspace escuro](screenshots/ds-05-final-dark.png) |
 
-| Canais conectados / onboarding | Login |
+| Workspace 3 colunas (claro) | Canais conectados / onboarding |
 |---|---|
-| ![Canais](screenshots/ds-06-accounts-final.png) | ![Login](screenshots/ds-07-login-final.png) |
+| ![Workspace claro](screenshots/ds-04-final-light.png) | ![Canais](screenshots/ds-06-accounts-final.png) |
 
 | Mobile — fila | Mobile — conversa |
 |---|---|
@@ -42,6 +52,21 @@ Interface re-fundada no **Convergência Design System** (tema claro canônico + 
 
 Antes da adoção do DS (identidade escura própria), para comparação:
 [workspace anterior](screenshots/06-real-api.png) · [claim Meli anterior](screenshots/02-meli-claim.png) · [guardrail Amazon anterior](screenshots/03-amazon-policy-block.png).
+
+## Publicação
+
+| Destino | URL / configuração |
+|---|---|
+| **Vercel (demo web)** | <https://integrai-dev.vercel.app> — projeto `integrai-dev` (scope `xploryngdaos-projects`) ligado ao repositório; deploy automático a cada push em `main` |
+| **GitHub** | <https://github.com/xploryngDAO/IntegrAI> (público, MIT) |
+| Build na Vercel | `npm run build:shared && npm run build --workspace @sac/web` · output `apps/web/dist` · `vercel.json` na raiz |
+| Env na Vercel | `VITE_MOCK_MODE=true` (produção) — sem API anexada, a UI usa as fixtures; remova/defina `false` e aponte `VITE_API_BASE_URL` para um backend real |
+| Stack completo | `docker compose up -d --build` em qualquer host (API :4000 + web :8080 + Postgres/Redis) |
+
+A Vercel hospeda **somente o frontend** (SPA estática). O backend é um serviço
+long-running (Fastify + workers BullMQ + Postgres + Redis + S3), que não cabe no
+modelo serverless; por isso a demo pública roda em modo demonstração e o stack
+completo é publicado via Docker/VM/Kubernetes.
 
 ## Sumário
 
