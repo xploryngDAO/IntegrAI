@@ -66,6 +66,7 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         role: toAgentRole(summary.role),
         presence: summary.presence,
         activeTickets: summary.activeTickets,
+        tenantId: agent.tenantId,
       });
     },
 

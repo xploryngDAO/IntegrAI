@@ -5,6 +5,7 @@ import type { IAgentSummary } from '@sac/shared';
 export function toAgentSummary(agent: AgentRecord, activeTickets: number): IAgentSummary {
   return {
     id: agent.id,
+    tenantId: agent.tenantId ?? null,
     name: agent.name,
     email: agent.email,
     role: agent.role,

@@ -123,6 +123,7 @@ export interface IOutboundRouterService {
 
 export interface IAgentSummary {
   id: string;
+  tenantId?: string | null;
   name: string;
   email: string;
   role: string;
