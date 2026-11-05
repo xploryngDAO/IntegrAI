@@ -28,7 +28,7 @@ export function DemoModeBanner(): JSX.Element | null {
         dados simulados em memória; as alterações não persistem no servidor
       </span>
       <span className="ml-auto hidden flex-none font-mono text-[10px] opacity-60 lg:inline">
-        {reason ? `fallback: ${reason}` : 'fixtures locais ativas'}
+        {reason ? `origem: ${reason}` : 'fixtures locais ativas'}
       </span>
     </div>
   );
