@@ -119,12 +119,12 @@ async function main() {
   const detail = await api(`/api/v1/tickets/${B.ticketId}`, { headers });
   record('A-detalhe-ticket-B-404', detail.status === 404, `status ${detail.status}`);
 
-  const mutation = await api(/api/v1/tickets//assign, {
+  const mutation = await api(`/api/v1/tickets/${B.ticketId}/assign`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ agentId: B.agentId }),
   });
-  record('A-mutacao-ticket-B-404', mutation.status === 404, status );
+  record('A-mutacao-ticket-B-404', mutation.status === 404, `status ${mutation.status}`);
 
   await cleanup();
   const leftover = await prisma.tenant.count({ where: { id: B.tenantId } });

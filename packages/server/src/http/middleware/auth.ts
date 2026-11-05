@@ -84,7 +84,7 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         }
       }
     } catch (error) {
-      if (isAppError(error) && error.code === 'AUTHENTICATION_ERROR') throw error;
+      if (isAppError(error)) throw error;
       log.warn('http.auth.rejected', {
         requestId: request.id,
         path: stripQuery(request.url),
