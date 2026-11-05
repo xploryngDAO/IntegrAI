@@ -70,6 +70,7 @@ export class PrismaWebhookEventRepository implements IWebhookEventRepository {
 
 function buildCreateData(input: RecordWebhookInput): Prisma.WebhookEventUncheckedCreateInput {
   return {
+    tenantId: input.tenantId ?? null,
     marketplace: input.marketplace,
     accountId: input.accountId ?? null,
     eventId: input.eventId ?? null,

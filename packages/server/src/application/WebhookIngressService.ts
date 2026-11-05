@@ -179,6 +179,7 @@ export class WebhookIngressService implements IWebhookIngressService {
     let webhookEventId: string | null = null;
     try {
       const record = await this.repos.webhookEvents.record({
+        tenantId: account.tenantId ?? null,
         marketplace,
         accountId: account.id,
         eventId,

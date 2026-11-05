@@ -282,6 +282,7 @@ export interface IAttachmentRepository {
  * ========================================================================== */
 
 export interface RecordWebhookInput {
+  tenantId?: string | null;
   marketplace: Marketplace;
   accountId?: string | null;
   eventId?: string | null;
