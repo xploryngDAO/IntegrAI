@@ -37,3 +37,4 @@ Thumbs.db
 .docker-data/
 tmp/
 uploads/
+.vercel

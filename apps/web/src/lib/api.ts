@@ -215,6 +215,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         errorBody?.error?.details,
       );
     }
+    if (payload === null) {
+      // 200 with a non-JSON body (e.g. the host serves the SPA shell for
+      // `/api/*` because no backend is attached). Same treatment as a network
+      // miss: engage the offline demo session instead of crashing the boot.
+      throw new ApiClientError(0, 'INVALID_RESPONSE', 'Resposta não-JSON recebida do servidor');
+    }
     return unwrap<T>(payload);
   } finally {
     window.clearTimeout(timeout);
