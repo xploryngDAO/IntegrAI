@@ -14,6 +14,7 @@ import { ok } from '../responses';
 import { isAppError } from '@sac/shared';
 import { asString } from '../utils/guards';
 import { queryToStringRecord } from '../utils/query';
+import { requireAgent } from '../middleware/auth';
 
 export interface AccountControllers {
   list: RouteHandler;
@@ -44,8 +45,9 @@ export function createAccountControllers(ctx: HttpRouteContext): AccountControll
 
   return {
     /** `GET /accounts` - store selector + account cards. */
-    async list() {
-      return ok(await services.accounts.listAccounts());
+    async list(request) {
+      const agent = requireAgent(request);
+      return ok(await services.accounts.listAccounts(agent.tenantId));
     },
 
     /** `GET /accounts/connectors` - drives the "Conectar loja" wizard. */

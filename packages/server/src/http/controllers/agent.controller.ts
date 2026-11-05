@@ -1,5 +1,6 @@
 import type { HttpRouteContext, RouteHandler } from '../types';
 import { ok } from '../responses';
+import { requireAgent } from '../middleware/auth';
 
 export interface AgentControllers {
   list: RouteHandler;
@@ -10,8 +11,9 @@ export function createAgentControllers(ctx: HttpRouteContext): AgentControllers 
 
   return {
     /** `GET /agents` - assignment dropdown + load board. */
-    async list() {
-      return ok(await services.agents.list());
+    async list(request) {
+      const agent = requireAgent(request);
+      return ok(await services.agents.list(agent.tenantId));
     },
   };
 }

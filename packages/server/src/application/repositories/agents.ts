@@ -38,10 +38,12 @@ export class PrismaAgentRepository implements IAgentRepository {
   async list(filter?: {
     presence?: AgentPresenceStatus;
     activeOnly?: boolean;
+    tenantId?: string | null;
   }): Promise<AgentRecord[]> {
     const where: Prisma.AgentWhereInput = {};
     if (filter?.presence) where.presence = filter.presence;
     if (filter?.activeOnly) where.isActive = true;
+    if (filter?.tenantId) where.tenantId = filter.tenantId;
 
     const records = await this.prisma.agent.findMany({
       where,

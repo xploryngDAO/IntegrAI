@@ -162,6 +162,7 @@ export interface TicketEventRecord {
 
 export interface AgentRecord {
   id: string;
+  tenantId: string | null;
   email: string;
   name: string;
   passwordHash: string;

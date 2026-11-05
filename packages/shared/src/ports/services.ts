@@ -171,7 +171,7 @@ export interface OAuthCallbackInput {
 }
 
 export interface IAccountService {
-  listAccounts(): Promise<Array<{
+  listAccounts(tenantId?: string | null): Promise<Array<{
     id: string;
     marketplace: Marketplace;
     displayName: string;
@@ -196,15 +196,15 @@ export interface IAccountService {
 
 export interface LoginResult {
   token: string;
-  agent: { id: string; name: string; email: string; role: string; presence: AgentPresenceStatus };
+  agent: { id: string; name: string; email: string; role: string; presence: AgentPresenceStatus; tenantId: string | null };
 }
 
 export interface IAgentService {
   login(email: string, password: string): Promise<LoginResult>;
-  verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string }>;
+  verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;
-  list(): Promise<IAgentSummary[]>;
+  list(tenantId?: string | null): Promise<IAgentSummary[]>;
 }
 
 /* ==========================================================================

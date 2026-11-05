@@ -66,7 +66,7 @@ export interface IAccountRepository {
     marketplaceSiteId?: string,
   ): Promise<MarketplaceAccountRecord | null>;
   findFirstByMarketplace(marketplace: Marketplace): Promise<MarketplaceAccountRecord | null>;
-  list(filter?: { marketplace?: Marketplace; status?: AccountStatus }): Promise<MarketplaceAccountRecord[]>;
+  list(filter?: { marketplace?: Marketplace; status?: AccountStatus; tenantId?: string | null }): Promise<MarketplaceAccountRecord[]>;
   updateTokens(id: string, patch: AccountTokenPatch): Promise<MarketplaceAccountRecord>;
   updateChannelConfig(id: string, config: Record<string, unknown>): Promise<MarketplaceAccountRecord>;
   setStatus(id: string, status: AccountStatus, error?: string | null): Promise<MarketplaceAccountRecord>;
@@ -361,7 +361,7 @@ export interface IAgentRepository {
   create(input: CreateAgentInput): Promise<AgentRecord>;
   findByEmail(email: string): Promise<AgentRecord | null>;
   findById(id: string): Promise<AgentRecord | null>;
-  list(filter?: { presence?: AgentPresenceStatus; activeOnly?: boolean }): Promise<AgentRecord[]>;
+  list(filter?: { presence?: AgentPresenceStatus; activeOnly?: boolean; tenantId?: string | null }): Promise<AgentRecord[]>;
   updatePresence(id: string, presence: AgentPresenceStatus, at: Date): Promise<AgentRecord>;
   updatePassword(id: string, passwordHash: string): Promise<void>;
 }

@@ -66,6 +66,7 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         email: claims.email,
         name: claims.name,
         role: claims.role,
+        tenantId: claims.tenantId,
       };
     } catch (error) {
       if (isAppError(error) && error.code === 'AUTHENTICATION_ERROR') throw error;

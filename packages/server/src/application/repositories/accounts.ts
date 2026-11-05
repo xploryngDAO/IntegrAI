@@ -1,4 +1,4 @@
-﻿import type { MarketplaceAccount, Prisma, PrismaClient } from '@prisma/client';
+import type { MarketplaceAccount, Prisma, PrismaClient } from '@prisma/client';
 import type {
   AccountStatus,
   AccountTokenPatch,
@@ -72,10 +72,12 @@ export class PrismaAccountRepository implements IAccountRepository {
   async list(filter?: {
     marketplace?: Marketplace;
     status?: AccountStatus;
+    tenantId?: string | null;
   }): Promise<MarketplaceAccountRecord[]> {
     const where: Prisma.MarketplaceAccountWhereInput = {};
     if (filter?.marketplace) where.marketplace = filter.marketplace;
     if (filter?.status) where.status = filter.status;
+    if (filter?.tenantId) where.tenantId = filter.tenantId;
 
     const records = await this.prisma.marketplaceAccount.findMany({
       where,

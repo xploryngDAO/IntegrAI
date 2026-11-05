@@ -55,6 +55,7 @@ interface AgentJwtClaims {
   email: string;
   name: string;
   role: string;
+  tenantId?: string | null;
   iat?: number;
   exp?: number;
 }
@@ -126,11 +127,12 @@ export class AgentService implements IAgentService {
         email: agent.email,
         role: agent.role,
         presence: 'ONLINE',
+        tenantId: agent.tenantId ?? null,
       },
     };
   }
 
-  async verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string }> {
+  async verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }> {
     if (!token) throw new AuthenticationError('Missing bearer token');
     try {
       const decoded = jwt.verify(token, this.jwtSecret, {
@@ -146,6 +148,7 @@ export class AgentService implements IAgentService {
         email: typeof decoded.email === 'string' ? decoded.email : '',
         name: typeof decoded.name === 'string' ? decoded.name : '',
         role: typeof decoded.role === 'string' ? decoded.role : 'AGENT',
+        tenantId: typeof decoded.tenantId === 'string' ? decoded.tenantId : null,
       };
     } catch (error) {
       if (error instanceof AuthenticationError) throw error;
@@ -166,6 +169,7 @@ export class AgentService implements IAgentService {
         email: agent.email,
         name: agent.name,
         role: agent.role,
+        tenantId: agent.tenantId ?? null,
       },
       this.jwtSecret,
       options,
@@ -209,8 +213,8 @@ export class AgentService implements IAgentService {
     await this.cache.sadd(CACHE_KEYS.presenceIndex(), [agentId]);
   }
 
-  async list(): Promise<IAgentSummary[]> {
-    const agents = await this.agents.list({ activeOnly: true });
+  async list(tenantId?: string | null): Promise<IAgentSummary[]> {
+    const agents = await this.agents.list({ activeOnly: true, ...(tenantId ? { tenantId } : {}) });
     const summaries = await Promise.all(
       agents.map(async (agent) => toAgentSummary(agent, await this.safeActiveTickets(agent.id))),
     );

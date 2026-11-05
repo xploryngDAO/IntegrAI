@@ -248,6 +248,7 @@ export function mapTicketEvent(record: TicketEvent): TicketEventRecord {
 export function mapAgent(record: Agent): AgentRecord {
   return {
     id: record.id,
+    tenantId: record.tenantId,
     email: record.email,
     name: record.name,
     passwordHash: record.passwordHash,

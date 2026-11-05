@@ -11,6 +11,7 @@ export interface AuthenticatedAgent {
   email: string;
   name: string;
   role: string;
+  tenantId: string | null;
 }
 
 declare module 'fastify' {
