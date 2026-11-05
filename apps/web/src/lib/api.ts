@@ -26,6 +26,7 @@ import type {
 } from '@sac/shared';
 
 import type {
+  AcceptInvitationBody,
   AccountRow,
   ActionBody,
   ConnectAccountPayload,
@@ -208,6 +209,11 @@ export interface ApiClient {
   forgotPassword(email: string): Promise<{ status: string }>;
   /** Consumes the reset token and revokes every session of the operator (public). */
   resetPassword(token: string, password: string): Promise<{ reset: boolean }>;
+  /**
+   * Consumes the single-use invitation token, creates the invited operator and
+   * opens a session (public) — same `AuthResponse` as `login()`.
+   */
+  acceptInvitation(body: AcceptInvitationBody): Promise<AuthResponse>;
   listTickets(
     filters: WorkspaceFilters,
     page?: number,
@@ -310,6 +316,21 @@ export const api: ApiClient = {
       body: { token, password },
       timeoutMs: 15_000,
     });
+  },
+
+  async acceptInvitation(body) {
+    // The token proves the invited e-mail, so the API creates the operator
+    // already verified and answers with the login `AuthResponse` (JWT +
+    // refresh token + agent). The response belongs to a real session, so the
+    // token is persisted before anything else runs — exactly like `login()`.
+    const auth = await request<AuthResponse>('/auth/accept-invitation', {
+      method: 'POST',
+      body,
+      // bcrypt (cost 12) + agent insert + refresh-token issue run in this request.
+      timeoutMs: 20_000,
+    });
+    setAuthToken(auth.token);
+    return auth;
   },
 
   async listTickets(filters, page = 1) {

@@ -9,6 +9,7 @@ import { SignupPage } from './pages/SignupPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { InvitePage } from './pages/InvitePage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
 
@@ -16,7 +17,8 @@ type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
 /**
  * Session-free routes: the credential gate plus the Fase 1 self-service screens
- * (the API mails `/verify-email?token=…` and `/reset-password?token=…`).
+ * (the API mails `/verify-email?token=…`, `/reset-password?token=…` and
+ * `/invite?token=…`).
  */
 const PUBLIC_PATHS = new Set([
   '/login',
@@ -24,18 +26,20 @@ const PUBLIC_PATHS = new Set([
   '/verify-email',
   '/forgot-password',
   '/reset-password',
+  '/invite',
 ]);
 
 /**
  * Public routes that must render before — and without — the session probe: a
- * verification link opened from a mailbox cannot wait on `/auth/me` (and must
- * still work when the API session is unreachable).
+ * verification/invitation link opened from a mailbox cannot wait on `/auth/me`
+ * (and must still work when the API session is unreachable).
  */
 const NO_PROBE_PATHS = new Set([
   '/signup',
   '/verify-email',
   '/forgot-password',
   '/reset-password',
+  '/invite',
 ]);
 
 function normalizePath(pathname: string): string {
@@ -139,6 +143,7 @@ export default function App(): JSX.Element {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
 

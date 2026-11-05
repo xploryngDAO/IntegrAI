@@ -136,6 +136,18 @@ export interface SignupBody {
   password: string;
 }
 
+/**
+ * Body of `POST /auth/accept-invitation` (public).
+ *
+ * The invitation token proves ownership of the invited e-mail, so the caller
+ * sends only the two fields the invitee chooses: display name and password.
+ */
+export interface AcceptInvitationBody {
+  token: string;
+  name: string;
+  password: string;
+}
+
 export interface UploadedFile {
   key: string;
   uri: string;
