@@ -18,6 +18,7 @@ import type {
   PolicyEvaluation,
   QueueSnapshot,
   RouteDecision,
+  SignupResult,
   SystemDiagnosis,
   TicketDetail,
   TicketListItem,
@@ -30,6 +31,7 @@ import type {
   ConnectAccountPayload,
   PolicyCheckBody,
   SendMessageBody,
+  SignupBody,
   UploadedFile,
   WorkspaceFilters,
 } from './types';
@@ -196,6 +198,16 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export interface ApiClient {
   login(email: string, password: string): Promise<AuthResponse>;
   me(): Promise<IAgentSummary>;
+  /** Creates tenant + first ADMIN and mails the verification link (public). */
+  signup(body: SignupBody): Promise<SignupResult>;
+  /** Consumes the single-use verification token (public). */
+  verifyEmail(token: string): Promise<{ verified: boolean }>;
+  /** Always answers 202, whether the account exists or not (public). */
+  resendVerification(email: string): Promise<{ status: string }>;
+  /** Always answers 202, no account enumeration (public). */
+  forgotPassword(email: string): Promise<{ status: string }>;
+  /** Consumes the reset token and revokes every session of the operator (public). */
+  resetPassword(token: string, password: string): Promise<{ reset: boolean }>;
   listTickets(
     filters: WorkspaceFilters,
     page?: number,
@@ -252,6 +264,52 @@ export const api: ApiClient = {
 
   me() {
     return request<IAgentSummary>('/auth/me');
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Public Fase 1 endpoints: no session is issued or consumed here.     */
+  /* ------------------------------------------------------------------ */
+
+  signup(body) {
+    // bcrypt (cost 12) + tenant/user insert + SMTP send run inside this request,
+    // so it needs more headroom than a plain read.
+    return request<SignupResult>('/auth/signup', {
+      method: 'POST',
+      body,
+      timeoutMs: 20_000,
+    });
+  },
+
+  verifyEmail(token) {
+    return request<{ verified: boolean }>('/auth/verify-email', {
+      method: 'POST',
+      body: { token },
+      timeoutMs: 10_000,
+    });
+  },
+
+  resendVerification(email) {
+    return request<{ status: string }>('/auth/resend-verification', {
+      method: 'POST',
+      body: { email },
+      timeoutMs: 15_000,
+    });
+  },
+
+  forgotPassword(email) {
+    return request<{ status: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+      timeoutMs: 15_000,
+    });
+  },
+
+  resetPassword(token, password) {
+    return request<{ reset: boolean }>('/auth/reset-password', {
+      method: 'POST',
+      body: { token, password },
+      timeoutMs: 15_000,
+    });
   },
 
   async listTickets(filters, page = 1) {

@@ -128,6 +128,14 @@ export interface ConnectAccountPayload {
   channelConfig?: Record<string, unknown>;
 }
 
+/** Body of `POST /auth/signup` (Fase 1 self-service account creation). */
+export interface SignupBody {
+  companyName: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
 export interface UploadedFile {
   key: string;
   uri: string;
