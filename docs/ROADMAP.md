@@ -107,7 +107,8 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 0 — auth com tenant (JWT/login/verify + middleware)
 - [x] Fase 0 — escopo de leitura (contas, agentes, tickets lista/detalhe) + escrita de tickets com tenant
 - [x] Fase 0 — testes de isolamento automatizados (`npm run test:isolation` 5/5: conta, tickets, detalhe 404, cleanup)
-- [ ] Fase 1 — signup/reset/convites
+- [x] Fase 1 — schema (invitations, password_resets, email_verifications, sessions, email_verified_at)
+- [ ] Fase 1 — signup/reset/convites (endpoints + e-mail/fila)
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados
 - [ ] Fase 4 — console/billing
