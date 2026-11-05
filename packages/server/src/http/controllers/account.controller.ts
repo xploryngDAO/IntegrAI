@@ -60,7 +60,8 @@ export function createAccountControllers(ctx: HttpRouteContext): AccountControll
       const { marketplace: slug } = parseInput(oauthStartParamsSchema, request.params, 'params');
       const body = parseInput(oauthStartBodySchema, request.body, 'body');
       const marketplace: Marketplace = OAUTH_SLUGS[slug];
-      const result = await services.accounts.startOAuth(marketplace, body.displayName);
+      const agent = requireAgent(request);
+      const result = await services.accounts.startOAuth(marketplace, body.displayName, agent.tenantId);
       return ok(result);
     },
 

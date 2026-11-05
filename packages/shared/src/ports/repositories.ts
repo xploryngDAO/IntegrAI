@@ -34,6 +34,7 @@ import type {
  * ========================================================================== */
 
 export interface CreateAccountInput {
+  tenantId?: string | null;
   marketplace: Marketplace;
   displayName: string;
   externalSellerId: string;

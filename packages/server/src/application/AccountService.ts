@@ -59,6 +59,7 @@ export interface AccountServiceDependencies {
 }
 
 interface OAuthStatePayload {
+  tenantId?: string | null;
   marketplace: Marketplace;
   displayName: string;
   nonce: string;
@@ -361,7 +362,7 @@ export class AccountService implements IAccountService {
   /* OAuth start                                                          */
   /* ==================================================================== */
 
-  async startOAuth(marketplace: Marketplace, displayName: string): Promise<OAuthStartResult> {
+  async startOAuth(marketplace: Marketplace, displayName: string, tenantId?: string | null): Promise<OAuthStartResult> {
     if (marketplace === 'AMAZON') {
       throw new ValidationError(
         'Amazon uses a self-authorized LWA refresh token; use POST /accounts/connect instead.',
@@ -375,6 +376,7 @@ export class AccountService implements IAccountService {
     }
 
     const payload: OAuthStatePayload = {
+      tenantId: tenantId ?? null,
       marketplace,
       displayName: trimmedName,
       nonce: randomBytes(24).toString('hex'),
@@ -397,7 +399,7 @@ export class AccountService implements IAccountService {
 
   private stateSignature(payload: OAuthStatePayload): string {
     return this.cipher.hash(
-      `${payload.marketplace}|${payload.displayName}|${payload.nonce}|${payload.issuedAt}`,
+      `${payload.marketplace}|${payload.displayName}|${payload.nonce}|${payload.issuedAt}|${payload.tenantId ?? ''}`,
     );
   }
 
@@ -553,6 +555,7 @@ export class AccountService implements IAccountService {
 
     const account = await this.upsertAccount({
       marketplace: 'MERCADO_LIVRE',
+      tenantId: state.tenantId ?? null,
       displayName: state.displayName,
       externalSellerId,
       marketplaceSiteId: siteId,
@@ -651,6 +654,7 @@ export class AccountService implements IAccountService {
     const region = readString(input.rawQuery.region) ?? 'BR';
 
     const account = await this.upsertAccount({
+      tenantId: state.tenantId ?? null,
       marketplace: 'SHOPEE',
       displayName: state.displayName,
       externalSellerId: resolvedShopId,
@@ -679,6 +683,7 @@ export class AccountService implements IAccountService {
 
   async connectWithCredentials(
     input: ConnectAccountRequest,
+    tenantId?: string | null,
   ): Promise<{ accountId: string; displayName: string }> {
     const displayName = (input.displayName ?? '').trim();
     const externalSellerId = (input.externalSellerId ?? '').trim();
@@ -720,6 +725,7 @@ export class AccountService implements IAccountService {
     }
 
     const account = await this.upsertAccount({
+      tenantId: tenantId ?? null,
       marketplace: input.marketplace,
       displayName,
       externalSellerId,
@@ -827,6 +833,7 @@ export class AccountService implements IAccountService {
   /* ==================================================================== */
 
   private async upsertAccount(input: {
+    tenantId?: string | null;
     marketplace: Marketplace;
     displayName: string;
     externalSellerId: string;
@@ -847,6 +854,9 @@ export class AccountService implements IAccountService {
     const now = this.clock.now();
 
     if (existing) {
+      if (existing.tenantId && input.tenantId && existing.tenantId !== input.tenantId) {
+        throw new ValidationError('Account already belongs to another tenant');
+      }
       await this.accounts.updateTokens(existing.id, {
         ...(accessTokenEnc ? { accessTokenEnc } : {}),
         ...(refreshTokenEnc ? { refreshTokenEnc } : {}),
@@ -873,6 +883,7 @@ export class AccountService implements IAccountService {
     }
 
     const created = await this.accounts.create({
+      tenantId: input.tenantId ?? null,
       marketplace: input.marketplace,
       displayName: input.displayName,
       externalSellerId: input.externalSellerId,

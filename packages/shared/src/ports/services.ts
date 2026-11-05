@@ -183,9 +183,9 @@ export interface IAccountService {
     authExpiresAt: string | null;
   }>>;
   describeConnectors(): ConnectorDescriptor[];
-  startOAuth(marketplace: Marketplace, displayName: string): Promise<OAuthStartResult>;
+  startOAuth(marketplace: Marketplace, displayName: string, tenantId?: string | null): Promise<OAuthStartResult>;
   completeOAuth(marketplace: Marketplace, input: OAuthCallbackInput): Promise<{ accountId: string; displayName: string }>;
-  connectWithCredentials(input: ConnectAccountRequest): Promise<{ accountId: string; displayName: string }>;
+  connectWithCredentials(input: ConnectAccountRequest, tenantId?: string | null): Promise<{ accountId: string; displayName: string }>;
   disconnect(accountId: string): Promise<void>;
   refreshNow(accountId: string): Promise<{ ok: boolean; detail: string }>;
 }
