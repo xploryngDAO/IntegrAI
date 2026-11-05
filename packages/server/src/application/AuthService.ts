@@ -1,5 +1,3 @@
-import { createHash, randomBytes } from 'node:crypto';
-
 import bcrypt from 'bcryptjs';
 
 import { CACHE_KEYS } from '@sac/shared';
@@ -11,6 +9,8 @@ import type {
   IClock,
   IEmailService,
   IEmailVerificationRepository,
+  IPasswordResetRepository,
+  ISessionRepository,
   ITenantRepository,
   ILogger,
   SignupCommand,
@@ -19,15 +19,15 @@ import type {
 } from '@sac/shared';
 import { AppError, ConflictError, ValidationError } from '@sac/shared';
 
+import { hashToken, randomToken } from './auth/access-token';
 import { isUniqueConstraintViolation } from './repositories/errors';
 
 /**
  * ============================================================================
- * AuthService - self-service signup + e-mail verification (Fase 1)
+ * AuthService - self-service signup, e-mail verification and password reset
  * ============================================================================
  *
- * Scope of this slice (reset password, invitations, 2FA and session rotation are
- * intentionally out of scope):
+ * Scope of this slice (invitations, 2FA and session rotation live elsewhere):
  *
  *  - `signup`: creates a tenant (unique slug derived from the company name) and
  *    its first ADMIN operator with `email_verified_at = null`; the plain token
@@ -35,12 +35,21 @@ import { isUniqueConstraintViolation } from './repositories/errors';
  *  - `verifyEmail`: consumes a single-use token after checking hash + TTL + use.
  *  - `resendVerification`: no account enumeration (always resolves), throttled
  *    to one message per minute per e-mail through `ICache`.
+ *  - `forgotPassword`: always resolves (202 at the edge), invalidates previous
+ *    reset tokens, stores SHA-256 with a 30 min TTL and mails the link.
+ *  - `resetPassword`: validates hash + TTL + single use, re-hashes the password
+ *    with bcrypt cost 12 and revokes every live session of the operator.
  *
  * Hashing/verification never leaks the password and every failure path returns
  * a stable `AppError.code` for the UI.
  */
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+/** Fase 1: password reset links live 30 minutes (`docs/PHASE1_AUTH.md`). */
+const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+const RESET_TOKEN_BYTES = 32;
+const MIN_TOKEN_LENGTH = 32;
+const MAX_TOKEN_LENGTH = 256;
 const RESEND_WINDOW_SECONDS = 60;
 const BCRYPT_COST = 12;
 const MIN_PASSWORD_LENGTH = 12;
@@ -58,10 +67,6 @@ function normalizeEmail(value: string | undefined | null): string {
 
 function isValidEmail(email: string): boolean {
   return email.length > 0 && email.length <= 254 && EMAIL_PATTERN.test(email);
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
 /** `Loja do João & Cia` -> `loja-do-joao-cia`. Deterministic and URL-safe. */
@@ -95,6 +100,8 @@ export interface AuthServiceDependencies {
     agents: IAgentRepository;
     tenants: ITenantRepository;
     emailVerifications: IEmailVerificationRepository;
+    passwordResets: IPasswordResetRepository;
+    sessions: ISessionRepository;
   };
 }
 
@@ -107,6 +114,8 @@ export class AuthService implements IAuthService {
   private readonly agents: IAgentRepository;
   private readonly tenants: ITenantRepository;
   private readonly emailVerifications: IEmailVerificationRepository;
+  private readonly passwordResets: IPasswordResetRepository;
+  private readonly sessions: ISessionRepository;
   /** Last-resort throttle window when Redis is unreachable (single instance). */
   private readonly localResendWindows = new Map<string, number>();
 
@@ -119,6 +128,8 @@ export class AuthService implements IAuthService {
     this.agents = deps.repos.agents;
     this.tenants = deps.repos.tenants;
     this.emailVerifications = deps.repos.emailVerifications;
+    this.passwordResets = deps.repos.passwordResets;
+    this.sessions = deps.repos.sessions;
   }
 
   /* ==================================================================== */
@@ -233,8 +244,87 @@ export class AuthService implements IAuthService {
   }
 
   /* ==================================================================== */
+  /* Forgot password                                                      */
+  /* ==================================================================== */
+
+  /**
+   * Always resolves: the HTTP layer answers 202 for every address, so a caller
+   * cannot tell an existing account from an unknown one (and the time spent is
+   * dominated by the token work only when the account exists - the endpoint is
+   * rate limited at the edge, see `docs/PHASE1_AUTH.md`).
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const normalized = normalizeEmail(email);
+    if (!isValidEmail(normalized)) return;
+
+    const agent = await this.agents.findByEmail(normalized);
+    if (agent === null || !agent.isActive) {
+      // Same outcome as "sent" - nothing is logged that could leak existence.
+      return;
+    }
+
+    const token = await this.issueResetToken(agent.id);
+    await this.sendResetEmail(agent, token);
+
+    this.logger.info('auth.password.reset_requested', { userId: agent.id });
+  }
+
+  /* ==================================================================== */
+  /* Reset password                                                       */
+  /* ==================================================================== */
+
+  async resetPassword(token: string, password: string): Promise<void> {
+    const raw = (token ?? '').trim();
+    if (raw.length < MIN_TOKEN_LENGTH || raw.length > MAX_TOKEN_LENGTH) {
+      throw this.invalidResetTokenError();
+    }
+    this.assertPassword(password);
+
+    const record = await this.passwordResets.findByTokenHash(hashToken(raw));
+    const now = this.clock.now();
+    if (
+      record === null ||
+      record.usedAt !== null ||
+      record.expiresAt.getTime() <= now.getTime()
+    ) {
+      throw this.invalidResetTokenError();
+    }
+
+    const agent = await this.agents.findById(record.userId);
+    if (agent === null || !agent.isActive) {
+      // A token for a removed/disabled operator must not reveal anything.
+      throw this.invalidResetTokenError();
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+    await this.agents.updatePassword(agent.id, passwordHash);
+
+    // Single use + "only the newest link works" + every device is logged out.
+    await this.passwordResets.markUsed(record.id, now);
+    await this.passwordResets.invalidateUnused(agent.id, now);
+    const revokedSessions = await this.sessions.revokeAllForUser(agent.id, now);
+
+    this.logger.info('auth.password.reset_completed', {
+      userId: agent.id,
+      revokedSessions,
+    });
+  }
+
+  /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
+
+  private assertPassword(password: string): void {
+    if (
+      password.length < MIN_PASSWORD_LENGTH ||
+      password.length > MAX_PASSWORD_LENGTH
+    ) {
+      throw new ValidationError(
+        `Password must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters`,
+        { field: 'password', minLength: MIN_PASSWORD_LENGTH },
+      );
+    }
+  }
 
   private assertSignupInput(input: {
     companyName: string;
@@ -255,15 +345,7 @@ export class AuthService implements IAuthService {
     if (!isValidEmail(input.email)) {
       throw new ValidationError('A valid e-mail address is required', { field: 'email' });
     }
-    if (
-      input.password.length < MIN_PASSWORD_LENGTH ||
-      input.password.length > MAX_PASSWORD_LENGTH
-    ) {
-      throw new ValidationError(
-        `Password must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters`,
-        { field: 'password', minLength: MIN_PASSWORD_LENGTH },
-      );
-    }
+    this.assertPassword(input.password);
   }
 
   private async createTenant(companyName: string): Promise<TenantRecord> {
@@ -309,7 +391,7 @@ export class AuthService implements IAuthService {
 
   /** Creates a single-use token and stores only its SHA-256 hash. */
   private async issueVerificationToken(userId: string): Promise<string> {
-    const token = randomBytes(32).toString('hex');
+    const token = randomToken(32);
     const tokenHash = hashToken(token);
     const now = this.clock.now();
     const expiresAt = new Date(now.getTime() + VERIFICATION_TTL_MS);
@@ -317,6 +399,22 @@ export class AuthService implements IAuthService {
     // A resend invalidates every previous link: only the newest one can be used.
     await this.emailVerifications.invalidateUnused(userId, now);
     await this.emailVerifications.create({ userId, tokenHash, expiresAt });
+
+    return token;
+  }
+
+  /**
+   * Password reset token: 32 random bytes (64 hex), SHA-256 at rest and a
+   * 30 min TTL. Requesting a new link burns every previous one.
+   */
+  private async issueResetToken(userId: string): Promise<string> {
+    const token = randomToken(RESET_TOKEN_BYTES);
+    const tokenHash = hashToken(token);
+    const now = this.clock.now();
+    const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TTL_MS);
+
+    await this.passwordResets.invalidateUnused(userId, now);
+    await this.passwordResets.create({ userId, tokenHash, expiresAt });
 
     return token;
   }
@@ -329,6 +427,19 @@ export class AuthService implements IAuthService {
       // Signup must not fail because the SMTP relay is down: the operator can
       // request a new link later. Never log the token/link here.
       this.logger.warn('auth.email.send_failed', {
+        userId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async sendResetEmail(agent: AgentRecord, token: string): Promise<void> {
+    const link = `${this.resolveLinkBase()}/reset-password?token=${encodeURIComponent(token)}`;
+    try {
+      await this.email.sendPasswordResetEmail(agent.email, link, agent.name);
+    } catch (error) {
+      // The endpoint still answers 202: the operator can ask for another link.
+      this.logger.warn('auth.email.reset_send_failed', {
         userId: agent.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -353,6 +464,14 @@ export class AuthService implements IAuthService {
     return new AppError(
       'INVALID_VERIFICATION_TOKEN',
       'Verification link is invalid or has expired',
+      400,
+    );
+  }
+
+  private invalidResetTokenError(): AppError {
+    return new AppError(
+      'INVALID_RESET_TOKEN',
+      'Password reset link is invalid or has expired',
       400,
     );
   }

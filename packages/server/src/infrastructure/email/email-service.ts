@@ -105,6 +105,59 @@ export class SmtpEmailService implements IEmailService {
     });
   }
 
+  async sendPasswordResetEmail(to: string, link: string, name?: string): Promise<void> {
+    const recipient = (to ?? '').trim();
+    if (recipient.length === 0) return;
+
+    if (this.options.nodeEnv === 'test') {
+      // Never reach a real SMTP server from tests.
+      this.logger.debug('email.password_reset.skipped_in_test', { to: recipient });
+      return;
+    }
+
+    if (!this.isConfigured()) {
+      if (this.options.nodeEnv === 'production') {
+        this.logger.error('email.smtp.not_configured', {
+          hint: 'Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD (and SMTP_FROM) to deliver password reset e-mails.',
+        });
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[email:dev] password reset link for ${recipient}: ${link}`);
+      return;
+    }
+
+    const subject = 'Redefina sua senha - IntegrAI';
+    const greeting = name !== undefined && name.trim().length > 0 ? name.trim() : 'olá';
+    const text = [
+      `Olá, ${greeting}!`,
+      '',
+      'Recebemos um pedido para redefinir a senha da sua conta IntegrAI:',
+      link,
+      '',
+      'O link expira em 30 minutos e só pode ser usado uma vez.',
+      'Ao concluir, todas as suas sessões abertas serão encerradas.',
+      'Se você não pediu a redefinição, ignore esta mensagem: sua senha continua a mesma.',
+    ].join('\n');
+    const html = [
+      `<p>Olá, ${escapeHtml(greeting)}!</p>`,
+      '<p>Recebemos um pedido para redefinir a senha da sua conta IntegrAI:</p>',
+      `<p><a href="${escapeHtml(link)}">Redefinir senha</a></p>`,
+      '<p>O link expira em 30 minutos e só pode ser usado uma vez.</p>',
+      '<p>Ao concluir, todas as suas sessões abertas serão encerradas.</p>',
+      '<p>Se você não pediu a redefinição, ignore esta mensagem: sua senha continua a mesma.</p>',
+    ].join('\n');
+
+    const transporter = this.getTransporter();
+    await transporter.sendMail({
+      from: this.options.from,
+      to: recipient,
+      subject,
+      text,
+      html,
+    });
+  }
+
   private getTransporter(): Transporter {
     if (this.transporter !== null) return this.transporter;
 

@@ -21,6 +21,8 @@ import type {
   OrderItemSnapshot,
   PageRequest,
   Paginated,
+  PasswordResetRecord,
+  SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
   TenantRecord,
@@ -411,4 +413,43 @@ export interface IEmailVerificationRepository {
 export interface ISlaPolicyRepository {
   find(accountId: string | null, marketplace: Marketplace, ticketType: TicketType): Promise<SlaPolicyRecord | null>;
   listByMarketplace(marketplace: Marketplace): Promise<SlaPolicyRecord[]>;
+}
+
+/* ==========================================================================
+ * PASSWORD RESETS + SESSIONS (Fase 1: reset de senha + refresh rotativo)
+ * ========================================================================== */
+
+export interface CreatePasswordResetInput {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}
+
+export interface IPasswordResetRepository {
+  create(input: CreatePasswordResetInput): Promise<PasswordResetRecord>;
+  findByTokenHash(tokenHash: string): Promise<PasswordResetRecord | null>;
+  markUsed(id: string, at: Date): Promise<void>;
+  /** Single-use guarantee: burns every still-unused reset token of the user. */
+  invalidateUnused(userId: string, at: Date): Promise<number>;
+}
+
+export interface CreateSessionInput {
+  userId: string;
+  tenantId: string;
+  refreshTokenHash: string;
+  userAgent?: string | null;
+  ip?: string | null;
+  expiresAt: Date;
+}
+
+export interface ISessionRepository {
+  create(input: CreateSessionInput): Promise<SessionRecord>;
+  findByRefreshTokenHash(tokenHash: string): Promise<SessionRecord | null>;
+  /**
+   * Revokes a single session. Returns `false` when another request already
+   * revoked it (concurrent refresh must not mint two token pairs).
+   */
+  revoke(id: string, at: Date): Promise<boolean>;
+  /** Password reset / "logout everywhere" path. Returns the revoked count. */
+  revokeAllForUser(userId: string, at: Date): Promise<number>;
 }

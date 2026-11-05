@@ -11,8 +11,10 @@ import type {
   IHttpClient,
   ILogger,
   IObjectStorage,
+  IPasswordResetRepository,
   IQueuePublisher,
   IRateLimiter,
+  ISessionRepository,
   ISlaPolicyRepository,
   ISecretCipher,
   ITenantRepository,
@@ -22,6 +24,8 @@ import {
   createRepositories,
   createAgentRepository,
   createEmailVerificationRepository,
+  createPasswordResetRepository,
+  createSessionRepository,
   createSlaPolicyRepository,
   createTenantRepository,
 } from '../application/repositories';
@@ -58,6 +62,8 @@ export interface InfrastructureBundle {
   agents: IAgentRepository;
   tenants: ITenantRepository;
   emailVerifications: IEmailVerificationRepository;
+  passwordResets: IPasswordResetRepository;
+  sessions: ISessionRepository;
   slaPolicies: ISlaPolicyRepository;
   email: IEmailService;
 }
@@ -123,6 +129,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const agents = createAgentRepository(prisma);
   const tenants = createTenantRepository(prisma);
   const emailVerifications = createEmailVerificationRepository(prisma);
+  const passwordResets = createPasswordResetRepository(prisma);
+  const sessions = createSessionRepository(prisma);
   const slaPolicies = createSlaPolicyRepository(prisma);
 
   const email = new SmtpEmailService({
@@ -153,6 +161,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     agents,
     tenants,
     emailVerifications,
+    passwordResets,
+    sessions,
     slaPolicies,
     email,
   };

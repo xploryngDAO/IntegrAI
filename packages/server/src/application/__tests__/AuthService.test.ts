@@ -9,6 +9,7 @@ import type {
   CreateAgentInput,
   EmailVerificationRecord,
   IAgentRepository,
+  IAuthSessionService,
   ICache,
   IClock,
   IEmailService,
@@ -22,6 +23,11 @@ import type {
 
 import { AgentService } from '../AgentService';
 import { AuthService, slugifyCompanyName } from '../AuthService';
+import { AuthSessionService } from '../AuthSessionService';
+import {
+  InMemoryPasswordResetRepository,
+  InMemorySessionRepository,
+} from './authFakes';
 
 /* ==========================================================================
  * Test doubles
@@ -153,6 +159,7 @@ interface SentEmail {
 
 class FakeEmailService implements IEmailService {
   readonly sent: SentEmail[] = [];
+  readonly sentResets: SentEmail[] = [];
   failNext = false;
 
   async sendVerificationEmail(to: string, link: string, name?: string): Promise<void> {
@@ -161,6 +168,14 @@ class FakeEmailService implements IEmailService {
       throw new Error('smtp unavailable');
     }
     this.sent.push({ to, link, name });
+  }
+
+  async sendPasswordResetEmail(to: string, link: string, name?: string): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('smtp unavailable');
+    }
+    this.sentResets.push({ to, link, name });
   }
 }
 
@@ -368,6 +383,8 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
   const tenants = new InMemoryTenantRepository(clock);
   const agents = new InMemoryAgentRepository(clock);
   const emailVerifications = new InMemoryEmailVerificationRepository(clock);
+  const passwordResets = new InMemoryPasswordResetRepository(clock);
+  const sessions = new InMemorySessionRepository(clock);
 
   const auth = new AuthService({
     logger,
@@ -378,13 +395,27 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
       webOrigin: overrides?.webOrigin ?? 'https://app.test, http://localhost:5173',
       appBaseUrl: overrides?.appBaseUrl ?? 'https://api.test',
     },
-    repos: { agents, tenants, emailVerifications },
+    repos: { agents, tenants, emailVerifications, passwordResets, sessions },
   });
 
-  return { clock, cache, email, tenants, agents, emailVerifications, auth };
+  return {
+    clock,
+    cache,
+    email,
+    tenants,
+    agents,
+    emailVerifications,
+    passwordResets,
+    sessions,
+    auth,
+  };
 }
 
-function buildAgentService(agents: InMemoryAgentRepository, clock: FakeClock): AgentService {
+function buildAgentService(
+  agents: InMemoryAgentRepository,
+  clock: FakeClock,
+  sessions?: IAuthSessionService,
+): AgentService {
   const tickets = {
     countActiveByAgent: async (): Promise<number> => 0,
   } as unknown as ITicketRepository;
@@ -397,6 +428,7 @@ function buildAgentService(agents: InMemoryAgentRepository, clock: FakeClock): A
     jwtSecret: 'unit-test-secret-with-32-characters!!',
     jwtExpiresIn: '1h',
     presenceTtlSeconds: 120,
+    ...(sessions !== undefined ? { sessions } : {}),
     repos: { agents, tickets },
   });
 }
@@ -757,5 +789,106 @@ describe('AgentService.login + e-mail verification', () => {
       tenantId: 'tenant-bootstrap',
     });
     expect(result.token.length).toBeGreaterThan(0);
+  });
+});
+
+describe('AgentService.login + refresh token issuance', () => {
+  it('creates a session and returns the raw refresh token (hashed at rest)', async () => {
+    const clock = new FakeClock(new Date('2026-01-01T12:00:00.000Z'));
+    const agents = new InMemoryAgentRepository(clock);
+    const sessions = new InMemorySessionRepository(clock);
+    const agent = agents.seed({
+      email: 'admin@tenant.test',
+      passwordHash: verifiedPasswordHash,
+      emailVerifiedAt: new Date('2025-11-01T00:00:00.000Z'),
+      tenantId: 'tenant-1',
+    });
+    const sessionService = new AuthSessionService({
+      logger,
+      clock,
+      jwtSecret: 'unit-test-secret-with-32-characters!!',
+      jwtExpiresIn: '1h',
+      repos: { agents, sessions },
+    });
+    const service = buildAgentService(agents, clock, sessionService);
+
+    const result = await service.login('admin@tenant.test', TEST_PASSWORD, {
+      userAgent: 'Mozilla/5.0 (test)',
+      ip: '203.0.113.10',
+    });
+
+    expect(result.token.length).toBeGreaterThan(0);
+    expect(typeof result.refreshToken).toBe('string');
+    const refreshToken = result.refreshToken ?? '';
+    expect(refreshToken).toMatch(/^[0-9a-f]{96}$/);
+
+    expect(sessions.rows).toHaveLength(1);
+    const session = sessions.rows[0];
+    expect(session).toMatchObject({
+      userId: agent.id,
+      tenantId: 'tenant-1',
+      userAgent: 'Mozilla/5.0 (test)',
+      ip: '203.0.113.10',
+      revokedAt: null,
+    });
+    expect(session.refreshTokenHash).toBe(sha256(refreshToken));
+    expect(session.refreshTokenHash).not.toBe(refreshToken);
+    expect(session.expiresAt.getTime() - clock.now().getTime()).toBe(30 * DAY_MS);
+  });
+
+  it('omits the refresh token when the operator has no tenant', async () => {
+    const clock = new FakeClock(new Date('2026-01-01T12:00:00.000Z'));
+    const agents = new InMemoryAgentRepository(clock);
+    const sessions = new InMemorySessionRepository(clock);
+    agents.seed({
+      email: 'legacy@tenant.test',
+      passwordHash: verifiedPasswordHash,
+      emailVerifiedAt: new Date('2025-11-01T00:00:00.000Z'),
+      tenantId: null,
+    });
+    const sessionService = new AuthSessionService({
+      logger,
+      clock,
+      jwtSecret: 'unit-test-secret-with-32-characters!!',
+      jwtExpiresIn: '1h',
+      repos: { agents, sessions },
+    });
+    const service = buildAgentService(agents, clock, sessionService);
+
+    const result = await service.login('legacy@tenant.test', TEST_PASSWORD);
+
+    expect(result.refreshToken).toBeUndefined();
+    expect(sessions.rows).toHaveLength(0);
+  });
+
+  it('still logs in when the session store fails', async () => {
+    const clock = new FakeClock(new Date('2026-01-01T12:00:00.000Z'));
+    const agents = new InMemoryAgentRepository(clock);
+    agents.seed({
+      email: 'admin@broken.test',
+      passwordHash: verifiedPasswordHash,
+      emailVerifiedAt: new Date('2025-11-01T00:00:00.000Z'),
+      tenantId: 'tenant-1',
+    });
+    const failingSessions = {
+      async issue(): Promise<never> {
+        throw new Error('database unavailable');
+      },
+      async rotate(): Promise<never> {
+        throw new Error('database unavailable');
+      },
+      async revoke(): Promise<boolean> {
+        return false;
+      },
+      async revokeAllForUser(): Promise<number> {
+        return 0;
+      },
+    } as unknown as IAuthSessionService;
+    const service = buildAgentService(agents, clock, failingSessions);
+
+    const result = await service.login('admin@broken.test', TEST_PASSWORD);
+
+    expect(result.token.length).toBeGreaterThan(0);
+    expect(result.refreshToken).toBeUndefined();
   });
 });

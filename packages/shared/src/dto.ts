@@ -199,6 +199,32 @@ export interface EmailVerificationRecord {
   createdAt: Date;
 }
 
+/** Single-use password reset token (only the SHA-256 hash is persisted). */
+export interface PasswordResetRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
+}
+
+/**
+ * Rotating refresh-token session. `refreshTokenHash` is the SHA-256 of a random
+ * 48-byte token; the raw value only ever exists in the client.
+ */
+export interface SessionRecord {
+  id: string;
+  userId: string;
+  tenantId: string;
+  refreshTokenHash: string;
+  userAgent: string | null;
+  ip: string | null;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  createdAt: Date;
+}
+
 export interface WebhookEventRecord {
   id: string;
   marketplace: Marketplace;
@@ -483,6 +509,8 @@ export interface ConnectorDescriptor {
 
 export interface AuthResponse {
   token: string;
+  /** Present when the session store accepted the login (Fase 1 refresh rotation). */
+  refreshToken?: string;
   agent: {
     id: string;
     name: string;

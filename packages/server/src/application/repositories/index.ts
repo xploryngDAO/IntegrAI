@@ -9,7 +9,12 @@ import {
 } from './email-verifications';
 import { createMessageRepository, PrismaMessageRepository } from './messages';
 import { createOrderRepository, PrismaOrderRepository } from './orders';
+import {
+  createPasswordResetRepository,
+  PrismaPasswordResetRepository,
+} from './password-resets';
 import { createPiiVaultRepository, PrismaPiiVaultRepository } from './pii-vault';
+import { createSessionRepository, PrismaSessionRepository } from './sessions';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
 import { createTenantRepository, PrismaTenantRepository } from './tenants';
 import { createTicketEventRepository, PrismaTicketEventRepository } from './ticket-events';
@@ -42,7 +47,12 @@ export {
 };
 export { createMessageRepository, PrismaMessageRepository };
 export { createOrderRepository, PrismaOrderRepository };
+export {
+  createPasswordResetRepository,
+  PrismaPasswordResetRepository,
+};
 export { createPiiVaultRepository, PrismaPiiVaultRepository };
+export { createSessionRepository, PrismaSessionRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
 export { createTenantRepository, PrismaTenantRepository };
 export { createTicketEventRepository, PrismaTicketEventRepository };
@@ -57,7 +67,9 @@ export {
   mapEmailVerification,
   mapMessage,
   mapOrder,
+  mapPasswordReset,
   mapPii,
+  mapSession,
   mapSlaPolicy,
   mapTenant,
   mapTicket,

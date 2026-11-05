@@ -197,11 +197,19 @@ export interface IAccountService {
 
 export interface LoginResult {
   token: string;
+  /** Rotating refresh token; absent when the session store is unavailable. */
+  refreshToken?: string;
   agent: { id: string; name: string; email: string; role: string; presence: AgentPresenceStatus; tenantId: string | null };
 }
 
+/** Optional device fingerprint captured on login/refresh (no PII beyond the UA). */
+export interface SessionDeviceInfo {
+  userAgent?: string | null;
+  ip?: string | null;
+}
+
 export interface IAgentService {
-  login(email: string, password: string): Promise<LoginResult>;
+  login(email: string, password: string, device?: SessionDeviceInfo): Promise<LoginResult>;
   verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;
@@ -232,6 +240,37 @@ export interface IAuthService {
   verifyEmail(token: string): Promise<void>;
   /** Always resolves (no account enumeration); throttled to 1/min per e-mail. */
   resendVerification(email: string): Promise<void>;
+  /** Always resolves: unknown/inactive accounts get the same 202 outcome. */
+  forgotPassword(email: string): Promise<void>;
+  /** Consumes the reset token, re-hashes the password and revokes all sessions. */
+  resetPassword(token: string, password: string): Promise<void>;
+}
+
+/* ==========================================================================
+ * Sessions (Fase 1: rotating refresh tokens)
+ * ========================================================================== */
+
+export interface IssuedSession {
+  refreshToken: string;
+  expiresAt: Date;
+}
+
+export interface RefreshSessionResult {
+  token: string;
+  refreshToken: string;
+  agent: LoginResult['agent'];
+  expiresAt: Date;
+}
+
+export interface IAuthSessionService {
+  /** Creates a session for a freshly authenticated operator. */
+  issue(userId: string, device?: SessionDeviceInfo): Promise<IssuedSession>;
+  /** Validates + rotates: revokes the presented token and returns a new pair. */
+  rotate(refreshToken: string, device?: SessionDeviceInfo): Promise<RefreshSessionResult>;
+  /** Revokes the presented session when it belongs to `userId`. */
+  revoke(refreshToken: string, userId: string): Promise<boolean>;
+  /** "Logout everywhere" / password reset: revokes every live session. */
+  revokeAllForUser(userId: string): Promise<number>;
 }
 
 /* ==========================================================================
@@ -317,6 +356,7 @@ export interface IAppServices {
   readonly outbound: IOutboundRouterService;
   readonly agents: IAgentService;
   readonly auth: IAuthService;
+  readonly sessions: IAuthSessionService;
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
   readonly files: IFileService;

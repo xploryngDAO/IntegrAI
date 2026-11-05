@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { IAuthService } from '@sac/shared';
+import type { IAuthService, IAuthSessionService } from '@sac/shared';
+import { AppError } from '@sac/shared';
 
 import type { HttpRouteContext } from '../types';
 import { createAuthControllers } from '../controllers/auth.controller';
@@ -17,13 +18,25 @@ function fakeReply(): FastifyReply {
   return reply as unknown as FastifyReply;
 }
 
-function fakeRequest(body: unknown): FastifyRequest {
-  return { body } as unknown as FastifyRequest;
+function fakeRequest(
+  body: unknown,
+  agent?: { id: string; email: string; name: string; role: string; tenantId: string | null },
+): FastifyRequest {
+  return {
+    body,
+    headers: {},
+    ip: '203.0.113.7',
+    ...(agent !== undefined ? { agent } : {}),
+  } as unknown as FastifyRequest;
 }
 
-function buildControllers(auth: IAuthService) {
+function buildControllers(auth: IAuthService, sessions?: IAuthSessionService) {
   const ctx = {
-    services: { auth, clock: { now: () => new Date('2026-01-01T00:00:00.000Z') } },
+    services: {
+      auth,
+      ...(sessions !== undefined ? { sessions } : {}),
+      clock: { now: () => new Date('2026-01-01T00:00:00.000Z') },
+    },
     hub: { publisher: { agentPresence: vi.fn() } },
   } as unknown as HttpRouteContext;
   return createAuthControllers(ctx);
@@ -35,8 +48,15 @@ describe('public auth routes', () => {
     '/api/v1/auth/signup',
     '/api/v1/auth/verify-email',
     '/api/v1/auth/resend-verification',
+    '/api/v1/auth/forgot-password',
+    '/api/v1/auth/reset-password',
+    '/api/v1/auth/refresh',
   ])('does not require a JWT for %s', (path) => {
     expect(isPublicRoute('POST', path)).toBe(true);
+  });
+
+  it('requires a JWT for /auth/logout', () => {
+    expect(isPublicRoute('POST', '/api/v1/auth/logout')).toBe(false);
   });
 
   it('still protects /auth/me', () => {
@@ -114,5 +134,162 @@ describe('public auth routes', () => {
         fakeReply(),
       ),
     ).rejects.toMatchObject({ httpStatus: 422, code: 'VALIDATION_ERROR' });
+  });
+
+  it('answers forgot-password with 202 for any address', async () => {
+    const forgotPassword = vi.fn(async () => undefined);
+    const controllers = buildControllers({ forgotPassword } as unknown as IAuthService);
+    const reply = fakeReply();
+
+    const result = await controllers.forgotPassword(
+      fakeRequest({ email: 'ghost@example.com' }),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(202);
+    expect(result).toEqual({ data: { status: 'accepted' } });
+    expect(forgotPassword).toHaveBeenCalledWith('ghost@example.com');
+  });
+
+  it('answers reset-password with 200 and forwards token + password', async () => {
+    const resetPassword = vi.fn(async () => undefined);
+    const controllers = buildControllers({ resetPassword } as unknown as IAuthService);
+
+    const result = await controllers.resetPassword(
+      fakeRequest({ token: 'a'.repeat(64), password: 'correct-horse-battery' }),
+      fakeReply(),
+    );
+
+    expect(result).toEqual({ data: { reset: true } });
+    expect(resetPassword).toHaveBeenCalledWith('a'.repeat(64), 'correct-horse-battery');
+  });
+
+  it('propagates a 400 INVALID_RESET_TOKEN from the service', async () => {
+    const resetPassword = vi.fn(async () => {
+      throw new AppError('INVALID_RESET_TOKEN', 'Password reset link is invalid', 400);
+    });
+    const controllers = buildControllers({ resetPassword } as unknown as IAuthService);
+
+    await expect(
+      controllers.resetPassword(
+        fakeRequest({ token: 'b'.repeat(64), password: 'correct-horse-battery' }),
+        fakeReply(),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_RESET_TOKEN', httpStatus: 400 });
+  });
+
+  it('rejects a reset password below 12 characters with 422', async () => {
+    const controllers = buildControllers({} as IAuthService);
+
+    await expect(
+      controllers.resetPassword(
+        fakeRequest({ token: 'c'.repeat(64), password: 'short' }),
+        fakeReply(),
+      ),
+    ).rejects.toMatchObject({ httpStatus: 422, code: 'VALIDATION_ERROR' });
+  });
+
+  it('rotates the refresh token and answers 200 with the new pair', async () => {
+    const rotate = vi.fn(async () => ({
+      token: 'header.payload.signature',
+      refreshToken: 'd'.repeat(96),
+      expiresAt: new Date('2026-01-31T00:00:00.000Z'),
+      agent: {
+        id: 'agent-1',
+        name: 'Ana',
+        email: 'ana@acme.test',
+        role: 'ADMIN',
+        presence: 'ONLINE' as const,
+        tenantId: 'tenant-1',
+      },
+    }));
+    const controllers = buildControllers({} as IAuthService, {
+      rotate,
+    } as unknown as IAuthSessionService);
+
+    const result = await controllers.refresh(
+      fakeRequest({ refreshToken: 'e'.repeat(96) }),
+      fakeReply(),
+    );
+
+    expect(rotate).toHaveBeenCalledWith('e'.repeat(96), {
+      userAgent: null,
+      ip: '203.0.113.7',
+    });
+    expect(result).toEqual({
+      data: {
+        token: 'header.payload.signature',
+        refreshToken: 'd'.repeat(96),
+        agent: {
+          id: 'agent-1',
+          name: 'Ana',
+          email: 'ana@acme.test',
+          role: 'ADMIN',
+          presence: 'ONLINE',
+          tenantId: 'tenant-1',
+        },
+      },
+    });
+  });
+
+  it('propagates a 401 INVALID_REFRESH_TOKEN', async () => {
+    const rotate = vi.fn(async () => {
+      throw new AppError('INVALID_REFRESH_TOKEN', 'Refresh token is invalid', 401);
+    });
+    const controllers = buildControllers({} as IAuthService, {
+      rotate,
+    } as unknown as IAuthSessionService);
+
+    await expect(
+      controllers.refresh(fakeRequest({ refreshToken: 'f'.repeat(96) }), fakeReply()),
+    ).rejects.toMatchObject({ code: 'INVALID_REFRESH_TOKEN', httpStatus: 401 });
+  });
+
+  it('answers logout with 204 and revokes only the given session', async () => {
+    const revoke = vi.fn(async () => true);
+    const revokeAllForUser = vi.fn(async () => 0);
+    const controllers = buildControllers({} as IAuthService, {
+      revoke,
+      revokeAllForUser,
+    } as unknown as IAuthSessionService);
+    const reply = fakeReply();
+
+    const result = await controllers.logout(
+      fakeRequest(
+        { refreshToken: '9'.repeat(96) },
+        { id: 'agent-1', email: 'ana@acme.test', name: 'Ana', role: 'ADMIN', tenantId: 'tenant-1' },
+      ),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(result).toBeUndefined();
+    expect(revoke).toHaveBeenCalledWith('9'.repeat(96), 'agent-1');
+    expect(revokeAllForUser).not.toHaveBeenCalled();
+  });
+
+  it('answers logout without a body by revoking every session', async () => {
+    const revoke = vi.fn(async () => true);
+    const revokeAllForUser = vi.fn(async () => 2);
+    const controllers = buildControllers({} as IAuthService, {
+      revoke,
+      revokeAllForUser,
+    } as unknown as IAuthSessionService);
+    const reply = fakeReply();
+
+    await controllers.logout(
+      fakeRequest(null, {
+        id: 'agent-1',
+        email: 'ana@acme.test',
+        name: 'Ana',
+        role: 'ADMIN',
+        tenantId: 'tenant-1',
+      }),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(revokeAllForUser).toHaveBeenCalledWith('agent-1');
   });
 });

@@ -16,6 +16,7 @@ import { createInfrastructure } from './infrastructure';
 import { AccountService } from './application/AccountService';
 import { AgentService } from './application/AgentService';
 import { AuthService } from './application/AuthService';
+import { AuthSessionService } from './application/AuthSessionService';
 import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
@@ -182,6 +183,17 @@ export function createContainer(args: ContainerArgs): IAppServices {
     repos: { accounts: infra.repos.accounts },
   });
 
+  const sessions = new AuthSessionService({
+    logger: infra.logger,
+    clock: infra.clock,
+    jwtSecret: config.jwtSecret,
+    jwtExpiresIn: config.jwtExpiresIn,
+    repos: {
+      agents: infra.agents,
+      sessions: infra.sessions,
+    },
+  });
+
   const agents = new AgentService({
     logger: infra.logger,
     clock: infra.clock,
@@ -190,6 +202,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,
     presenceTtlSeconds: config.agentPresenceTtlSeconds,
+    sessions,
     repos: {
       agents: infra.agents,
       tickets: infra.repos.tickets,
@@ -209,6 +222,8 @@ export function createContainer(args: ContainerArgs): IAppServices {
       agents: infra.agents,
       tenants: infra.tenants,
       emailVerifications: infra.emailVerifications,
+      passwordResets: infra.passwordResets,
+      sessions: infra.sessions,
     },
   });
 
@@ -288,6 +303,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     outbound,
     agents,
     auth,
+    sessions,
     webhooks,
     health,
     files,

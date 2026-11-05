@@ -23,6 +23,10 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   '/api/v1/auth/signup',
   '/api/v1/auth/verify-email',
   '/api/v1/auth/resend-verification',
+  '/api/v1/auth/forgot-password',
+  '/api/v1/auth/reset-password',
+  // Refresh authenticates itself with the rotating opaque token in the body.
+  '/api/v1/auth/refresh',
 ];
 
 const OAUTH_CALLBACK_PATH = /^\/api\/v1\/accounts\/oauth\/[a-z]+\/callback$/;

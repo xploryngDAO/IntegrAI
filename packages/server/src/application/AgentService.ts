@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import type { SignOptions } from 'jsonwebtoken';
 
 import { CACHE_KEYS } from '@sac/shared';
 import type {
@@ -9,15 +8,18 @@ import type {
   IAgentRepository,
   IAgentService,
   IAgentSummary,
+  IAuthSessionService,
   ICache,
   IClock,
   ILogger,
   IRealtimePublisher,
   ITicketRepository,
   LoginResult,
+  SessionDeviceInfo,
 } from '@sac/shared';
 import { AppError, AuthenticationError, NotFoundError, ValidationError } from '@sac/shared';
 
+import { signAccessToken } from './auth/access-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
 
 /**
@@ -44,6 +46,8 @@ export interface AgentServiceDependencies {
   jwtSecret: string;
   jwtExpiresIn: string;
   presenceTtlSeconds: number;
+  /** Optional: without it login still works, it just returns no refresh token. */
+  sessions?: IAuthSessionService;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -70,6 +74,7 @@ export class AgentService implements IAgentService {
   private readonly presenceTtlSeconds: number;
   private readonly agents: IAgentRepository;
   private readonly tickets: ITicketRepository;
+  private readonly sessions: IAuthSessionService | undefined;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -81,6 +86,7 @@ export class AgentService implements IAgentService {
     this.presenceTtlSeconds = Math.max(30, deps.presenceTtlSeconds || 120);
     this.agents = deps.repos.agents;
     this.tickets = deps.repos.tickets;
+    this.sessions = deps.sessions;
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('AgentService requires a configured JWT_SECRET (min 16 chars)');
@@ -91,7 +97,7 @@ export class AgentService implements IAgentService {
   /* Auth                                                                 */
   /* ==================================================================== */
 
-  async login(email: string, password: string): Promise<LoginResult> {
+  async login(email: string, password: string, device?: SessionDeviceInfo): Promise<LoginResult> {
     const normalizedEmail = (email ?? '').trim().toLowerCase();
     if (normalizedEmail === '' || !password) {
       throw new ValidationError('Email and password are required');
@@ -131,9 +137,16 @@ export class AgentService implements IAgentService {
     const token = this.signToken(agent);
     await this.writePresence(agent.id, 'ONLINE', agent.name);
 
+    // Fase 1: a refresh token lets the SPA renew the short access token without
+    // asking for the password again. Session bookkeeping is best effort: a
+    // legacy operator without a tenant (or a transient DB failure) must still be
+    // able to log in with the JWT alone.
+    const refreshToken = await this.issueRefreshToken(agent, device);
+
     this.logger.info('agent.login.succeeded', { agentId: agent.id, role: agent.role });
     return {
       token,
+      ...(refreshToken !== null ? { refreshToken } : {}),
       agent: {
         id: agent.id,
         name: agent.name,
@@ -170,23 +183,30 @@ export class AgentService implements IAgentService {
   }
 
   private signToken(agent: AgentRecord): string {
-    const options: SignOptions = {
-      algorithm: 'HS256',
-      expiresIn: this.jwtExpiresIn as SignOptions['expiresIn'],
-      issuer: 'sac-hub',
-      audience: 'sac-web',
-      subject: agent.id,
-    };
-    return jwt.sign(
-      {
-        email: agent.email,
-        name: agent.name,
-        role: agent.role,
-        tenantId: agent.tenantId ?? null,
-      },
-      this.jwtSecret,
-      options,
-    );
+    return signAccessToken({
+      subject: agent,
+      secret: this.jwtSecret,
+      expiresIn: this.jwtExpiresIn,
+    });
+  }
+
+  /** Returns `null` when the refresh token could not be issued (never fatal). */
+  private async issueRefreshToken(
+    agent: AgentRecord,
+    device?: SessionDeviceInfo,
+  ): Promise<string | null> {
+    if (this.sessions === undefined) return null;
+
+    try {
+      const issued = await this.sessions.issue(agent.id, device);
+      return issued.refreshToken;
+    } catch (error) {
+      this.logger.warn('agent.session.issue_failed', {
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /* ==================================================================== */

@@ -3,8 +3,9 @@ import type { HttpRouteContext } from '../types';
 import { createAuthControllers } from '../controllers/auth.controller';
 
 /**
- * `/api/v1/auth` - login, identity, presence and the Fase 1 public self-service
- * flows (signup, e-mail verification and verification resend).
+ * `/api/v1/auth` - login, identity, presence and the Fase 1 self-service flows:
+ * signup, e-mail verification (+resend), password reset (forgot/reset) and the
+ * rotating refresh-token session endpoints.
  */
 export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx) => {
   const controllers = createAuthControllers(ctx);
@@ -12,6 +13,10 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/signup', controllers.signup);
   app.post('/verify-email', controllers.verifyEmail);
   app.post('/resend-verification', controllers.resendVerification);
+  app.post('/forgot-password', controllers.forgotPassword);
+  app.post('/reset-password', controllers.resetPassword);
+  app.post('/refresh', controllers.refresh);
+  app.post('/logout', controllers.logout);
   app.get('/me', controllers.me);
   app.put('/presence', controllers.setPresence);
 };

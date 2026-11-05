@@ -5,7 +5,9 @@ import type {
   MarketplaceAccount,
   MessageAttachment,
   OrderCache,
+  PasswordReset,
   Prisma,
+  Session,
   SlaPolicy,
   SupportTicket,
   Tenant,
@@ -21,6 +23,8 @@ import type {
   MessageAttachmentRecord,
   OrderCacheRecord,
   OrderItemSnapshot,
+  PasswordResetRecord,
+  SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
   TenantRecord,
@@ -288,6 +292,31 @@ export function mapEmailVerification(record: EmailVerification): EmailVerificati
     tokenHash: record.tokenHash,
     expiresAt: record.expiresAt,
     usedAt: record.usedAt,
+    createdAt: record.createdAt,
+  };
+}
+
+export function mapPasswordReset(record: PasswordReset): PasswordResetRecord {
+  return {
+    id: record.id,
+    userId: record.userId,
+    tokenHash: record.tokenHash,
+    expiresAt: record.expiresAt,
+    usedAt: record.usedAt,
+    createdAt: record.createdAt,
+  };
+}
+
+export function mapSession(record: Session): SessionRecord {
+  return {
+    id: record.id,
+    userId: record.userId,
+    tenantId: record.tenantId,
+    refreshTokenHash: record.refreshTokenHash,
+    userAgent: record.userAgent,
+    ip: record.ip,
+    expiresAt: record.expiresAt,
+    revokedAt: record.revokedAt,
     createdAt: record.createdAt,
   };
 }

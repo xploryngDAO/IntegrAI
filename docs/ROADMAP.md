@@ -51,7 +51,9 @@ Critérios de aceite:
 
 Riscos: migração em dados existentes; esquecer um `findMany` sem filtro (mitigado por extensão Prisma + testes de isolamento).
 
-> **Fase 0 concluída:** tenancy aplicada a schema, auth, leitura, escrita, mutações, auditoria e workers, com `tenant_id NOT NULL`/FKs e testes A≠B (`npm run test:isolation`).`n`n### Fase 1 — Contas e autenticação self-service`n`nDesign detalhado, endpoints, modelo de dados e migração: [PHASE1_AUTH](PHASE1_AUTH.md).
+> **Fase 0 concluída:** tenancy aplicada a schema, auth, leitura, escrita, mutações, auditoria e workers, com `tenant_id NOT NULL`/FKs e testes A≠B (`npm run test:isolation`).
+### Fase 1 — Contas e autenticação self-service
+Design detalhado, endpoints, modelo de dados e migração: [PHASE1_AUTH](PHASE1_AUTH.md).
 
 - Signup com verificação de e-mail (SMTP/SES), criação automática de tenant.
 - Reset de senha, convite de operadores, papéis e permissões na UI.
@@ -70,7 +72,8 @@ Critérios: cliente cria conta sozinho, verifica e-mail, entra e convida equipe 
 
 Critérios: cliente novo conecta Meli/Shopee em <3 min sem suporte; Amazon guiada.
 
-### Fase 3 — Apps de marketplace em produção`n`nChecklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSION.md).
+### Fase 3 — Apps de marketplace em produção
+Checklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSION.md).
 
 - Meli: certificação do app (quando exigida) e revisão de escopos.
 - Shopee: aprovação do app parceiro, push URL e sandbox validados.
@@ -108,7 +111,7 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 0 — escopo de leitura (contas, agentes, tickets lista/detalhe) + escrita de tickets com tenant
 - [x] Fase 0 — testes de isolamento automatizados (`npm run test:isolation` 5/5: conta, tickets, detalhe 404, cleanup)
 - [x] Fase 1 — schema (invitations, password_resets, email_verifications, sessions, email_verified_at)
-- [x] Fase 1 — signup + verificação de e-mail (endpoints, gate de login, EmailService, testes 19+9)`n- [ ] Fase 1 — reset de senha/convitais/2FA/refresh rotativo
+- [x] Fase 1 — signup + verificação de e-mail (endpoints, gate de login, EmailService, testes 19+9)`n- [x] Fase 1 — reset de senha + sessões/refresh rotativo/logout`n- [ ] Fase 1 — convites + 2FA + UI de verificação/reset
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados
 - [ ] Fase 4 — console/billing
