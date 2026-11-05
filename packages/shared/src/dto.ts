@@ -464,7 +464,7 @@ export interface AuthResponse {
     name: string;
     email: string;
     role: AgentRole;
-    presence: AgentPresenceStatus;
+    presence: AgentPresenceStatus; tenantId: string | null;
   };
 }
 

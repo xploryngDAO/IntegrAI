@@ -39,6 +39,7 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
           email: result.agent.email,
           role: toAgentRole(result.agent.role),
           presence: result.agent.presence,
+          tenantId: result.agent.tenantId,
         },
       };
 
