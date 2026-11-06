@@ -369,3 +369,12 @@ verify-live na URL publica -> landing/login/sessao/perfil/admin/logout OK
 axe WCAG 2.1 AA na URL publica -> 0 violacoes em 8 telas (landing, login, admin, profile,
    accounts, settings, platform, status)
 ```
+
+### 34. Links de e-mail apontam para o deploy publico
+```
+POST /auth/forgot-password (admin, API real) -> 202
+e-mail entregue no Mailpit; link extraido:
+  https://integrai-dev.vercel.app/reset-password?token=<64 chars>
+GET no link -> 200 (SPA do deploy publico serve /reset-password)
+=> resolveLinkBase usa o primeiro WEB_ORIGIN (Vercel), nao o host da API
+```
