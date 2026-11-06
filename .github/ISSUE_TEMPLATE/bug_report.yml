@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible defect (no security issues here).
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issues must go to GitHub Security Advisories, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Expected vs actual behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit/version
+      placeholder: e.g. e6c8c19
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Auth/SSO/2FA
+        - Admin/workspace
+        - Marketplace integration
+        - Webhooks/queues
+        - Landing/UI
+        - Infrastructure/deploy
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / evidence
+      description: Include the `x-request-id` when available. Redact secrets and personal data.
