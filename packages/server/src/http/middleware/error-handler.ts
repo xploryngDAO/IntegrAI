@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import { describeZodIssues } from '../schemas/common';
 import { isRecord } from '../utils/guards';
 import { stripQuery } from '../utils/query';
+import { REQUEST_ID_HEADER } from './request-id';
 
 export interface ErrorHandlerOptions {
   logger: ILogger;
@@ -116,13 +117,13 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
     };
 
     if (failure.statusCode >= 500) {
-      options.logger.error('http.error', {
+      (request.logContext ?? options.logger).error('http.error', {
         ...meta,
         error: error instanceof Error ? error.message : String(thrown),
         stack: error instanceof Error ? (error.stack ?? null) : null,
       });
     } else {
-      options.logger.warn('http.rejected', meta);
+      (request.logContext ?? options.logger).warn('http.rejected', meta);
     }
 
     // Rate limiting is only useful to a well-behaved client if it can back
@@ -140,10 +141,16 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
         code: failure.code,
         message: failure.message,
         details: failure.details,
-        requestId: failure.statusCode >= 500 ? request.id : undefined,
+        // Always present (additive field): an operator can quote it from the UI
+        // and join it with `http.response` / `http.error` log lines. The
+        // `{ error: { code, message, details } }` contract is unchanged.
+        requestId: request.id,
       },
     };
 
+    // Belt-and-braces: the onRequest hook already set it, but an error thrown
+    // before that hook (or by it) must still answer with the correlation id.
+    reply.header(REQUEST_ID_HEADER, request.id);
     reply.code(failure.statusCode).send(body);
   });
 
@@ -152,8 +159,10 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
       error: {
         code: 'NOT_FOUND',
         message: `Route not found: ${request.method} ${stripQuery(request.url)}`,
+        requestId: request.id,
       },
     };
+    reply.header(REQUEST_ID_HEADER, request.id);
     reply.code(404).send(body);
   });
 }

@@ -51,6 +51,11 @@
 
 ## 6. Operação
 
+- [ ] Scrape de métricas em `/api/v1/metrics` com `METRICS_TOKEN` (Prometheus/Grafana)
+- [ ] Probes: liveness `/health` e readiness `/health/ready` (Postgres/Redis/S3)
+- [ ] Correlação por `x-request-id` (logs + erros) no APM
+
+
 - [ ] Monitorar `/status` e `/api/v1/health`
 - [ ] Cron de purga de tenants e retenção de backups (`BACKUP_RETENTION_DAYS`)
 - [ ] Rotina de rotação de segredos (JWT/ENCRYPTION/SMTP/S3)

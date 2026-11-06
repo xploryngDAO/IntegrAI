@@ -1,18 +1,26 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { HealthReport } from '@sac/shared';
+import type { HealthReport, ReadinessReport } from '@sac/shared';
 import type { HttpRouteContext } from '../types';
 import { ok } from '../responses';
 
 /**
- * Public health probe (`GET /health`).
+ * Public health probes.
  *
- * Mounted twice: bare (`/health`, for load balancers / container probes) and
- * under the API prefix (`/api/v1/health`, contract §4). `status: 'down'` answers
- * 503 so orchestrators can restart the container, but the body keeps the same
- * `{ data: HealthReport }` envelope.
+ * Mounted twice: bare (`/health`, `/health/ready` for load balancers / container
+ * probes) and under the API prefix (`/api/v1/health`, `/api/v1/health/ready`,
+ * contract §4).
+ *
+ *  - `/health` is the deep report: `status: 'down'` answers 503 so orchestrators
+ *    can restart the container, but the body keeps the `{ data: HealthReport }`
+ *    envelope.
+ *  - `/health/ready` is the dependency readiness gate: 200 `ready` when
+ *    Postgres/Redis/S3 all answer, 503 `degraded` with a per-dependency
+ *    `ok`/`error` map otherwise. Each probe is bounded to ~2 s inside
+ *    `HealthService.readiness()`, and the handler catches everything: a probe
+ *    failure is data, never a crash or an unhandled rejection.
  */
 export const healthRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx) => {
-  const { services } = ctx;
+  const { services, metrics } = ctx;
   const log = services.logger.child({ component: 'http.health' });
 
   app.get('/health', async (request, reply) => {
@@ -35,5 +43,40 @@ export const healthRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ct
       reply.code(503);
       return ok(fallback);
     }
+  });
+
+  app.get('/health/ready', async (request, reply) => {
+    // Never cache a readiness verdict: a stale 503/200 misleads the scheduler.
+    reply.header('cache-control', 'no-store');
+
+    let report: ReadinessReport;
+    try {
+      report = await services.health.readiness();
+    } catch (error) {
+      // The service is written not to throw; this is the last-resort boundary
+      // that keeps the probe answering (and the process alive) if it ever does.
+      log.error('health.readiness_failed', {
+        requestId: request.id,
+        error: error instanceof Error ? error.message.slice(0, 200) : 'unknown error',
+      });
+      report = {
+        status: 'degraded',
+        checks: { database: 'error', redis: 'error', storage: 'error' },
+        errors: {
+          database: 'readiness check failed',
+          redis: 'readiness check failed',
+          storage: 'readiness check failed',
+        },
+      };
+    }
+
+    // Feed the Prometheus gauges from the probe that just ran: the scrape stays
+    // synchronous/cheap and always reports the latest known dependency state.
+    metrics.setDependencyUp('db', report.checks.database === 'ok');
+    metrics.setDependencyUp('redis', report.checks.redis === 'ok');
+    metrics.setDependencyUp('storage', report.checks.storage === 'ok');
+
+    reply.code(report.status === 'ready' ? 200 : 503);
+    return { ...report, requestId: request.id };
   });
 };

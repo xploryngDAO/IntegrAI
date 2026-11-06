@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
@@ -19,6 +18,8 @@ import { AuthRateLimiter } from '../application/auth/rate-limit';
 import { registerContentTypeGuard } from './middleware/content-type-guard';
 import { registerErrorHandler } from './middleware/error-handler';
 import { registerRequestContext } from './middleware/request-context';
+import { REQUEST_ID_HEADER, registerRequestId, resolveRequestId } from './middleware/request-id';
+import { MetricsRegistry, registerHttpMetrics } from './metrics/registry';
 import { registerApiRoutes, registerRootRoutes } from './routes';
 
 /** Errors are sanitized unless explicitly running a dev/test build. */
@@ -91,6 +92,29 @@ export function resolveAllowedOrigins(raw: string): string[] {
     .filter((entry) => entry.length > 0)
     .map((entry) => entry.replace(/\/+$/, ''))
     .filter((entry) => entry !== '*');
+}
+
+/**
+ * Paths exempt from the global per-IP HTTP shield.
+ *
+ * Liveness/readiness probes and the public status page must keep answering when
+ * the shield is saturated (a load balancer probing every second would otherwise
+ * consume the budget and start receiving 429s, which reads as "instance down").
+ * The Prometheus scrape is machine traffic with its own token, so it is exempt
+ * too. Exact paths only: `/status/private` stays limited.
+ */
+export function isGlobalRateLimitExemptPath(pathname: string): boolean {
+  return (
+    pathname === '/health' ||
+    pathname === '/health/ready' ||
+    pathname === '/api/v1/health' ||
+    pathname === '/api/v1/health/ready' ||
+    pathname === '/status' ||
+    pathname === '/api/v1/status' ||
+    pathname === '/metrics' ||
+    pathname === '/api/v1/metrics' ||
+    pathname.startsWith('/socket.io')
+  );
 }
 
 /**
@@ -189,8 +213,21 @@ export async function buildHttpApp(
     // Backstop against slowloris/body-drip: 60 s is above the 30 s diagnostics
     // budget and the webhook budgets, below Node's 300 s default.
     requestTimeout: HTTP_REQUEST_TIMEOUT_MS,
-    genReqId: () => randomUUID(),
+    // Correlation ids are ours: the client `x-request-id` is validated (shape +
+    // allowlist, see middleware/request-id.ts) and Fastify's own `request-id`
+    // header shortcut is disabled, otherwise an unvalidated value could become
+    // `request.id` and reach logs / the response header.
+    requestIdHeader: false,
+    genReqId: (raw) => resolveRequestId(raw.headers[REQUEST_ID_HEADER]),
   });
+
+  // First hook on the instance: the id header must survive any later
+  // `onRequest` rejection (content-type guard, rate limit, auth).
+  registerRequestId(app, { logger: options.logger });
+
+  // Process-local Prometheus registry; the metrics route renders it and the
+  // readiness probe feeds its dependency gauges.
+  const metrics = new MetricsRegistry();
 
   const requestedOrigins = options.webOrigin
     .split(',')
@@ -257,6 +294,8 @@ export async function buildHttpApp(
   registerBodyParsers(app, DEFAULT_BODY_LIMIT_BYTES);
 
   registerRequestContext(app, { logger: options.logger });
+  // Observe every finished reply (all status codes) for the scrape endpoint.
+  registerHttpMetrics(app, metrics);
   registerErrorHandler(app, {
     logger: options.logger,
     exposeDetails: !production,
@@ -275,7 +314,7 @@ export async function buildHttpApp(
   app.addHook('onRequest', async (request) => {
     if (request.method === 'OPTIONS') return;
     const path = request.url.split('?')[0] ?? '';
-    if (path === '/health' || path === '/status' || path.startsWith('/socket.io')) return;
+    if (isGlobalRateLimitExemptPath(path)) return;
     await globalLimiter.assertAllowed(
       { bucket: 'http.global', limit: 600, windowSeconds: 60 },
       `sac:http:global:${request.ip}`,
@@ -314,7 +353,7 @@ export async function buildHttpApp(
     }
   });
 
-  const ctx: HttpRouteContext = { services, hub, options };
+  const ctx: HttpRouteContext = { services, hub, options, metrics };
   await registerRootRoutes(app, ctx);
   await app.register(
     async (api) => {

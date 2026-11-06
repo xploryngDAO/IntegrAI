@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { IAppServices, ILogger } from '@sac/shared';
 import type { RealtimeHub } from './realtime-hub';
+import type { MetricsRegistry } from './metrics/registry';
 
 /**
  * The authenticated principal attached by the JWT preHandler.
@@ -31,6 +32,11 @@ declare module 'fastify' {
     agent?: AuthenticatedAgent;
     /** Exact request bytes captured by the content-type parsers (webhook HMAC). */
     rawBody?: Buffer;
+    /**
+     * Per-request child logger bound with `requestId` (see middleware/request-id).
+     * Decorated with `null` so Fastify's prototype stays clean.
+     */
+    logContext?: ILogger | null;
   }
 }
 
@@ -50,6 +56,15 @@ export interface HttpServerOptions {
    * `X-Forwarded-For`; prefer the explicit IP/CIDR list.
    */
   trustProxy?: boolean | string[];
+  /**
+   * Prometheus scrape token (`METRICS_TOKEN`).
+   *
+   * `undefined`/empty disables `GET /api/v1/metrics` (404). When set, the route
+   * requires `Authorization: Bearer <token>` or `x-metrics-token: <token>`.
+   * `buildHttpApp` falls back to `process.env.METRICS_TOKEN` so a deployment
+   * that only sets the environment variable works without extra wiring.
+   */
+  metricsToken?: string;
 }
 
 /** Everything a route module needs; also the Fastify plugin options contract. */
@@ -57,6 +72,8 @@ export interface HttpRouteContext {
   services: IAppServices;
   hub: RealtimeHub;
   options: HttpServerOptions;
+  /** Process-wide HTTP/dependency metrics scraped by `GET /api/v1/metrics`. */
+  metrics: MetricsRegistry;
 }
 
 /**

@@ -171,6 +171,12 @@ export const envSchema = z.object({
    * overwrites the header. See `docs/SECURITY.md` §6.8.
    */
   TRUST_PROXY: trustProxyFromEnv(),
+  /**
+   * Shared secret for `GET /api/v1/metrics` (Prometheus scrape). Absent keeps
+   * the endpoint disabled (404); configured, it requires
+   * `Authorization: Bearer <METRICS_TOKEN>` or `x-metrics-token`.
+   */
+  METRICS_TOKEN: optionalString(),
 
   /* -------------------------- Amazon SP-API / SES ------------------------- */
   AMAZON_LWA_CLIENT_ID: stringFromEnv(''),

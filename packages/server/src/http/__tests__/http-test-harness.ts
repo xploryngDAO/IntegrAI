@@ -49,6 +49,10 @@ export function createServiceTree(overrides: Record<string, unknown> = {}): IApp
     clock: { now: () => new Date('2026-11-05T12:00:00.000Z') },
     health: {
       health: async () => ({ status: 'ok', uptimeSeconds: 1, checks: [], channels: [] }),
+      readiness: async () => ({
+        status: 'ready',
+        checks: { database: 'ok', redis: 'ok', storage: 'ok' },
+      }),
     },
     status: {
       snapshot: async () => ({

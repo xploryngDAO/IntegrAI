@@ -14,6 +14,7 @@ import { diagnosticsRoutes } from './diagnostics.routes';
 import { telemetryRoutes } from './telemetry.routes';
 import { healthRoutes } from './health.routes';
 import { statusRoutes } from './status.routes';
+import { metricsRoutes } from './metrics.routes';
 import { webhookRoutes } from './webhooks.routes';
 
 /**
@@ -37,6 +38,10 @@ export async function registerApiRoutes(app: FastifyInstance, ctx: HttpRouteCont
   await app.register(telemetryRoutes, ctx);
   await app.register(healthRoutes, ctx);
   await app.register(statusRoutes, ctx);
+  // Operational scrape surface, gated by METRICS_TOKEN. API-prefixed on
+  // purpose: it shares the `/api/v1` surface and is not mounted on the bare
+  // root used by the public status page.
+  await app.register(metricsRoutes, ctx);
 }
 
 /**

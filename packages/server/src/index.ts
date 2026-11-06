@@ -58,6 +58,7 @@ async function bootstrap(): Promise<void> {
       appBaseUrl: config.appBaseUrl,
       logger: infra.logger,
       trustProxy: config.trustProxy,
+      metricsToken: config.metricsToken,
     });
 
     hub.attach(app.server);

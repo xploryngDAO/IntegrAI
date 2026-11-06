@@ -26,6 +26,11 @@ export interface AppConfig extends ChannelRuntimeConfig {
    * `docs/SECURITY.md` §6.8 before enabling it in production.
    */
   trustProxy: TrustProxySetting;
+  /**
+   * Prometheus scrape secret (`METRICS_TOKEN`). When unset, `GET /api/v1/metrics`
+   * answers 404; when set, the route requires the bearer/`x-metrics-token`.
+   */
+  metricsToken?: string;
   /** base64, 32 bytes */
   encryptionMasterKey: string;
   encryptionKeyId: string;
@@ -169,6 +174,7 @@ function buildConfig(env: Env): AppConfig {
     jwtSecret: env.JWT_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     trustProxy: env.TRUST_PROXY,
+    metricsToken: env.METRICS_TOKEN,
     encryptionMasterKey: env.ENCRYPTION_MASTER_KEY,
     encryptionKeyId: env.ENCRYPTION_KEY_ID,
     agentPresenceTtlSeconds: env.AGENT_PRESENCE_TTL,

@@ -20,9 +20,16 @@ import { stripQuery } from '../utils/query';
 const PUBLIC_EXACT_PATHS: readonly string[] = [
   '/health',
   '/api/v1/health',
+  // Orchestrator readiness gate: must answer while the process is otherwise
+  // unable to authenticate (Postgres/Redis down is exactly when it matters).
+  '/health/ready',
+  '/api/v1/health/ready',
   // Public status page: anonymous by design, PII-free, infra probes only.
   '/status',
   '/api/v1/status',
+  // Prometheus scrape: authenticated by METRICS_TOKEN in the route itself, not
+  // by a JWT (the scraper is not an operator). 404 when no token is configured.
+  '/api/v1/metrics',
   '/api/v1/auth/login',
   '/api/v1/auth/signup',
   '/api/v1/auth/verify-email',

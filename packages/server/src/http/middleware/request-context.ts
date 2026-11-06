@@ -7,7 +7,11 @@ export interface RequestContextOptions {
 }
 
 /**
- * Request correlation + access logging.
+ * Request access logging.
+ *
+ * The correlation id itself (`x-request-id` header + `request.id`) is owned by
+ * `middleware/request-id.ts`, which runs earlier and also binds the per-request
+ * child logger (`request.logContext`). This module only emits the access line.
  *
  * Bodies and headers are never logged: webhook bodies carry buyer MIME/PII and
  * `search` terms can contain CPF/order data. Only route template-adjacent
@@ -16,10 +20,6 @@ export interface RequestContextOptions {
  */
 export function registerRequestContext(app: FastifyInstance, options: RequestContextOptions): void {
   const log = options.logger.child({ component: 'http' });
-
-  app.addHook('onRequest', async (request, reply) => {
-    reply.header('x-request-id', request.id);
-  });
 
   app.addHook('onResponse', async (request, reply) => {
     const path = stripQuery(request.url);
@@ -33,8 +33,12 @@ export function registerRequestContext(app: FastifyInstance, options: RequestCon
       remoteIp: request.ip,
     };
 
-    if (reply.statusCode >= 500) log.error('http.response', meta);
-    else if (reply.statusCode >= 400) log.warn('http.response', meta);
-    else log.info('http.response', meta);
+    // The per-request child already binds `requestId`; keeping it in the meta
+    // as well makes the access line self-contained for log-only consumers.
+    const line = request.logContext ?? log;
+
+    if (reply.statusCode >= 500) line.error('http.response', meta);
+    else if (reply.statusCode >= 400) line.warn('http.response', meta);
+    else line.info('http.response', meta);
   });
 }

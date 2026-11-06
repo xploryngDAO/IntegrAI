@@ -11,6 +11,7 @@ import type {
   ITicketRepository,
   Marketplace,
   MarketplaceAccountRecord,
+  ReadinessReport,
 } from '@sac/shared';
 
 /**
@@ -35,6 +36,23 @@ const CHANNEL_CACHE_TTL_SECONDS = 60;
 const ERROR_GRACE_MS = 30 * 60 * 1000;
 const TOKEN_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
+/**
+ * Wall-clock ceiling per readiness probe.
+ *
+ * `GET /health/ready` is polled by the orchestrator every few seconds: one hung
+ * dependency (Redis socket without a reply, Pool waiting for a connection) must
+ * not hold the probe open for the client timeout, otherwise the container looks
+ * healthy-but-unresponsive and is never restarted. ~2 s is well below the
+ * typical 5 s probe timeout and above a healthy local round-trip.
+ */
+const DEFAULT_READINESS_TIMEOUT_MS = 2_000;
+
+/** Upper bound for a probe message crossing the wire / the logs. */
+const READINESS_ERROR_MAX_CHARS = 200;
+
+/** Dependency names in the stable order used by the readiness payload. */
+const READINESS_DEPENDENCIES = ['database', 'redis', 'storage'] as const;
+
 export interface HealthProbes {
   database: () => Promise<void>;
   redis: () => Promise<void>;
@@ -51,6 +69,8 @@ export interface HealthServiceDependencies {
     accounts: IAccountRepository;
     tickets: ITicketRepository;
   };
+  /** Test seam: shorten the readiness probe deadline (default 2 s). */
+  readinessTimeoutMs?: number;
 }
 
 interface CheckResult {
@@ -69,6 +89,7 @@ export class HealthService implements IHealthService {
   private readonly accounts: IAccountRepository;
   private readonly tickets: ITicketRepository;
   private readonly startedAt = Date.now();
+  private readonly readinessTimeoutMs: number;
 
   constructor(deps: HealthServiceDependencies) {
     this.logger = deps.logger.child({ component: 'HealthService' });
@@ -78,6 +99,7 @@ export class HealthService implements IHealthService {
     this.probes = deps.probes;
     this.accounts = deps.repos.accounts;
     this.tickets = deps.repos.tickets;
+    this.readinessTimeoutMs = Math.max(1, deps.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
   }
 
   /* ==================================================================== */
@@ -138,6 +160,61 @@ export class HealthService implements IHealthService {
       })),
       channels,
     };
+  }
+
+  /* ==================================================================== */
+  /* Readiness (orchestrator probe)                                       */
+  /* ==================================================================== */
+
+  /**
+   * Bounded readiness check for load balancers / Kubernetes.
+   *
+   * Unlike `health()`, this NEVER throws and NEVER waits on a probe forever:
+   * every dependency is raced against `readinessTimeoutMs`. The timeout timer is
+   * `unref()`ed, so a hung probe cannot keep the process alive either. A failure
+   * is data (`checks.<name> === 'error'` + a sanitized message), not an
+   * exception: the endpoint must answer 503 without taking the process down.
+   */
+  async readiness(): Promise<ReadinessReport> {
+    const results = await Promise.all(
+      READINESS_DEPENDENCIES.map(async (dependency) => {
+        try {
+          await withDeadline(
+            this.probes[dependency](),
+            this.readinessTimeoutMs,
+            `${dependency} probe`,
+          );
+          return { dependency, ok: true, error: null };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'probe failed';
+          return {
+            dependency,
+            ok: false,
+            error: sanitizeReadinessError(message),
+          };
+        }
+      }),
+    );
+
+    const checks: ReadinessReport['checks'] = {
+      database: 'ok',
+      redis: 'ok',
+      storage: 'ok',
+    };
+    const errors: NonNullable<ReadinessReport['errors']> = {};
+    let healthy = true;
+
+    for (const result of results) {
+      if (result.ok) continue;
+      healthy = false;
+      checks[result.dependency] = 'error';
+      errors[result.dependency] = result.error ?? 'probe failed';
+    }
+
+    return healthy
+      ? { status: 'ready', checks }
+      : { status: 'degraded', checks, errors };
   }
 
   private async runProbe(name: string, probe: () => Promise<void>): Promise<CheckResult> {
@@ -375,6 +452,41 @@ export class HealthService implements IHealthService {
 function readString(value: unknown): string | null {
   if (typeof value === 'string' && value.trim() !== '') return value.trim();
   return null;
+}
+
+/**
+ * Flattens and bounds a probe message. The body is unauthenticated (an
+ * orchestrator has no JWT), so it gets the same treatment as the existing
+ * `/health` detail: one line, capped, never a stack trace.
+ */
+function sanitizeReadinessError(message: string): string {
+  return message.replace(/\s+/g, ' ').trim().slice(0, READINESS_ERROR_MAX_CHARS) || 'probe failed';
+}
+
+/**
+ * Race an operation against a wall-clock deadline. The losing promise is still
+ * observed (race attaches a rejection handler), so a late probe failure cannot
+ * become an unhandled rejection; the timer is unref'ed so a pending probe never
+ * keeps the event loop alive.
+ */
+function withDeadline<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
+    timer.unref();
+
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }
 
 /** Kept explicit so the type of the marketplace key is checked at compile time. */

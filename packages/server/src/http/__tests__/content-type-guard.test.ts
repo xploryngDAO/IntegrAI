@@ -55,7 +55,9 @@ describe('Content-Type guard on /api/v1', () => {
     });
 
     expect(response.statusCode).toBe(415);
-    expect(response.json()).toEqual({
+    // Additive field: `error.requestId` now correlates the body with the
+    // `x-request-id` response header, so the assertion uses `toMatchObject`.
+    expect(response.json()).toMatchObject({
       error: {
         code: UNSUPPORTED_MEDIA_TYPE_CODE,
         message: UNSUPPORTED_MEDIA_TYPE_MESSAGE,
@@ -66,6 +68,7 @@ describe('Content-Type guard on /api/v1', () => {
         },
       },
     });
+    expect(response.json().error.requestId).toBe(response.headers['x-request-id']);
   });
 
   it('rejects form-urlencoded mutations', async () => {

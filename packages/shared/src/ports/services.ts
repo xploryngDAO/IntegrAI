@@ -927,9 +927,31 @@ export interface HealthReport {
   channels: ChannelHealthView[];
 }
 
+/**
+ * Readiness probe result (`GET /health/ready`, `GET /api/v1/health/ready`).
+ *
+ * Deliberately smaller than `HealthReport`: an orchestrator only needs to know
+ * whether the process can serve traffic and which dependency failed. Each check
+ * is a flat `ok`/`error` so the payload stays stable and cheap to parse.
+ */
+export type ReadinessCheckState = 'ok' | 'error';
+
+export interface ReadinessReport {
+  status: 'ready' | 'degraded';
+  checks: {
+    database: ReadinessCheckState;
+    redis: ReadinessCheckState;
+    storage: ReadinessCheckState;
+  };
+  /** Sanitized probe message per failing dependency (absent when ready). */
+  errors?: Partial<Record<'database' | 'redis' | 'storage', string>>;
+}
+
 export interface IHealthService {
   health(): Promise<HealthReport>;
   channels(): Promise<ChannelHealthView[]>;
+  /** Bounded (per-probe timeout), never-throwing readiness for orchestrators. */
+  readiness(): Promise<ReadinessReport>;
 }
 
 /**
