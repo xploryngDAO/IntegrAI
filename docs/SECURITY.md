@@ -1067,3 +1067,16 @@ Configurado no repositório `xploryngDAO/IntegrAI` (2026-11-06):
 
 GitHub Actions **fixadas por SHA** (`checkout`, `setup-node`; o Dependabot atualiza o SHA e o
 comentário `# vN`), eliminando o risco de tag móvel comprometida.
+
+### Inventário verificado em 2026-11-06
+
+Consulta à API do GitHub (estado `open`):
+
+| Fonte | Alertas abertos |
+|---|---|
+| Dependabot | **0** |
+| Secret scanning | **0** |
+| Code scanning (CodeQL) | **0** |
+
+Combinado com `npm audit`/OSV/trivy (0 HIGH/CRITICAL), gitleaks e semgrep no CI,
+o repositório está sem achados abertos nas quatro fontes nativas.
