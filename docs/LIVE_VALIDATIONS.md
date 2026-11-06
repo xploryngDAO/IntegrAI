@@ -544,3 +544,19 @@ a11y production -> 10/10 telas, 0 violacoes (light; desktop + landing/login mobi
 live-signup-ui -> 10/10 (signup, verificacao, login, onboarding, cleanup)
 /status -> "API v1.0.0 · 7549023"
 ```
+
+### 54. Bateria completa pos-deploy na producao
+```
+verify-live       -> exit 0 (landing/login/sessao/logout-all/admin/logs/logout)
+validate-live     -> 11/11
+isolation-test    -> 14/14
+security-probe    -> 18/18
+2FA policy        -> 13/13
+socket revoke     -> 5/5
+signup/invite API -> 26/26
+invite pela UI    -> 11/11
+signup UI         -> 10/10
+a11y (producao)   -> 10/10 telas, 0 violacoes
+Nota: a bateria dispara muitos logins do mesmo e-mail/IP; se aparecer 429, limpar
+sac:auth:login:attempts:* no Redis (RUNBOOK) e repetir. Nao e falha do produto.
+```
