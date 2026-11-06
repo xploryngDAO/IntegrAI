@@ -2,8 +2,10 @@ import type { PrismaClient } from '@prisma/client';
 import type { Redis } from 'ioredis';
 import type {
   AdapterRepositories,
+  IAdminUserRepository,
   IAgentRepository,
   IAgentSsoRepository,
+  IAuditEventRepository,
   ICache,
   IClock,
   IDistributedLock,
@@ -33,8 +35,10 @@ import type {
 import type { AppConfig } from '../config';
 import {
   createRepositories,
+  createAdminUserRepository,
   createAgentRepository,
   createAgentSsoRepository,
+  createAuditEventRepository,
   createBillingEventRepository,
   createEmailVerificationRepository,
   createInvitationRepository,
@@ -82,6 +86,10 @@ export interface InfrastructureBundle {
   queue: IQueuePublisher;
   repos: AdapterRepositories;
   agents: IAgentRepository;
+  /** Administrative audit trail (append-only). */
+  auditEvents: IAuditEventRepository;
+  /** Workspace console: tenant-scoped user listing/counters. */
+  adminUsers: IAdminUserRepository;
   tenants: ITenantRepository;
   platformTenants: IPlatformTenantRepository;
   platform: IPlatformRepository;
@@ -163,6 +171,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
 
   const repos = createRepositories(prisma);
   const agents = createAgentRepository(prisma);
+  const auditEvents = createAuditEventRepository(prisma);
+  const adminUsers = createAdminUserRepository(prisma);
   const tenants = createTenantRepository(prisma);
   const platformTenants = createPlatformTenantRepository(prisma);
   const platform = createPlatformRepository(prisma);
@@ -206,6 +216,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     queue,
     repos,
     agents,
+    auditEvents,
+    adminUsers,
     tenants,
     platformTenants,
     platform,

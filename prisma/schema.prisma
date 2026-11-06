@@ -210,6 +210,8 @@ model Session {
   ip               String?   @db.VarChar(64)
   expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  /// Last refresh rotation of this session (null until the token is rotated).
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([userId])
@@ -247,6 +249,7 @@ model Tenant {
 
   backups       TenantBackup[]
   ssoConnection TenantSsoConnection?
+  auditEvents   AuditEvent[]
 
   @@index([status])
   @@index([deletedAt])
@@ -728,4 +731,44 @@ model TenantBackup {
   @@unique([tenantId, s3Key])
   @@index([tenantId, createdAt])
   @@map("tenant_backups")
+}
+
+// ----------------------------------------------------------------------------
+// AUDIT EVENTS (administrative/security trail)
+// ----------------------------------------------------------------------------
+
+/// Immutable audit trail of security and administrative actions.
+///
+/// Design notes
+/// - `tenant_id` is nullable and uses `ON DELETE SET NULL`: an audit row must
+///   survive the (soft or physical) removal of the workspace it describes. The
+///   LGPD purge therefore never deletes evidence of an incident.
+/// - `actor_id` is a plain UUID without an FK: operators can be deleted
+///   (restore/purge) and the trail must keep the original id (display value).
+/// - `metadata` is scrubbed before the insert (`AuditService` drops
+///   password/token/secret keys and redacts e-mail/phone patterns) so the table
+///   never becomes a second PII store.
+/// - Writes are BEST EFFORT and never block/fail the business operation.
+model AuditEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  actorId      String?  @map("actor_id") @db.Uuid
+  /// Actor e-mail snapshot (the operator row may be deleted later).
+  actorEmail   String?  @map("actor_email") @db.VarChar(180)
+  /// Stable action code (`auth.login.success`, `admin.user.role_changed`, ...).
+  action       String   @db.VarChar(96)
+  resourceType String?  @map("resource_type") @db.VarChar(80)
+  resourceId   String?  @map("resource_id") @db.VarChar(180)
+  ip           String?  @db.VarChar(64)
+  userAgent    String?  @map("user_agent") @db.VarChar(255)
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  /// Console query: one workspace, newest first.
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([action])
+  @@index([actorId])
+  @@map("audit_events")
 }

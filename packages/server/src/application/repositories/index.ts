@@ -1,8 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 import type { AdapterRepositories } from '@sac/shared';
 import { PrismaAccountRepository, createAccountRepository } from './accounts';
+import { PrismaAdminUserRepository, createAdminUserRepository } from './admin-users';
 import { createAgentRepository, PrismaAgentRepository } from './agents';
 import { createAttachmentRepository, PrismaAttachmentRepository } from './attachments';
+import {
+  PrismaAuditEventRepository,
+  createAuditEventRepository,
+} from './audit-events';
 import {
   createBillingEventRepository,
   PrismaBillingEventRepository,
@@ -68,8 +73,10 @@ export function createRepositories(prisma: PrismaClient): AdapterRepositories {
 }
 
 export { createAccountRepository, PrismaAccountRepository };
+export { createAdminUserRepository, PrismaAdminUserRepository };
 export { createAgentRepository, PrismaAgentRepository };
 export { createAttachmentRepository, PrismaAttachmentRepository };
+export { createAuditEventRepository, PrismaAuditEventRepository };
 export { createBillingEventRepository, PrismaBillingEventRepository };
 export {
   createEmailVerificationRepository,
@@ -110,6 +117,7 @@ export {
   mapAccount,
   mapAgent,
   mapAttachment,
+  mapAuditEvent,
   mapEmailVerification,
   mapInvitation,
   mapMessage,

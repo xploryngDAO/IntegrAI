@@ -1,4 +1,4 @@
-import { NotFoundError } from '@sac/shared';
+import { AUDIT_ACTIONS, NotFoundError } from '@sac/shared';
 import type {
   AuthResponse,
   IAgentSummary,
@@ -16,11 +16,13 @@ import {
   refreshBodySchema,
   resendVerificationBodySchema,
   resetPasswordBodySchema,
+  sessionParamsSchema,
   signupBodySchema,
   twoFactorChallengeBodySchema,
   twoFactorDisableBodySchema,
   twoFactorRecoveryRegenerateBodySchema,
   twoFactorVerifyBodySchema,
+  updateProfileBodySchema,
   verifyEmailBodySchema,
 } from '../schemas';
 import { parseInput } from '../schemas/common';
@@ -35,7 +37,11 @@ import {
 export interface AuthControllers {
   login: RouteHandler;
   me: RouteHandler;
+  updateMe: RouteHandler;
   setPresence: RouteHandler;
+  listSessions: RouteHandler;
+  revokeSession: RouteHandler;
+  revokeOtherSessions: RouteHandler;
   signup: RouteHandler;
   verifyEmail: RouteHandler;
   resendVerification: RouteHandler;
@@ -78,6 +84,12 @@ function deviceInfo(request: FastifyRequest, deviceName?: string): SessionDevice
   const header = request.headers['user-agent'];
   const userAgent = deviceName?.trim() || (typeof header === 'string' ? header : null);
   return { userAgent: userAgent ?? null, ip: request.ip ?? null };
+}
+
+/** Raw `User-Agent` for the audit trail (never the `deviceName` label). */
+function userAgentOf(request: FastifyRequest): string | null {
+  const header = request.headers['user-agent'];
+  return typeof header === 'string' ? header : null;
 }
 
 export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
@@ -144,6 +156,87 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         // routes re-check the flag in the database on every request.
         isPlatformAdmin: agent.isPlatformAdmin === true,
       });
+    },
+
+    /**
+     * `PATCH /auth/me` - self-service profile (display name only).
+     *
+     * Returns the same `IAgentSummary` projection as `GET /auth/me`, so the SPA
+     * can update its header without a second request. The action is audited by
+     * `AgentService.updateProfile` (`auth.profile.updated`).
+     */
+    async updateMe(request) {
+      const agent = requireAgent(request);
+      const body = parseInput(updateProfileBodySchema, request.body, 'body');
+      return ok(
+        await services.agents.updateProfile(agent.id, body, {
+          ip: request.ip,
+          userAgent: userAgentOf(request),
+        }),
+      );
+    },
+
+    /**
+     * `GET /auth/sessions` - live refresh sessions of the authenticated operator.
+     *
+     * `current` comes from the access-token `sid` claim, so a token minted before
+     * the claim existed simply marks no row as current.
+     */
+    async listSessions(request) {
+      const agent = requireAgent(request);
+      const items = await services.sessions.listForUser(agent.id, agent.sessionId);
+      return ok({ items });
+    },
+
+    /**
+     * `DELETE /auth/sessions/:id` - revokes one device.
+     *
+     * Only the caller's own sessions: a foreign/unknown id is a 404. Revoking
+     * the session that issued the current access token is allowed and behaves
+     * like a logout — the JWT `jti` is denylisted so the token dies immediately.
+     * 204 is idempotent (a already-revoked session is still a success).
+     */
+    async revokeSession(request, reply) {
+      const agent = requireAgent(request);
+      const params = parseInput(sessionParamsSchema, request.params, 'params');
+      const result = await services.sessions.revokeById(
+        params.id,
+        agent.id,
+        agent.sessionId,
+      );
+
+      if (result.current) {
+        // Best effort by contract: `denyAccessToken` never throws.
+        await denyAccessToken({
+          jti: agent.jti,
+          expiresAt: agent.tokenExpiresAt,
+          now: services.clock.now(),
+          cache: services.cache,
+          logger: services.logger,
+        });
+      }
+
+      services.audit?.record({
+        action: AUDIT_ACTIONS.logout,
+        tenantId: agent.tenantId,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: request.ip,
+        userAgent: userAgentOf(request),
+        resourceType: 'session',
+        resourceId: params.id,
+        metadata: { scope: 'session', current: result.current, revoked: result.revoked },
+      });
+
+      reply.code(204);
+      return undefined;
+    },
+
+    /** `POST /auth/sessions/revoke-others` - every device except the current one. */
+    async revokeOtherSessions(request) {
+      const agent = requireAgent(request);
+      const revoked = await services.sessions.revokeOthers(agent.id, agent.sessionId);
+      return ok({ revoked });
     },
 
     /** `PUT /auth/presence` - operator availability toggle. */
@@ -309,6 +402,19 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         now: services.clock.now(),
         cache: services.cache,
         logger: services.logger,
+      });
+
+      services.audit?.record({
+        action: AUDIT_ACTIONS.logout,
+        tenantId: agent.tenantId,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: request.ip,
+        userAgent: userAgentOf(request),
+        metadata: {
+          scope: body.refreshToken !== undefined ? 'session' : 'all',
+          revokedAll: body.refreshToken === undefined,
+        },
       });
 
       reply.code(204);

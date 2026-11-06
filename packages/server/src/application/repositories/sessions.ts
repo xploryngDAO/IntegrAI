@@ -21,6 +21,7 @@ export class PrismaSessionRepository implements ISessionRepository {
         userAgent: input.userAgent ?? null,
         ip: input.ip ?? null,
         expiresAt: input.expiresAt,
+        lastUsedAt: input.lastUsedAt ?? null,
       },
     });
     return mapSession(record);
@@ -33,12 +34,49 @@ export class PrismaSessionRepository implements ISessionRepository {
     return record ? mapSession(record) : null;
   }
 
+  async findById(id: string): Promise<SessionRecord | null> {
+    const record = await this.prisma.session.findUnique({ where: { id } });
+    return record ? mapSession(record) : null;
+  }
+
+  async listActiveByUser(userId: string, at: Date): Promise<SessionRecord[]> {
+    const records = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: at } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return records.map(mapSession);
+  }
+
   async revoke(id: string, at: Date): Promise<boolean> {
     const result = await this.prisma.session.updateMany({
       where: { id, revokedAt: null },
       data: { revokedAt: at },
     });
     return result.count > 0;
+  }
+
+  async revokeById(id: string, userId: string, at: Date): Promise<boolean> {
+    const result = await this.prisma.session.updateMany({
+      where: { id, userId, revokedAt: null },
+      data: { revokedAt: at },
+    });
+    return result.count > 0;
+  }
+
+  async revokeAllExcept(
+    userId: string,
+    exceptSessionId: string | undefined,
+    at: Date,
+  ): Promise<number> {
+    const result = await this.prisma.session.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(exceptSessionId !== undefined ? { id: { not: exceptSessionId } } : {}),
+      },
+      data: { revokedAt: at },
+    });
+    return result.count;
   }
 
   async revokeAllForUser(userId: string, at: Date): Promise<number> {

@@ -8,6 +8,7 @@ import type {
   IAgentRepository,
   IAgentService,
   IAgentSummary,
+  IAuditService,
   IAuthSessionService,
   ICache,
   IClock,
@@ -16,6 +17,7 @@ import type {
   ISsoPasswordGuard,
   ITenantRepository,
   ITicketRepository,
+  IssuedSession,
   LoginResult,
   LoginSuccess,
   SessionDeviceInfo,
@@ -23,6 +25,7 @@ import type {
 } from '@sac/shared';
 import {
   AppError,
+  AUDIT_ACTIONS,
   AuthenticationError,
   NotFoundError,
   TenantInactiveError,
@@ -86,6 +89,8 @@ export interface AgentServiceDependencies {
    * without it a workspace that enforces SSO would still accept passwords.
    */
   sso?: ISsoPasswordGuard;
+  /** Administrative audit trail (best effort; never blocks login). */
+  audit?: IAuditService;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -107,6 +112,8 @@ interface AgentJwtClaims {
   scope?: string;
   /** P0: unique access-token id, the revocation handle (absent on old tokens). */
   jti?: string;
+  /** Refresh-session row backing this token (used by `/auth/sessions`). */
+  sid?: string;
   iat?: number;
   exp?: number;
 }
@@ -125,6 +132,7 @@ export class AgentService implements IAgentService {
   private readonly tenants: ITenantRepository | undefined;
   private readonly rateLimiter: AuthRateLimiter;
   private readonly sso: ISsoPasswordGuard | undefined;
+  private readonly audit: IAuditService | undefined;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -139,6 +147,7 @@ export class AgentService implements IAgentService {
     this.sessions = deps.sessions;
     this.tenants = deps.tenants;
     this.sso = deps.sso;
+    this.audit = deps.audit;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
@@ -185,6 +194,23 @@ export class AgentService implements IAgentService {
       // PII (docs/SECURITY.md). The masked value still lets support correlate
       // a burst of failures for the same account.
       this.logger.warn('agent.login.failed', { email: redactPiiForLogs(normalizedEmail) });
+      // Audit carries the full e-mail on its dedicated column (contract) but
+      // never the password nor the submitted token.
+      this.audit?.record({
+        action: AUDIT_ACTIONS.loginFailure,
+        tenantId: agent?.tenantId ?? null,
+        actorId: agent?.id ?? null,
+        actorEmail: normalizedEmail,
+        ip: device?.ip ?? null,
+        userAgent: device?.userAgent ?? null,
+        metadata: {
+          reason: !agent
+            ? 'unknown_account'
+            : !passwordMatches
+              ? 'invalid_password'
+              : 'inactive_account',
+        },
+      });
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -230,6 +256,15 @@ export class AgentService implements IAgentService {
 
     const session = await this.issueSessionFor(agent, device);
     this.logger.info('agent.login.succeeded', { agentId: agent.id, role: agent.role });
+    this.audit?.record({
+      action: AUDIT_ACTIONS.loginSuccess,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      ip: device?.ip ?? null,
+      userAgent: device?.userAgent ?? null,
+      metadata: { role: agent.role, twoFactor: false },
+    });
     return session;
   }
 
@@ -254,13 +289,16 @@ export class AgentService implements IAgentService {
     agent: AgentRecord,
     device?: SessionDeviceInfo,
   ): Promise<LoginSuccess> {
-    const token = this.signToken(agent);
+    // The refresh session is minted FIRST so the access token can carry its
+    // `sid` claim (`GET /auth/sessions` marks the current device). A session
+    // store failure is not fatal: the operator still gets the JWT alone.
+    const issued = await this.issueRefreshSession(agent, device);
+    const token = this.signToken(agent, issued?.sessionId);
     await this.writePresence(agent.id, 'ONLINE', agent.name);
-    const refreshToken = await this.issueRefreshToken(agent, device);
 
     return {
       token,
-      ...(refreshToken !== null ? { refreshToken } : {}),
+      ...(issued !== null ? { refreshToken: issued.refreshToken } : {}),
       agent: {
         id: agent.id,
         name: agent.name,
@@ -344,6 +382,8 @@ export class AgentService implements IAgentService {
       }
 
       const tenantId = typeof decoded.tenantId === 'string' ? decoded.tenantId : null;
+      const sessionId =
+        typeof decoded.sid === 'string' && decoded.sid.length > 0 ? decoded.sid : undefined;
 
       // Fase 4: every request re-checks the workspace lifecycle. A soft-deleted
       // or suspended tenant answers 403 TENANT_INACTIVE instead of continuing to
@@ -358,6 +398,7 @@ export class AgentService implements IAgentService {
         tenantId,
         isPlatformAdmin: decoded.isPlatformAdmin === true,
         ...(jti !== undefined ? { jti } : {}),
+        ...(sessionId !== undefined ? { sessionId } : {}),
         ...(typeof decoded.exp === 'number' ? { tokenExpiresAt: decoded.exp } : {}),
       };
     } catch (error) {
@@ -391,11 +432,12 @@ export class AgentService implements IAgentService {
     }
   }
 
-  private signToken(agent: AgentRecord): string {
+  private signToken(agent: AgentRecord, sessionId?: string): string {
     return signAccessToken({
       subject: agent,
       secret: this.jwtSecret,
       expiresIn: this.jwtExpiresIn,
+      ...(sessionId !== undefined ? { sessionId } : {}),
     });
   }
 
@@ -412,16 +454,15 @@ export class AgentService implements IAgentService {
     });
   }
 
-  /** Returns `null` when the refresh token could not be issued (never fatal). */
-  private async issueRefreshToken(
+  /** Returns `null` when the refresh session could not be issued (never fatal). */
+  private async issueRefreshSession(
     agent: AgentRecord,
     device?: SessionDeviceInfo,
-  ): Promise<string | null> {
+  ): Promise<IssuedSession | null> {
     if (this.sessions === undefined) return null;
 
     try {
-      const issued = await this.sessions.issue(agent.id, device);
-      return issued.refreshToken;
+      return await this.sessions.issue(agent.id, device);
     } catch (error) {
       this.logger.warn('agent.session.issue_failed', {
         agentId: agent.id,
@@ -474,6 +515,45 @@ export class AgentService implements IAgentService {
       agents.map(async (agent) => toAgentSummary(agent, await this.safeActiveTickets(agent.id))),
     );
     return summaries.sort(compareAgentsByPresence);
+  }
+
+  /**
+   * Self-service profile edit (`PATCH /auth/me`).
+   *
+   * Only the display name is writable: role, tenant, e-mail and presence have
+   * dedicated, audited flows. The response is the same `IAgentSummary` the
+   * identity probe returns, so the SPA can update its header in place.
+   */
+  async updateProfile(
+    agentId: string,
+    input: { name: string },
+    device?: SessionDeviceInfo,
+  ): Promise<IAgentSummary> {
+    const agent = await this.agents.findById(agentId);
+    if (agent === null || !agent.isActive) throw new NotFoundError('Agent', agentId);
+
+    const name = (input.name ?? '').trim();
+    if (name.length < 1 || name.length > 120) {
+      throw new ValidationError('Name must be between 1 and 120 characters', { field: 'name' });
+    }
+
+    const updated = await this.agents.updateName(agent.id, name);
+    const summary = toAgentSummary(updated, await this.safeActiveTickets(updated.id));
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.profileUpdated,
+      tenantId: updated.tenantId ?? null,
+      actorId: updated.id,
+      actorEmail: updated.email,
+      resourceType: 'user',
+      resourceId: updated.id,
+      ip: device?.ip ?? null,
+      userAgent: device?.userAgent ?? null,
+      metadata: { nameChanged: updated.name !== agent.name },
+    });
+
+    this.logger.info('agent.profile.updated', { agentId: updated.id });
+    return summary;
   }
 
   private async writePresence(

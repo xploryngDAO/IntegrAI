@@ -25,7 +25,15 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/refresh', controllers.refresh);
   app.post('/logout', controllers.logout);
   app.get('/me', controllers.me);
+  app.patch('/me', controllers.updateMe);
   app.put('/presence', controllers.setPresence);
+
+  // Self-service session management (JWT): list devices, revoke one (current
+  // deletion = logout) and "revoke other devices". A session of another
+  // operator is a 404, never a 403.
+  app.get('/sessions', controllers.listSessions);
+  app.post('/sessions/revoke-others', controllers.revokeOtherSessions);
+  app.delete('/sessions/:id', controllers.revokeSession);
 
   // Fase 5 - enterprise SSO (public browser flow; see docs/ENTERPRISE_SSO.md).
   app.get('/sso/discover', sso.discover);

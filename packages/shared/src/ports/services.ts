@@ -62,6 +62,7 @@ import type {
   RouteDecision,
 } from '../adapter';
 import type { ICache, IClock, ILogger, IQueuePublisher, IRealtimePublisher } from './infra';
+import type { IAdminUserService, IAuditService, RevokeSessionResult, UserSessionView } from '../admin';
 import type {
   SsoCallbackCommand,
   SsoCallbackResult,
@@ -471,12 +472,27 @@ export interface IAgentService {
      * revocation feature do not carry it and are still accepted until `exp`.
      */
     jti?: string;
+    /**
+     * Refresh-session row (`sid` claim) that backs the token; used to mark the
+     * current device in `GET /auth/sessions`. Absent on legacy tokens.
+     */
+    sessionId?: string;
     /** `exp` claim in Unix seconds, used by logout to size the denylist TTL. */
     tokenExpiresAt?: number;
   }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;
   list(tenantId?: string | null): Promise<IAgentSummary[]>;
+  /**
+   * Self-service profile: only the display name is editable. Returns the same
+   * `IAgentSummary` projection as `GET /auth/me`; throws 404 for an unknown or
+   * inactive operator. The optional `device` is only used by the audit trail.
+   */
+  updateProfile(
+    agentId: string,
+    input: { name: string },
+    device?: SessionDeviceInfo,
+  ): Promise<IAgentSummary>;
 }
 
 /* ==========================================================================
@@ -578,6 +594,8 @@ export interface ITwoFactorService {
 export interface IssuedSession {
   refreshToken: string;
   expiresAt: Date;
+  /** Row id of the refresh session; also embedded in the access token (`sid`). */
+  sessionId?: string;
 }
 
 export interface RefreshSessionResult {
@@ -596,6 +614,19 @@ export interface IAuthSessionService {
   revoke(refreshToken: string, userId: string): Promise<boolean>;
   /** "Logout everywhere" / password reset: revokes every live session. */
   revokeAllForUser(userId: string): Promise<number>;
+  /** Live sessions of the operator, newest first; `current` comes from the JWT. */
+  listForUser(userId: string, currentSessionId?: string): Promise<UserSessionView[]>;
+  /**
+   * Revokes one session of the operator (idempotent). A session of another
+   * operator is a 404 — the API never reveals the existence of foreign rows.
+   */
+  revokeById(
+    sessionId: string,
+    userId: string,
+    currentSessionId?: string,
+  ): Promise<RevokeSessionResult>;
+  /** Revokes every live session except the current one; returns the count. */
+  revokeOthers(userId: string, currentSessionId?: string): Promise<number>;
 }
 
 /* ==========================================================================
@@ -606,7 +637,7 @@ export interface CreateInvitationCommand {
   email: string;
   role: AgentRole;
   /** Authenticated ADMIN issuing the invitation (tenant + audit). */
-  actor: { id: string; name: string; tenantId: string };
+  actor: { id: string; name: string; tenantId: string; email?: string | null };
 }
 
 export interface CreateInvitationResult {
@@ -827,6 +858,10 @@ export interface IAppServices {
   readonly twoFactor: ITwoFactorService;
   readonly sessions: IAuthSessionService;
   readonly invitations: IInvitationService;
+  /** Administrative audit trail (best-effort writes + tenant-scoped reads). */
+  readonly audit: IAuditService;
+  /** Workspace user administration (`/admin/users`, ADMIN only). */
+  readonly adminUsers: IAdminUserService;
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
   readonly status: IStatusService;

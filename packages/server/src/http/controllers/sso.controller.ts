@@ -1,4 +1,4 @@
-import { SSO_REDIRECTABLE_ERROR_CODES, isAppError } from '@sac/shared';
+import { AUDIT_ACTIONS, SSO_REDIRECTABLE_ERROR_CODES, isAppError } from '@sac/shared';
 import type { AuthResponse, LoginSuccess } from '@sac/shared';
 import type { FastifyRequest } from 'fastify';
 import type { HttpRouteContext, RouteHandler } from '../types';
@@ -11,7 +11,7 @@ import {
   updateSsoConnectionBodySchema,
 } from '../schemas';
 import { ok } from '../responses';
-import { requireTenantId } from '../middleware/auth';
+import { requireAgent, requireTenantId } from '../middleware/auth';
 import { toAgentRole } from '../mappers';
 
 /**
@@ -70,15 +70,52 @@ export function createSsoControllers(ctx: HttpRouteContext): SsoControllers {
 
     /** `PUT /tenants/me/sso` (ADMIN) - upsert; the secret is write-only. */
     async updateConfig(request) {
+      const agent = requireAgent(request);
       const tenantId = requireTenantId(request);
       const body = parseInput(updateSsoConnectionBodySchema, request.body, 'body');
-      return ok(await services.tenantSso.update(tenantId, body));
+      const view = await services.tenantSso.update(tenantId, body);
+
+      services.audit?.record({
+        action: AUDIT_ACTIONS.tenantSsoUpdated,
+        tenantId,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: request.ip,
+        userAgent: userAgentOf(request),
+        resourceType: 'tenant_sso',
+        resourceId: tenantId,
+        // Never the client secret: only whether it rotated and the non-secret
+        // switches the operator changed.
+        metadata: {
+          provider: view?.provider ?? null,
+          enabled: view?.enabled ?? null,
+          enforceSso: view?.enforceSso ?? null,
+          autoProvision: view?.autoProvision ?? null,
+          defaultRole: view?.defaultRole ?? null,
+          secretRotated: body.clientSecret !== undefined,
+        },
+      });
+
+      return ok(view);
     },
 
     /** `DELETE /tenants/me/sso` (ADMIN) - 204, or 404 when nothing existed. */
     async deleteConfig(request, reply) {
+      const agent = requireAgent(request);
       const tenantId = requireTenantId(request);
       await services.tenantSso.remove(tenantId);
+
+      services.audit?.record({
+        action: AUDIT_ACTIONS.tenantSsoDeleted,
+        tenantId,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: request.ip,
+        userAgent: userAgentOf(request),
+        resourceType: 'tenant_sso',
+        resourceId: tenantId,
+      });
+
       reply.code(204);
       return undefined;
     },

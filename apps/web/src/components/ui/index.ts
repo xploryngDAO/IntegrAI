@@ -17,6 +17,10 @@ export {
 } from './Badge';
 export { Card, type CardProps } from './Card';
 export {
+  ConfirmActionDialog,
+  type ConfirmActionDialogProps,
+} from './ConfirmActionDialog';
+export {
   Alert,
   ConfirmDialog,
   EmptyState,

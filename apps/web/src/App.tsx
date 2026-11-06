@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from './lib/store';
-import { ApiClientError, api } from './lib/api';
+import { ApiClientError, hasAuthToken } from './lib/api';
+import { onSessionEnded, probeSession } from './lib/session';
 import {
   claimOnboardingRedirect,
   dismissOnboarding,
@@ -20,12 +21,15 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { InvitePage } from './pages/InvitePage';
 import { SsoCallbackPage } from './pages/SsoCallbackPage';
 import { StatusPage } from './pages/StatusPage';
+import { LandingPage } from './pages/LandingPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { IntegrationSetupPage } from './pages/IntegrationSetupPage';
 import { PlatformPage } from './pages/PlatformPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { AdminPage } from './pages/AdminPage';
 import { BillingSuccessPage, BillingCancelPage } from './pages/BillingReturnPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
@@ -83,23 +87,10 @@ function normalizePath(pathname: string): string {
  * Session probe shared by StrictMode's double mount: one `/auth/me` per boot
  * instead of two. A failure clears the cache so a later navigation retries.
  *
- * The summary is mirrored into the store before `boot()` runs: role-gated
- * navigation (Fase 4) and the topbar identity must not depend on every tenant
- * endpoint succeeding — a platform operator may not have tenant data at all.
+ * The probe lives in `lib/session.ts` because logout must be able to forget the
+ * cached promise — otherwise a logged-out tab would resurrect the previous
+ * operator on the next `/login` boot.
  */
-let sessionProbe: Promise<void> | null = null;
-
-function probeSession(): Promise<void> {
-  if (sessionProbe === null) {
-    sessionProbe = api.me().then((agent) => {
-      useWorkspace.setState({ currentAgent: agent });
-    });
-    sessionProbe.catch(() => {
-      sessionProbe = null;
-    });
-  }
-  return sessionProbe;
-}
 
 /**
  * App shell + routes.
@@ -169,6 +160,17 @@ export default function App(): JSX.Element {
     setAuthState('authenticated');
     void boot();
   }, [boot]);
+
+  // Logout (user menu, rail button or /profile) ends the local session through
+  // `lib/session`; this keeps the gate in sync without a full page reload.
+  useEffect(
+    () =>
+      onSessionEnded(() => {
+        setAuthState('anonymous');
+        setSessionError(null);
+      }),
+    [],
+  );
 
   // Fase 2 hand-off: only from the workspace landing (`/`), only for a tenant
   // that is neither completed nor locally dismissed, and only once per tab.
@@ -243,6 +245,12 @@ export default function App(): JSX.Element {
   }
 
   if (authState === 'checking') {
+    // A visitor with no stored token on the marketing root sees the public
+    // landing immediately; the probe still runs in the background and would
+    // promote the tab if a session came back. Every other path keeps the
+    // existing spinner (the credential gate must not flash).
+    if (path === '/' && !hasAuthToken()) return <LandingPage />;
+
     return (
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 text-[var(--cv-color-text-muted)]">
         <span className="cv-spinner" />
@@ -252,6 +260,11 @@ export default function App(): JSX.Element {
   }
 
   if (authState === 'anonymous') {
+    // Public landing page for visitors at `/`; every other unauthenticated path
+    // keeps the credential gate (deep links to /profile, /admin, … land on
+    // /login after authentication).
+    if (path === '/') return <LandingPage />;
+
     return (
       <>
         <Routes>
@@ -279,6 +292,9 @@ export default function App(): JSX.Element {
           {/* Fase 4: both screens are guarded again by the API (403). */}
           <Route path="/platform" element={<PlatformPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* Conta do operador + administração do workspace (ADMIN; 403 → restrito). */}
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

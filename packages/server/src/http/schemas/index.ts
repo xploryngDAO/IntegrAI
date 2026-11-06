@@ -1,6 +1,7 @@
 export * from './common';
 export * from './enums.schema';
 export * from './auth.schema';
+export * from './admin.schema';
 export * from './invitation.schema';
 export * from './ticket.schema';
 export * from './message.schema';

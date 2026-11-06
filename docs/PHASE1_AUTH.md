@@ -13,8 +13,10 @@ users              substitui agents → id, tenant_id, email(unique global), nam
 invitations        id, tenant_id, email, role, token_hash, invited_by, expires_at, accepted_at
 password_resets    id, user_id, token_hash, expires_at, used_at
 email_verifications id, user_id, token_hash, expires_at, used_at
-sessions           id, user_id, refresh_token_hash, user_agent, ip, expires_at, revoked_at
-audit_events       id, tenant_id, actor_user_id, action, payload, created_at
+sessions           id, user_id, refresh_token_hash, user_agent, ip, expires_at, revoked_at,
+                   last_used_at
+audit_events       id, tenant_id, actor_id, actor_email, action, resource_type, resource_id,
+                   ip, user_agent, metadata, created_at
 ```
 
 Decisões:
@@ -34,7 +36,12 @@ Decisões:
 | POST | `/auth/resend-verification` | pública | reenvia verificação (rate limited) |
 | POST | `/auth/login` | pública | exige e-mail verificado (ou retorna 403 `EMAIL_NOT_VERIFIED`) |
 | POST | `/auth/refresh` | pública | rotaciona refresh token |
-| POST | `/auth/logout` | JWT | revoga sessão atual |
+| POST | `/auth/logout` | JWT | revoga sessão atual (ou todas, sem `refreshToken`) |
+| GET | `/auth/me` | JWT | identidade + carga do operador |
+| PATCH | `/auth/me` | JWT | altera o nome; audita `auth.profile.updated` |
+| GET | `/auth/sessions` | JWT | sessões do próprio operador (`current` via claim `sid`) |
+| DELETE | `/auth/sessions/:id` | JWT | revoga uma sessão própria; a atual encerra o login |
+| POST | `/auth/sessions/revoke-others` | JWT | revoga todas as sessões exceto a atual |
 | POST | `/auth/forgot-password` | pública | envia link (sempre 202, sem enumeração) |
 | POST | `/auth/reset-password` | pública | consome token, troca senha, revoga sessões |
 | POST | `/invitations` | ADMIN | convida operador (papel); reenvio regenera o token |
@@ -43,6 +50,10 @@ Decisões:
 | POST | `/auth/accept-invitation` | pública | consome o token, define a senha, cria usuário e abre sessão |
 | GET | `/users` | ADMIN | lista equipe do tenant |
 | PATCH | `/users/:id` | ADMIN | papel/ativo |
+| GET | `/admin/users` | ADMIN | equipe do tenant com `sessionsCount`/`lastLoginAt` |
+| PATCH | `/admin/users/:id` | ADMIN | papel/ativo; 409 para self e para o último ADMIN ativo; 404 cross-tenant |
+| POST | `/admin/users/:id/revoke-sessions` | ADMIN | revoga refresh sessions + watermark de JWT; 409 para self |
+| GET | `/admin/audit-logs` | ADMIN | trilha paginada/filtrada (tenant do JWT, `perPage` ≤ 100) |
 | POST | `/auth/2fa/setup` \| `/auth/2fa/verify` \| `/auth/2fa/disable` | JWT | TOTP |
 | POST | `/auth/2fa/recovery-codes/regenerate` | JWT | senha + TOTP/recovery code; substitui em transação e devolve 8 códigos uma única vez |
 | GET | `/auth/2fa/recovery-codes/count` | JWT | `{ remaining }` (códigos ainda não usados) |
@@ -88,6 +99,16 @@ Decisões:
 - Sem enumeração de contas (mensagens idênticas, tempos constantes).
 - Tokens de uso único, hash em repouso, TTL curto.
 - Auditoria de login, troca de senha, convite e 2FA.
+- **Trilha `audit_events`** (append-only): `AuditService.record` é *best effort*
+  (nunca lança, grava em background) e `AuditService.list` é paginado/filtrado
+  por tenant. Ações emitidas: `auth.login.success|failure`, `auth.logout`,
+  `auth.password.reset_completed`, `auth.2fa.enabled|disabled`,
+  `auth.profile.updated`, `invitation.created|accepted`,
+  `admin.user.role_changed|activated|deactivated|sessions_revoked`,
+  `tenant.sso.updated|deleted` e `billing.webhook.processed`.
+  `metadata` é higienizado antes do insert (chaves de senha/token/segredo e
+  códigos descartadas; e-mail/telefone redigidos). O e-mail do ator fica apenas
+  na coluna dedicada `actor_email`; nada de senha, token ou corpo de mensagem.
 - Exportação/eliminação de dados do tenant (Fase 4).
 
 ## Migração
@@ -97,3 +118,7 @@ Decisões:
 3. Criar tabelas novas + índices.
 4. `ADMIN_EMAIL/ADMIN_PASSWORD` passam a criar tenant+usuário verificado **apenas**
    em bootstrap de desenvolvimento; em produção o fluxo é signup.
+5. `20251116000000_audit_events`: cria `audit_events` (FK `tenant_id` →
+   `tenants.id` `ON DELETE SET NULL`, índices por tenant/data, action e actor) e
+   adiciona `sessions.last_used_at` (marcador de rotação exibido em
+   `/auth/sessions`).

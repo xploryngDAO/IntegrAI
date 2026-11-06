@@ -77,6 +77,7 @@ export class InMemorySessionRepository implements ISessionRepository {
       ip: input.ip ?? null,
       expiresAt: input.expiresAt,
       revokedAt: null,
+      lastUsedAt: input.lastUsedAt ?? null,
       createdAt: this.clock.now(),
     };
     this.rows.push(row);
@@ -87,11 +88,50 @@ export class InMemorySessionRepository implements ISessionRepository {
     return this.rows.find((row) => row.refreshTokenHash === tokenHash) ?? null;
   }
 
+  async findById(id: string): Promise<SessionRecord | null> {
+    return this.rows.find((row) => row.id === id) ?? null;
+  }
+
+  async listActiveByUser(userId: string, at: Date): Promise<SessionRecord[]> {
+    return this.rows
+      .filter(
+        (row) =>
+          row.userId === userId && row.revokedAt === null && row.expiresAt.getTime() > at.getTime(),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   async revoke(id: string, at: Date): Promise<boolean> {
     const row = this.rows.find((entry) => entry.id === id);
     if (row === undefined || row.revokedAt !== null) return false;
     row.revokedAt = at;
     return true;
+  }
+
+  async revokeById(id: string, userId: string, at: Date): Promise<boolean> {
+    const row = this.rows.find((entry) => entry.id === id && entry.userId === userId);
+    if (row === undefined || row.revokedAt !== null) return false;
+    row.revokedAt = at;
+    return true;
+  }
+
+  async revokeAllExcept(
+    userId: string,
+    exceptSessionId: string | undefined,
+    at: Date,
+  ): Promise<number> {
+    let count = 0;
+    for (const row of this.rows) {
+      if (
+        row.userId === userId &&
+        row.revokedAt === null &&
+        (exceptSessionId === undefined || row.id !== exceptSessionId)
+      ) {
+        row.revokedAt = at;
+        count += 1;
+      }
+    }
+    return count;
   }
 
   async revokeAllForUser(userId: string, at: Date): Promise<number> {

@@ -600,4 +600,52 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
 /** Alias matching docs/UI_KIT.md §3 (`WorkspaceStore`). */
 export interface WorkspaceStore extends WorkspaceState {}
 
+/**
+ * Wipes every per-session slice after the session ends (logout, "sair de todos
+ * os dispositivos" or a revoked session).
+ *
+ * `bootStarted` is reset so a new login in the same tab performs a fresh
+ * `boot()`; the module-level sequence counters are bumped so in-flight queue,
+ * detail and policy responses of the previous operator are discarded instead of
+ * landing on the next one. Module singletons (socket, polling) are torn down by
+ * `disposeWorkspaceRealtime()`.
+ */
+export function resetWorkspaceSession(): void {
+  disposeWorkspaceRealtime();
+  bootStarted = false;
+
+  if (searchTimer) {
+    window.clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+  for (const timer of toastTimers.values()) window.clearTimeout(timer);
+  toastTimers.clear();
+  queueSeq += 1;
+  detailSeq += 1;
+  policySeq += 1;
+
+  useWorkspace.setState({
+    tickets: [],
+    totalTickets: 0,
+    stats: null,
+    selectedTicketId: null,
+    detail: null,
+    agents: [],
+    accounts: [],
+    health: [],
+    loadingQueue: true,
+    loadingDetail: false,
+    toasts: [],
+    presence: 'ONLINE',
+    sending: false,
+    policy: null,
+    currentAgent: null,
+    systemDiagnosis: null,
+    accountDiagnoses: {},
+    diagnosticsLoading: false,
+    diagnosticsError: null,
+    diagnosingAccountId: null,
+  });
+}
+
 export type { TicketDetail, TicketListItem };

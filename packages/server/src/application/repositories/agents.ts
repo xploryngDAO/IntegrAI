@@ -66,6 +66,14 @@ export class PrismaAgentRepository implements IAgentRepository {
     return mapAgent(record);
   }
 
+  async updateName(id: string, name: string): Promise<AgentRecord> {
+    const record = await this.prisma.agent.update({
+      where: { id },
+      data: { name },
+    });
+    return mapAgent(record);
+  }
+
   async updatePassword(id: string, passwordHash: string): Promise<void> {
     // A password reset also clears the restore marker: the operator chose a new
     // password, so the random temporary one no longer applies.

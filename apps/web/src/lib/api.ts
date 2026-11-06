@@ -30,8 +30,16 @@ import type {
   AcceptInvitationBody,
   AccountRow,
   ActionBody,
+  AdminUser,
+  AdminUserUpdate,
+  AdminUsersResult,
+  AuditLogEntry,
+  AuditLogPage,
+  AuditLogQuery,
   ConnectAccountPayload,
   DeleteTenantBody,
+  InviteUserBody,
+  InviteUserResult,
   IntegrationSetup,
   IntegrationSetupChannel,
   PlatformAlert,
@@ -63,6 +71,7 @@ import type {
   TwoFactorStatusResult,
   TwoFactorVerifyResult,
   UploadedFile,
+  UserSession,
   WorkspaceFilters,
 } from './types';
 
@@ -74,6 +83,13 @@ const API_BASE: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') ?? '/api/v1';
 
 const TOKEN_STORAGE_KEY = 'sac.auth.token';
+/**
+ * Refresh token of the current device (returned by login/accept-invitation/SSO
+ * exchange). It is what `POST /auth/logout { refreshToken }` names to revoke
+ * *this* session instead of every session of the operator; it never leaves the
+ * browser except in that request body.
+ */
+const REFRESH_STORAGE_KEY = 'sac.auth.refresh';
 const REQUEST_TIMEOUT_MS = 6000;
 const PAGE_SIZE = 40;
 /** `GET /platform/billing/events` default/limit used by the console list. */
@@ -82,6 +98,14 @@ const BILLING_EVENTS_LIMIT = 50;
 let authToken: string | null = (() => {
   try {
     return window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+let refreshToken: string | null = (() => {
+  try {
+    return window.localStorage.getItem(REFRESH_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -171,12 +195,45 @@ function apiErrorFrom(status: number, payload: unknown): ApiClientError {
 
 export function setAuthToken(token: string | null): void {
   authToken = token;
+  // Clearing the access token also drops the paired refresh token: leaving a
+  // stale refresh behind would let a later logout name a session that is gone.
+  if (token === null) setRefreshToken(null);
   try {
     if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
     else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {
     // Storage can be unavailable (private mode) — the in-memory token still works.
   }
+}
+
+function setRefreshToken(token: string | null): void {
+  refreshToken = token;
+  try {
+    if (token) window.localStorage.setItem(REFRESH_STORAGE_KEY, token);
+    else window.localStorage.removeItem(REFRESH_STORAGE_KEY);
+  } catch {
+    // Same as above: the in-memory value is enough for this page load.
+  }
+}
+
+/**
+ * Persists the whole session returned by login / invitation / SSO exchange /
+ * 2FA challenge. Always use this instead of `setAuthToken` on success so the
+ * single-device logout can name the refresh token.
+ */
+function persistSession(auth: AuthResponse): void {
+  setAuthToken(auth.token);
+  setRefreshToken(auth.refreshToken ?? null);
+}
+
+/** Refresh token of the session open in this browser (null when unknown). */
+export function currentRefreshToken(): string | null {
+  return refreshToken;
+}
+
+/** Discards every local credential (access + refresh). */
+export function clearSessionTokens(): void {
+  setAuthToken(null);
 }
 
 /**
@@ -552,12 +609,151 @@ export interface ApiClient {
    * lists the env variables the deployment still needs.
    */
   integrationSetup(): Promise<IntegrationSetup>;
-  /** Revokes the current session server-side (`POST /auth/logout`). */
-  logout(): Promise<void>;
+  /* ---- Conta do operador (perfil + sessões) ---- */
+  /**
+   * `PATCH /auth/me { name }` — updates the display name and answers the
+   * refreshed operator summary.
+   */
+  updateProfile(name: string): Promise<IAgentSummary>;
+  /** `GET /auth/sessions` — refresh sessions of the authenticated operator. */
+  sessions(): Promise<UserSession[]>;
+  /** `DELETE /auth/sessions/:id` — revokes one session (204). */
+  revokeSession(id: string): Promise<void>;
+  /** `POST /auth/sessions/revoke-others` — revokes every other device. */
+  revokeOtherSessions(): Promise<{ revoked: number }>;
+  /* ---- Administração do workspace (ADMIN) ---- */
+  /** `GET /admin/users` — operators of the workspace. */
+  adminUsers(): Promise<AdminUsersResult>;
+  /** `PATCH /admin/users/:id` — role and/or active flag. */
+  updateAdminUser(id: string, body: AdminUserUpdate): Promise<AdminUser>;
+  /** `POST /admin/users/:id/revoke-sessions` — closes every session of one user. */
+  revokeUserSessions(id: string): Promise<{ revoked: number }>;
+  /** `GET /admin/audit-logs` — filtered, paginated administrative trail. */
+  auditLogs(query: AuditLogQuery): Promise<AuditLogPage>;
+  /**
+   * `POST /invitations` (Fase 1, ADMIN) — mails the invitation link. Used by the
+   * "Convidar operador" CTA of `/admin`.
+   */
+  inviteUser(body: InviteUserBody): Promise<InviteUserResult>;
+  /**
+   * Revokes the current session server-side (`POST /auth/logout`).
+   *
+   * With `refreshToken` only that session is revoked; without it the API
+   * performs "logout everywhere". The token is optional because an older API
+   * may not have returned one.
+   */
+  logout(refreshToken?: string | null): Promise<void>;
   /** Live infrastructure + every connected account (ADMIN). */
   diagnostics(): Promise<SystemDiagnosis>;
   /** Real marketplace token/profile checks for a single account (ADMIN). */
   diagnoseAccount(id: string): Promise<AccountDiagnosis>;
+}
+
+/* ==========================================================================
+ * Account / administration normalisation
+ *
+ * The routes are contracted, but a deployment can be ahead or behind this UI:
+ * every collection is validated item by item so a missing field renders as
+ * "—" instead of crashing the page, and an invalid row is dropped rather than
+ * invented. Rows are never fabricated from absent data.
+ * ========================================================================== */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asTextOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asIsoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return Number.isFinite(new Date(value).getTime()) ? value : null;
+}
+
+function asCounter(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+  }
+  return 0;
+}
+
+/**
+ * `PATCH /auth/me` answers the operator summary — some deployments wrap it in
+ * `{ agent }`. Both shapes are accepted; `null` means the body was unusable.
+ */
+function normalizeAgentSummary(payload: unknown): IAgentSummary | null {
+  if (!isRecord(payload)) return null;
+  const source = isRecord(payload.agent) ? payload.agent : payload;
+  const id = asTextOrNull(source.id);
+  const name = asTextOrNull(source.name);
+  if (id === null || name === null) return null;
+  const presence =
+    source.presence === 'ONLINE' || source.presence === 'PAUSED' || source.presence === 'OFFLINE'
+      ? source.presence
+      : 'OFFLINE';
+  return {
+    id,
+    tenantId: asTextOrNull(source.tenantId),
+    name,
+    email: asTextOrNull(source.email) ?? '',
+    role: asTextOrNull(source.role) ?? 'AGENT',
+    presence,
+    avatarColor: asTextOrNull(source.avatarColor) ?? '',
+    activeTickets: asCounter(source.activeTickets),
+  };
+}
+
+function normalizeUserSession(raw: unknown): UserSession | null {
+  if (!isRecord(raw)) return null;
+  const id = asTextOrNull(raw.id);
+  if (id === null) return null;
+  return {
+    id,
+    createdAt: asIsoOrNull(raw.createdAt) ?? '',
+    lastUsedAt: asIsoOrNull(raw.lastUsedAt),
+    userAgent: asTextOrNull(raw.userAgent),
+    ip: asTextOrNull(raw.ip),
+    current: raw.current === true,
+  };
+}
+
+function normalizeAdminUser(raw: unknown): AdminUser | null {
+  if (!isRecord(raw)) return null;
+  const id = asTextOrNull(raw.id);
+  if (id === null) return null;
+  return {
+    id,
+    name: asTextOrNull(raw.name) ?? '—',
+    email: asTextOrNull(raw.email) ?? '',
+    role: asTextOrNull(raw.role) ?? 'AGENT',
+    isActive: raw.isActive !== false,
+    lastLoginAt: asIsoOrNull(raw.lastLoginAt),
+    createdAt: asIsoOrNull(raw.createdAt) ?? '',
+    sessionsCount: asCounter(raw.sessionsCount),
+  };
+}
+
+function normalizeAuditLog(raw: unknown): AuditLogEntry | null {
+  if (!isRecord(raw)) return null;
+  const id = asTextOrNull(raw.id);
+  if (id === null) return null;
+  return {
+    id,
+    action: asTextOrNull(raw.action) ?? '—',
+    actorId: asTextOrNull(raw.actorId),
+    actorEmail: asTextOrNull(raw.actorEmail),
+    resourceType: asTextOrNull(raw.resourceType),
+    resourceId: asTextOrNull(raw.resourceId),
+    ip: asTextOrNull(raw.ip),
+    userAgent: asTextOrNull(raw.userAgent),
+    metadata: raw.metadata ?? null,
+    createdAt: asIsoOrNull(raw.createdAt) ?? '',
+  };
 }
 
 /* ==========================================================================
@@ -572,7 +768,7 @@ export const api: ApiClient = {
         body: { email, password },
       });
       // Persist the JWT before any other request runs (boot happens next).
-      setAuthToken(auth.token);
+      persistSession(auth);
       return auth;
     } catch (error) {
       // 2FA enabled: 401 `TWO_FACTOR_REQUIRED` + `challengeToken` and NO session.
@@ -647,7 +843,7 @@ export const api: ApiClient = {
       timeoutMs: 15_000,
     });
     // The challenge issues a real session: persist it before boot runs.
-    setAuthToken(auth.token);
+    persistSession(auth);
     return auth;
   },
 
@@ -748,7 +944,7 @@ export const api: ApiClient = {
       // bcrypt (cost 12) + agent insert + refresh-token issue run in this request.
       timeoutMs: 20_000,
     });
-    setAuthToken(auth.token);
+    persistSession(auth);
     return auth;
   },
 
@@ -796,7 +992,7 @@ export const api: ApiClient = {
       timeoutMs: 20_000,
     });
     // Real session: persist the JWT before anything else runs (same as login).
-    setAuthToken(auth.token);
+    persistSession(auth);
     return auth;
   },
 
@@ -1166,11 +1362,163 @@ export const api: ApiClient = {
     };
   },
 
-  async logout() {
-    // No refresh token body: the API revokes every session of this operator.
+  async updateProfile(name) {
+    const payload = await request<unknown>('/auth/me', {
+      method: 'PATCH',
+      body: { name },
+      // The API may revalidate the display name and rewrite the JWT profile.
+      timeoutMs: 10_000,
+    });
+    const agent = normalizeAgentSummary(payload);
+    if (agent === null) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API respondeu o perfil em um formato inesperado. Atualize a página e tente novamente.',
+      );
+    }
+    return agent;
+  },
+
+  async sessions() {
+    const payload = await request<unknown>('/auth/sessions', {
+      cache: 'no-store',
+      timeoutMs: 8_000,
+    });
+    const raw = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
+    return raw
+      .map((entry) => normalizeUserSession(entry))
+      .filter((entry): entry is UserSession => entry !== null);
+  },
+
+  async revokeSession(id) {
+    await request<unknown>(`/auth/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      allowEmpty: true,
+      timeoutMs: 8_000,
+    });
+  },
+
+  async revokeOtherSessions() {
+    const payload = await request<unknown>('/auth/sessions/revoke-others', {
+      method: 'POST',
+      allowEmpty: true,
+      timeoutMs: 10_000,
+    });
+    return { revoked: isRecord(payload) ? asCounter(payload.revoked) : 0 };
+  },
+
+  async adminUsers() {
+    const payload = await request<unknown>('/admin/users', {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
+    const container = isRecord(payload) ? payload : {};
+    const items = Array.isArray(container.items)
+      ? container.items
+          .map((entry) => normalizeAdminUser(entry))
+          .filter((entry): entry is AdminUser => entry !== null)
+      : [];
+    return {
+      items,
+      total:
+        typeof container.total === 'number' && Number.isFinite(container.total)
+          ? Math.max(0, Math.trunc(container.total))
+          : items.length,
+    };
+  },
+
+  async updateAdminUser(id, body) {
+    const payload = await request<unknown>(`/admin/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body,
+      timeoutMs: 15_000,
+    });
+    const user = normalizeAdminUser(payload);
+    if (user === null) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API confirmou a alteração, mas não devolveu o usuário atualizado. Atualize a lista.',
+      );
+    }
+    return user;
+  },
+
+  async revokeUserSessions(id) {
+    const payload = await request<unknown>(
+      `/admin/users/${encodeURIComponent(id)}/revoke-sessions`,
+      { method: 'POST', allowEmpty: true, timeoutMs: 10_000 },
+    );
+    return { revoked: isRecord(payload) ? asCounter(payload.revoked) : 0 };
+  },
+
+  async auditLogs(query) {
+    const search = encodeQuery({
+      action: query.action,
+      actorId: query.actorId,
+      page: query.page,
+      perPage: query.perPage,
+      from: query.from,
+      to: query.to,
+    });
+    const payload = await request<unknown>(`/admin/audit-logs${search}`, {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
+    const container = isRecord(payload) ? payload : {};
+    const items = Array.isArray(container.items)
+      ? container.items
+          .map((entry) => normalizeAuditLog(entry))
+          .filter((entry): entry is AuditLogEntry => entry !== null)
+      : [];
+    return {
+      items,
+      page:
+        typeof container.page === 'number' && Number.isFinite(container.page)
+          ? Math.max(1, Math.trunc(container.page))
+          : (query.page ?? 1),
+      perPage:
+        typeof container.perPage === 'number' && Number.isFinite(container.perPage)
+          ? Math.max(1, Math.trunc(container.perPage))
+          : (query.perPage ?? 25),
+      total:
+        typeof container.total === 'number' && Number.isFinite(container.total)
+          ? Math.max(0, Math.trunc(container.total))
+          : items.length,
+    };
+  },
+
+  async inviteUser(body) {
+    const payload = await request<unknown>('/invitations', {
+      method: 'POST',
+      body,
+      timeoutMs: 20_000,
+    });
+    const container = isRecord(payload) ? payload : {};
+    const invitationId = asTextOrNull(container.invitationId);
+    if (invitationId === null) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API respondeu o convite sem o identificador. Confira a lista de convites antes de reenviar.',
+      );
+    }
+    return {
+      invitationId,
+      email: asTextOrNull(container.email) ?? body.email,
+      role: asTextOrNull(container.role) ?? body.role,
+      expiresAt: asIsoOrNull(container.expiresAt) ?? '',
+    };
+  },
+
+  async logout(refreshToken) {
+    // With the refresh token the API revokes *this* session; without it the
+    // call means "logout everywhere" (see docs/PHASE1_AUTH.md §Endpoints).
+    const token = (refreshToken ?? '').trim();
     await request<unknown>('/auth/logout', {
       method: 'POST',
-      body: {},
+      body: token.length > 0 ? { refreshToken: token } : {},
       allowEmpty: true,
       timeoutMs: 8_000,
     });
@@ -1193,7 +1541,13 @@ export type {
   AccountDiagnosis,
   AccountRow,
   ActionBody,
+  AdminUser,
+  AdminUserUpdate,
+  AdminUsersResult,
   AgentPresenceStatus,
+  AuditLogEntry,
+  AuditLogPage,
+  AuditLogQuery,
   AuthResponse,
   ChannelActionResult,
   ChannelHealthView,
@@ -1204,6 +1558,8 @@ export type {
   IAgentSummary,
   IntegrationSetup,
   IntegrationSetupChannel,
+  InviteUserBody,
+  InviteUserResult,
   PlatformAlert,
   PlatformAlertsResult,
   PlatformBillingEvent,
@@ -1242,5 +1598,6 @@ export type {
   TwoFactorStatusResult,
   TwoFactorVerifyResult,
   UploadedFile,
+  UserSession,
   WorkspaceFilters,
 } from './types';

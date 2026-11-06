@@ -7,9 +7,11 @@ import type {
   ISessionRepository,
   IssuedSession,
   RefreshSessionResult,
+  RevokeSessionResult,
   SessionDeviceInfo,
+  UserSessionView,
 } from '@sac/shared';
-import { AppError } from '@sac/shared';
+import { AppError, NotFoundError } from '@sac/shared';
 
 import { hashToken, randomToken, signAccessToken } from './auth/access-token';
 
@@ -122,12 +124,14 @@ export class AuthSessionService implements IAuthSessionService {
       agent,
       device ?? { userAgent: session.userAgent, ip: session.ip },
       session.tenantId,
+      now,
     );
 
     const token = signAccessToken({
       subject: agent,
       secret: this.jwtSecret,
       expiresIn: this.jwtExpiresIn,
+      sessionId: issued.sessionId,
     });
 
     this.logger.info('auth.session.rotated', {
@@ -178,6 +182,66 @@ export class AuthSessionService implements IAuthSessionService {
   }
 
   /* ==================================================================== */
+  /* Self-service session management                                      */
+  /* ==================================================================== */
+
+  /**
+   * Live sessions of the operator, newest first. `current` is derived from the
+   * access-token `sid` claim (set when the token was minted by login/refresh/
+   * invite/SSO/2FA), so a legacy token simply lists every row as not current.
+   */
+  async listForUser(userId: string, currentSessionId?: string): Promise<UserSessionView[]> {
+    const rows = await this.sessions.listActiveByUser(userId, this.clock.now());
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      lastUsedAt: row.lastUsedAt !== null ? row.lastUsedAt.toISOString() : null,
+      userAgent: row.userAgent,
+      ip: row.ip,
+      current: currentSessionId !== undefined && row.id === currentSessionId,
+    }));
+  }
+
+  /**
+   * Revokes one session of the operator.
+   *
+   * A session that does not exist OR belongs to another operator answers 404:
+   * the API never reveals the existence of a foreign row. An already revoked
+   * session is an idempotent `{ revoked: false }` (the DELETE still answers 204
+   * unless the caller asked about a foreign/unknown id).
+   */
+  async revokeById(
+    sessionId: string,
+    userId: string,
+    currentSessionId?: string,
+  ): Promise<RevokeSessionResult> {
+    const session = await this.sessions.findById(sessionId);
+    if (session === null || session.userId !== userId) {
+      throw new NotFoundError('Session', sessionId);
+    }
+
+    const current = currentSessionId !== undefined && session.id === currentSessionId;
+    if (session.revokedAt !== null) {
+      return { revoked: false, current };
+    }
+
+    const revoked = await this.sessions.revoke(session.id, this.clock.now());
+    if (revoked) {
+      this.logger.info('auth.session.revoked_by_id', { userId, sessionId: session.id, current });
+    }
+    return { revoked, current };
+  }
+
+  /** Revokes every live session except the one that issued the current token. */
+  async revokeOthers(userId: string, currentSessionId?: string): Promise<number> {
+    const count = await this.sessions.revokeAllExcept(userId, currentSessionId, this.clock.now());
+    if (count > 0) {
+      this.logger.info('auth.session.revoked_others', { userId, sessions: count });
+    }
+    return count;
+  }
+
+  /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
 
@@ -185,6 +249,7 @@ export class AuthSessionService implements IAuthSessionService {
     agent: AgentRecord,
     device?: SessionDeviceInfo,
     tenantIdFallback?: string,
+    lastUsedAt?: Date,
   ): Promise<IssuedSession> {
     // `sessions.tenant_id` is NOT NULL: legacy operators without a tenant keep
     // working with the access token only (the caller degrades gracefully).
@@ -201,16 +266,17 @@ export class AuthSessionService implements IAuthSessionService {
     const now = this.clock.now();
     const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
 
-    await this.sessions.create({
+    const created = await this.sessions.create({
       userId: agent.id,
       tenantId,
       refreshTokenHash: hashToken(refreshToken),
       userAgent: truncate(device?.userAgent, MAX_USER_AGENT_LENGTH),
       ip: truncate(device?.ip, MAX_IP_LENGTH),
       expiresAt,
+      lastUsedAt: lastUsedAt ?? null,
     });
 
-    return { refreshToken, expiresAt };
+    return { refreshToken, expiresAt, sessionId: created.id };
   }
 
   private invalidRefreshTokenError(): AppError {

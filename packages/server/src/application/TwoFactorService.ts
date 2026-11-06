@@ -5,6 +5,7 @@ import type {
   AgentRecord,
   IAgentRepository,
   IAgentService,
+  IAuditService,
   ICache,
   IClock,
   ILogger,
@@ -19,7 +20,7 @@ import type {
   TwoFactorStatusResult,
   TwoFactorVerifyResult,
 } from '@sac/shared';
-import { AppError, AuthenticationError } from '@sac/shared';
+import { AppError, AUDIT_ACTIONS, AuthenticationError } from '@sac/shared';
 
 import {
   generateRecoveryCodes,
@@ -116,6 +117,8 @@ export interface TwoFactorServiceDependencies {
    * omitted the service builds one from the injected `cache`/`clock`.
    */
   rateLimiter?: AuthRateLimiter;
+  /** Administrative audit trail (best effort). */
+  audit?: IAuditService;
   repos: {
     agents: IAgentRepository;
     twoFactor: ITwoFactorRepository;
@@ -132,6 +135,7 @@ export class TwoFactorService implements ITwoFactorService {
   private readonly agents: IAgentRepository;
   private readonly twoFactor: ITwoFactorRepository;
   private readonly rateLimiter: AuthRateLimiter;
+  private readonly audit: IAuditService | undefined;
 
   constructor(deps: TwoFactorServiceDependencies) {
     this.logger = deps.logger.child({ component: 'TwoFactorService' });
@@ -142,6 +146,7 @@ export class TwoFactorService implements ITwoFactorService {
     this.agentsService = deps.agentsService;
     this.agents = deps.repos.agents;
     this.twoFactor = deps.repos.twoFactor;
+    this.audit = deps.audit;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
@@ -209,6 +214,15 @@ export class TwoFactorService implements ITwoFactorService {
     );
 
     this.logger.info('auth.2fa.enabled', { userId: agent.id });
+    this.audit?.record({
+      action: AUDIT_ACTIONS.twoFactorEnabled,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      resourceType: 'user',
+      resourceId: agent.id,
+      metadata: { recoveryCodes: recoveryCodes.length },
+    });
     return { enabled: true, recoveryCodes };
   }
 
@@ -231,6 +245,14 @@ export class TwoFactorService implements ITwoFactorService {
 
     await this.twoFactor.disable(agent.id);
     this.logger.info('auth.2fa.disabled', { userId: agent.id });
+    this.audit?.record({
+      action: AUDIT_ACTIONS.twoFactorDisabled,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      resourceType: 'user',
+      resourceId: agent.id,
+    });
   }
 
   /**
@@ -348,6 +370,15 @@ export class TwoFactorService implements ITwoFactorService {
         attemptsUsed: Math.max(...attempts.map((decision) => decision.used)),
         attemptsLimit: Math.min(...attempts.map((decision) => decision.policy.limit)),
       });
+      this.audit?.record({
+        action: AUDIT_ACTIONS.loginFailure,
+        tenantId: agent.tenantId ?? null,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: device?.ip ?? null,
+        userAgent: device?.userAgent ?? null,
+        metadata: { reason: 'invalid_second_factor', twoFactor: true },
+      });
       throw new AppError('INVALID_TOTP', 'Invalid two-factor code', 401);
     }
 
@@ -356,6 +387,15 @@ export class TwoFactorService implements ITwoFactorService {
 
     const session = await this.agentsService.issueSession(agent.id, device);
     this.logger.info('auth.2fa.challenge_succeeded', { userId: agent.id });
+    this.audit?.record({
+      action: AUDIT_ACTIONS.loginSuccess,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      ip: device?.ip ?? null,
+      userAgent: device?.userAgent ?? null,
+      metadata: { twoFactor: true },
+    });
     return session;
   }
 

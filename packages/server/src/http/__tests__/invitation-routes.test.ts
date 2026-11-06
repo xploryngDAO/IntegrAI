@@ -155,7 +155,7 @@ describe('POST /invitations', () => {
     expect(create).toHaveBeenCalledWith({
       email: 'op@acme.test',
       role: 'SUPERVISOR',
-      actor: { id: 'agent-1', name: 'Ana', tenantId: 'tenant-1' },
+      actor: { id: 'agent-1', name: 'Ana', tenantId: 'tenant-1', email: 'admin@acme.test' },
     });
   });
 

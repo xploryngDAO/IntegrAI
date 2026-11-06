@@ -8,6 +8,7 @@ import type {
   CreateInvitationCommand,
   CreateInvitationResult,
   IAgentRepository,
+  IAuditService,
   IAuthSessionService,
   IClock,
   IEmailService,
@@ -18,10 +19,17 @@ import type {
   InvitationRecord,
   InvitationStatus,
   InvitationSummary,
+  IssuedSession,
   ITenantRepository,
   SessionDeviceInfo,
 } from '@sac/shared';
-import { AppError, ConflictError, NotFoundError, ValidationError } from '@sac/shared';
+import {
+  AppError,
+  AUDIT_ACTIONS,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '@sac/shared';
 
 import { hashToken, randomToken, signAccessToken } from './auth/access-token';
 import { isUniqueConstraintViolation } from './repositories/errors';
@@ -97,6 +105,8 @@ export interface InvitationServiceDependencies {
    * the container always wires it, and without it invitations bypass the plan.
    */
   planLimits?: IPlanLimitService;
+  /** Administrative audit trail (best effort). */
+  audit?: IAuditService;
   repos: {
     invitations: IInvitationRepository;
     agents: IAgentRepository;
@@ -116,6 +126,7 @@ export class InvitationService implements IInvitationService {
   private readonly tenants: ITenantRepository;
   private readonly sessions: IAuthSessionService | undefined;
   private readonly planLimits: IPlanLimitService | undefined;
+  private readonly audit: IAuditService | undefined;
 
   constructor(deps: InvitationServiceDependencies) {
     this.logger = deps.logger.child({ component: 'InvitationService' });
@@ -129,6 +140,7 @@ export class InvitationService implements IInvitationService {
     this.tenants = deps.repos.tenants;
     this.sessions = deps.sessions;
     this.planLimits = deps.planLimits;
+    this.audit = deps.audit;
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('InvitationService requires a configured JWT_SECRET (min 16 chars)');
@@ -182,6 +194,16 @@ export class InvitationService implements IInvitationService {
       tenantId: invitation.tenantId,
       role: invitation.role,
       invitedBy: command.actor.id,
+    });
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.invitationCreated,
+      tenantId: invitation.tenantId,
+      actorId: command.actor.id,
+      actorEmail: command.actor.email ?? null,
+      resourceType: 'invitation',
+      resourceId: invitation.id,
+      metadata: { role: invitation.role },
     });
 
     return {
@@ -318,12 +340,13 @@ export class InvitationService implements IInvitationService {
       });
     }
 
+    const issued = await this.issueRefreshSession(agent, device);
     const token = signAccessToken({
       subject: agent,
       secret: this.jwtSecret,
       expiresIn: this.jwtExpiresIn,
+      ...(issued?.sessionId !== undefined ? { sessionId: issued.sessionId } : {}),
     });
-    const refreshToken = await this.issueRefreshToken(agent, device);
 
     this.logger.info('invitation.accepted', {
       invitationId: invitation.id,
@@ -332,9 +355,19 @@ export class InvitationService implements IInvitationService {
       role: agent.role,
     });
 
+    this.audit?.record({
+      action: AUDIT_ACTIONS.invitationAccepted,
+      tenantId: invitation.tenantId,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      resourceType: 'user',
+      resourceId: agent.id,
+      metadata: { invitationId: invitation.id, role: agent.role },
+    });
+
     return {
       token,
-      ...(refreshToken !== null ? { refreshToken } : {}),
+      ...(issued !== null ? { refreshToken: issued.refreshToken } : {}),
       agent: {
         id: agent.id,
         name: agent.name,
@@ -381,16 +414,15 @@ export class InvitationService implements IInvitationService {
     }
   }
 
-  /** Returns `null` when the refresh token could not be issued (never fatal). */
-  private async issueRefreshToken(
+  /** Returns `null` when the refresh session could not be issued (never fatal). */
+  private async issueRefreshSession(
     agent: AgentRecord,
     device?: SessionDeviceInfo,
-  ): Promise<string | null> {
+  ): Promise<IssuedSession | null> {
     if (this.sessions === undefined) return null;
 
     try {
-      const issued = await this.sessions.issue(agent.id, device);
-      return issued.refreshToken;
+      return await this.sessions.issue(agent.id, device);
     } catch (error) {
       this.logger.warn('invitation.session.issue_failed', {
         userId: agent.id,

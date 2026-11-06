@@ -598,6 +598,115 @@ export interface DeleteTenantBody {
 }
 
 /* ==========================================================================
+ * Conta do operador + administração do workspace
+ *
+ * Client-side contracts of the account/admin API (the backend is the guard;
+ * the UI only offers what `/auth/me` says the operator may do):
+ *
+ *   PATCH /auth/me                    -> IAgentSummary            (perfil)
+ *   GET   /auth/sessions              -> { items: UserSession[] }
+ *   DELETE /auth/sessions/:id         -> 204
+ *   POST  /auth/sessions/revoke-others-> { revoked: number }
+ *   GET   /admin/users                -> { items: AdminUser[], total }
+ *   PATCH /admin/users/:id            -> AdminUser
+ *   POST  /admin/users/:id/revoke-sessions -> { revoked: number }
+ *   GET   /admin/audit-logs           -> { items, page, perPage, total }
+ *   POST  /invitations                -> { invitationId, email, role, expiresAt }
+ *
+ * Every response travels inside the standard `{ data }` envelope, which the
+ * HTTP client unwraps before these types apply.
+ * ========================================================================== */
+
+/** One active refresh session of the authenticated operator. */
+export interface UserSession {
+  id: string;
+  /** ISO instant the session was opened. */
+  createdAt: string;
+  /** ISO instant of the last refresh, or null when never used. */
+  lastUsedAt: string | null;
+  /** Raw browser user-agent (rendered through `describeDevice`). */
+  userAgent: string | null;
+  ip: string | null;
+  /** True for the session that issued the current access token. */
+  current: boolean;
+}
+
+/** One operator row of `GET /admin/users`. */
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  /** ISO instant of the last successful login (null = never). */
+  lastLoginAt: string | null;
+  createdAt: string;
+  sessionsCount: number;
+}
+
+/** `GET /admin/users` envelope. */
+export interface AdminUsersResult {
+  items: AdminUser[];
+  total: number;
+}
+
+/** Body of `PATCH /admin/users/:id` — only the changed fields are sent. */
+export interface AdminUserUpdate {
+  role?: string;
+  isActive?: boolean;
+}
+
+/** One row of the administrative audit trail (`GET /admin/audit-logs`). */
+export interface AuditLogEntry {
+  id: string;
+  /** Stable action code (`auth.login`, `user.role_changed`, …). */
+  action: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  resourceType: string | null;
+  resourceId: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  /** Free-form JSON payload; rendered as expandable metadata. */
+  metadata: unknown;
+  createdAt: string;
+}
+
+/** Query of `GET /admin/audit-logs` (all filters optional). */
+export interface AuditLogQuery {
+  action?: string;
+  actorId?: string;
+  page?: number;
+  perPage?: number;
+  /** ISO instant lower bound (inclusive). */
+  from?: string;
+  /** ISO instant upper bound (inclusive). */
+  to?: string;
+}
+
+/** One page of the audit trail. */
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  page: number;
+  perPage: number;
+  total: number;
+}
+
+/** Body of `POST /invitations` (existing Fase 1 endpoint behind the CTA). */
+export interface InviteUserBody {
+  email: string;
+  role: string;
+}
+
+/** Response of `POST /invitations`. */
+export interface InviteUserResult {
+  invitationId: string;
+  email: string;
+  role: string;
+  expiresAt: string;
+}
+
+/* ==========================================================================
  * Store shape (single zustand hook — see docs/UI_KIT.md §3)
  * ========================================================================== */
 

@@ -55,6 +55,7 @@ e dependências com correções apenas em major.
 | Mensagens e anexos | `ticket_messages`, S3 privado | Vazamento de conversa, links maliciosos, NF-e |
 | Segredos de infraestrutura | env (`ENCRYPTION_MASTER_KEY`, `JWT_SECRET`, HMACs, SMTP) | Comprometimento total |
 | Sessões de operador | JWT (1 h) + refresh opaco (30 d) | Ações não autorizadas, persistência pós-logout |
+| Trilha de auditoria | `audit_events` (append-only; FK de tenant `SET NULL`) | Repúdio de ações administrativas/segurança; `metadata` higienizado (sem senha/token) |
 
 ### 2.2 Fronteiras de confiança
 
@@ -414,10 +415,18 @@ Regras aplicadas:
 - O controller de billing loga apenas `type`, `tenantId`, `duplicate`,
   `billingStatus` — não o payload.
 - Webhook controller loga `eventId`, `status`, `durationMs`; nunca o corpo.
+- `AuditService` grava a trilha administrativa com `metadata` higienizado
+  (`password*`, `token*`, `secret*`, `otp*`, `code*`, `cookie`, `apiKey` são
+  descartados; e-mails/telefones são redigidos com `redactPiiForLogs`). O e-mail
+  do ator existe **apenas** na coluna dedicada `audit_events.actor_email`; senha,
+  token e corpo de mensagem nunca são registrados. A escrita é best effort e
+  nunca bloqueia/falha a operação de negócio.
 
 Auditoria por `grep` (2026-11-05) encontrou:
 
-- `agent.login.failed` com `email` completo (`AgentService.ts:177`) — **P1**;
+- `agent.login.failed` usa `redactPiiForLogs` (e-mail mascarado no log); o
+  endereço completo existe apenas na coluna dedicada `audit_events.actor_email`
+  (retenção a definir — seção 14);
 - `console.log` de link de verificação/reset/convite + destinatário em
   `infrastructure/email/email-service.ts` — **somente** quando
   `NODE_ENV != production` e SMTP não configurado (aceitável em dev, mas não
@@ -602,8 +611,10 @@ nodemailer 10 → e-mails transacionais; prisma 7 → CLI/migrations; react-rout
 - [x] Criptografia em trânsito (HTTPS; HSTS na API em produção e na Vercel).
 - [x] Criptografia de segredos em repouso (AES-256-GCM) e bucket privado.
 - [x] Controle de acesso por tenant + RBAC + revalidação de admin de plataforma.
-- [x] Registro de auditoria (`ticket_events`, `webhook_events`, logs
-      estruturados com `requestId`).
+- [x] Registro de auditoria (`ticket_events`, `webhook_events`, `audit_events`,
+      logs estruturados com `requestId`).
+- [ ] Definir retenção/purge da trilha `audit_events` (contém `actor_email` e
+      IP por contrato; hoje cresce append-only).
 - [x] Plano de resposta a incidentes (seção 9) com prazo ANPD.
 - [ ] Designar e publicar o Encarregado (DPO) — Art. 41; canal de contato.
 - [ ] Política de privacidade e termos publicados/versionados.
@@ -932,8 +943,10 @@ npm run build:server
 4. **Token no `localStorage`.** Migrar para cookie `HttpOnly`/`SameSite` + CSRF
    (ver 3.1) ou memória + refresh silencioso; enquanto isso, manter CSP estrita
    e revisar qualquer `dangerouslySetInnerHTML` (hoje zero).
-5. **E-mail em log de falha de login.** `AgentService.ts:177` → usar
-   `redactPiiForLogs`/hash. (Arquivo em edição pelo owner do SSO — coordenar.)
+5. **PII na trilha de auditoria.** `AgentService.login` já mascara o e-mail no
+   log (`redactPiiForLogs`); o endereço completo passou a existir somente em
+   `audit_events.actor_email` (contrato administrativo). Falta definir retenção/
+   purge dessa coluna e o mascaramento na UI para perfis não-ADMIN.
 6. **Webhook Meli sem assinatura.** Avaliar segredo compartilhado no header
    (contrato já menciona “optional shared secret header”) ou validação de
    origem por IP do Meli; documentar risco aceito se não houver opção.

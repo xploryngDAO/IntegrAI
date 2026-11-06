@@ -21,6 +21,8 @@ export interface AuthenticatedAgent {
    */
   jti?: string;
   tokenExpiresAt?: number;
+  /** Refresh-session row that issued this token (`GET /auth/sessions`). */
+  sessionId?: string;
 }
 
 declare module 'fastify' {

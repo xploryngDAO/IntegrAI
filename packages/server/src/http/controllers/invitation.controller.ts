@@ -49,7 +49,7 @@ export function createInvitationControllers(ctx: HttpRouteContext): InvitationCo
       const result = await services.invitations.create({
         email: body.email,
         role: body.role,
-        actor: { id: actor.id, name: actor.name, tenantId },
+        actor: { id: actor.id, name: actor.name, tenantId, email: actor.email },
       });
 
       reply.code(201);

@@ -443,6 +443,8 @@ export interface IAgentRepository {
   findById(id: string): Promise<AgentRecord | null>;
   list(filter?: { presence?: AgentPresenceStatus; activeOnly?: boolean; tenantId?: string | null }): Promise<AgentRecord[]>;
   updatePresence(id: string, presence: AgentPresenceStatus, at: Date): Promise<AgentRecord>;
+  /** Self-service profile edit: only the display name is writable. */
+  updateName(id: string, name: string): Promise<AgentRecord>;
   updatePassword(id: string, passwordHash: string): Promise<void>;
   /** Marks the operator e-mail as verified (idempotent, `null` -> `at`). */
   markEmailVerified(id: string, at: Date): Promise<void>;
@@ -587,16 +589,29 @@ export interface CreateSessionInput {
   userAgent?: string | null;
   ip?: string | null;
   expiresAt: Date;
+  /** Set only when the session is minted by a rotation (refresh). */
+  lastUsedAt?: Date | null;
 }
 
 export interface ISessionRepository {
   create(input: CreateSessionInput): Promise<SessionRecord>;
   findByRefreshTokenHash(tokenHash: string): Promise<SessionRecord | null>;
+  /** 404-safe lookup used by `DELETE /auth/sessions/:id`. */
+  findById(id: string): Promise<SessionRecord | null>;
+  /**
+   * Live sessions of one operator (`revoked_at IS NULL`, not expired), newest
+   * first — the `GET /auth/sessions` read model.
+   */
+  listActiveByUser(userId: string, at: Date): Promise<SessionRecord[]>;
   /**
    * Revokes a single session. Returns `false` when another request already
    * revoked it (concurrent refresh must not mint two token pairs).
    */
   revoke(id: string, at: Date): Promise<boolean>;
+  /** Revokes one session only when it belongs to `userId` (defence in depth). */
+  revokeById(id: string, userId: string, at: Date): Promise<boolean>;
+  /** "Revoke other devices": every live session except `exceptSessionId`. */
+  revokeAllExcept(userId: string, exceptSessionId: string | undefined, at: Date): Promise<number>;
   /** Password reset / "logout everywhere" path. Returns the revoked count. */
   revokeAllForUser(userId: string, at: Date): Promise<number>;
 }

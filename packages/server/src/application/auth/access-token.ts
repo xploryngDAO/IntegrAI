@@ -50,6 +50,12 @@ export function signAccessToken(input: {
   subject: AccessTokenSubject;
   secret: string;
   expiresIn: string;
+  /**
+   * Refresh-session row that backs this token. Embedded as the `sid` claim so
+   * `GET /auth/sessions` can mark which device is the current one. Optional:
+   * legacy tokens (and flows without the session store) simply omit it.
+   */
+  sessionId?: string;
 }): string {
   const options: SignOptions = {
     algorithm: 'HS256',
@@ -67,6 +73,7 @@ export function signAccessToken(input: {
       role: input.subject.role,
       tenantId: input.subject.tenantId,
       isPlatformAdmin: input.subject.isPlatformAdmin === true,
+      ...(input.sessionId !== undefined ? { sid: input.sessionId } : {}),
     },
     input.secret,
     options,

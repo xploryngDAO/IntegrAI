@@ -20,6 +20,16 @@ export const presenceBodySchema = z.object({
   presence: agentPresenceSchema,
 });
 
+/** `PATCH /auth/me` - self-service profile; only the display name is editable. */
+export const updateProfileBodySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+
+/** `DELETE /auth/sessions/:id` - a malformed id is a 422 before any query. */
+export const sessionParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
 /** `POST /auth/signup` - creates the tenant + first ADMIN (public). */
 export const signupBodySchema = z.object({
   companyName: z.string().trim().min(2).max(160),
@@ -109,6 +119,8 @@ export const twoFactorChallengeBodySchema = z.object({
 
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type PresenceBody = z.infer<typeof presenceBodySchema>;
+export type UpdateProfileBody = z.infer<typeof updateProfileBodySchema>;
+export type SessionParams = z.infer<typeof sessionParamsSchema>;
 export type TwoFactorVerifyBody = z.infer<typeof twoFactorVerifyBodySchema>;
 export type TwoFactorDisableBody = z.infer<typeof twoFactorDisableBodySchema>;
 export type TwoFactorRecoveryRegenerateBody = z.infer<

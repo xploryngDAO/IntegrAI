@@ -105,6 +105,9 @@ function buildControllers(
       auth,
       cache,
       logger: silentLogger,
+      // Audit is best-effort and optional to the controller logic; the real
+      // container always wires it (see `AuditService`).
+      audit: { record: (): void => undefined, list: async () => ({ items: [], page: 1, perPage: 25, total: 0 }), flush: async (): Promise<void> => undefined },
       ...(sessions !== undefined ? { sessions } : {}),
       clock: { now: () => NOW },
     },

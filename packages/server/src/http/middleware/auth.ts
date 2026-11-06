@@ -110,6 +110,7 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         ...(claims.tokenExpiresAt !== undefined
           ? { tokenExpiresAt: claims.tokenExpiresAt }
           : {}),
+        ...(claims.sessionId !== undefined ? { sessionId: claims.sessionId } : {}),
       };
 
       // Mutations on a ticket must belong to the caller's tenant (404 otherwise).

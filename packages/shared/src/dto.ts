@@ -1040,6 +1040,8 @@ export interface SessionRecord {
   ip: string | null;
   expiresAt: Date;
   revokedAt: Date | null;
+  /** Last refresh rotation; `null` until the session is used to rotate. */
+  lastUsedAt: Date | null;
   createdAt: Date;
 }
 

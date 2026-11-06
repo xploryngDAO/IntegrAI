@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AuditEvent,
   BuyerPiiVault,
   EmailVerification,
   Invitation,
@@ -22,6 +23,7 @@ import type {
 import type {
   AgentRecord,
   AgentRole,
+  AuditEventRecord,
   BuyerPiiRecord,
   EmailVerificationRecord,
   InvitationRecord,
@@ -416,6 +418,24 @@ export function mapSession(record: Session): SessionRecord {
     ip: record.ip,
     expiresAt: record.expiresAt,
     revokedAt: record.revokedAt,
+    lastUsedAt: record.lastUsedAt,
+    createdAt: record.createdAt,
+  };
+}
+
+/** Prisma audit row -> shared record (`metadata` normalized to a JSON object). */
+export function mapAuditEvent(record: AuditEvent): AuditEventRecord {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    actorId: record.actorId,
+    actorEmail: record.actorEmail,
+    action: record.action,
+    resourceType: record.resourceType,
+    resourceId: record.resourceId,
+    ip: record.ip,
+    userAgent: record.userAgent,
+    metadata: toJsonObject(record.metadata),
     createdAt: record.createdAt,
   };
 }

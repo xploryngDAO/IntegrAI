@@ -236,6 +236,13 @@ class InMemoryAgentRepository implements IAgentRepository {
     return row;
   }
 
+  async updateName(id: string, name: string): Promise<AgentRecord> {
+    const row = this.rows.find((entry) => entry.id === id);
+    if (row === undefined) throw new Error(`agent not found: ${id}`);
+    row.name = name;
+    return row;
+  }
+
   async updatePassword(id: string, passwordHash: string): Promise<void> {
     const row = this.rows.find((entry) => entry.id === id);
     if (row === undefined) throw new Error(`agent not found: ${id}`);

@@ -5,7 +5,8 @@ import type { AgentPresenceStatus, Marketplace } from '@sac/shared';
 import { useWorkspace } from '../../lib/store';
 import { useTheme } from '../../lib/theme';
 import { isPlatformAdmin, isTenantAdmin } from '../../lib/platform';
-import { Avatar, IconButton, SegmentedControl } from '../ui';
+import { IconButton, SegmentedControl } from '../ui';
+import { UserMenu } from './UserMenu';
 
 const MARKET_ORDER: Marketplace[] = ['AMAZON', 'MERCADO_LIVRE', 'SHOPEE'];
 const MARKET_LABEL: Record<Marketplace, string> = {
@@ -49,10 +50,13 @@ export function Topbar(): JSX.Element {
   const onSetup = pathname.startsWith('/setup');
   const onPlatform = pathname.startsWith('/platform');
   const onSettings = pathname.startsWith('/settings');
+  const onProfile = pathname.startsWith('/profile');
+  const onAdmin = pathname.startsWith('/admin');
   // Onboarding is a focused flow: channel health, SLA and the queue badge are
   // hidden so the wizard keeps a single primary action per step. The Fase 3/4
-  // admin screens are also focused surfaces (no queue telemetry).
-  const focusMode = onAccounts || onOnboarding || onSetup || onPlatform || onSettings;
+  // admin screens and the account surfaces are also focused (no queue telemetry).
+  const focusMode =
+    onAccounts || onOnboarding || onSetup || onPlatform || onSettings || onProfile || onAdmin;
 
   const title = onOnboarding
     ? 'Primeiros passos'
@@ -64,7 +68,11 @@ export function Topbar(): JSX.Element {
           ? 'Plataforma'
           : onSettings
             ? 'Configurações'
-            : 'Atendimento';
+            : onProfile
+              ? 'Meu perfil'
+              : onAdmin
+                ? 'Administração'
+                : 'Atendimento';
   const subtitle = onOnboarding
     ? 'Conecte os canais e faça o primeiro atendimento'
     : onAccounts
@@ -75,9 +83,13 @@ export function Topbar(): JSX.Element {
           ? 'Console interno · tenants e planos'
           : onSettings
             ? 'Workspace, privacidade e zona de perigo'
-            : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
-                totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
-              }`;
+            : onProfile
+              ? 'Conta, sessões ativas e segurança do operador'
+              : onAdmin
+                ? 'Equipe do workspace e trilha de auditoria'
+                : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
+                    totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
+                  }`;
 
   const platformAdmin = isPlatformAdmin(currentAgent);
   const tenantAdmin = isTenantAdmin(currentAgent);
@@ -181,17 +193,7 @@ export function Topbar(): JSX.Element {
         onChange={(value) => void setPresence(value as AgentPresenceStatus)}
       />
 
-      <div className="sac-row sac-topbar__agent">
-        <Avatar name={currentAgent?.name ?? 'Operador'} size="sm" />
-        <div className="sac-col sac-topbar__agent-text">
-          <span className="truncate text-[var(--cv-font-control)] font-medium leading-tight">
-            {currentAgent?.name ?? 'Operador'}
-          </span>
-          <span className="truncate text-[var(--cv-font-micro)] uppercase tracking-[0.06em] text-[var(--cv-color-text-muted)]">
-            {currentAgent?.role ?? 'AGENT'}
-          </span>
-        </div>
-      </div>
+      <UserMenu />
     </header>
   );
 }

@@ -9,6 +9,7 @@ import type {
   IClock,
   IEmailService,
   IEmailVerificationRepository,
+  IAuditService,
   IPasswordResetRepository,
   ISessionRepository,
   ITenantRepository,
@@ -17,7 +18,7 @@ import type {
   SignupResult,
   TenantRecord,
 } from '@sac/shared';
-import { AppError, ConflictError, ValidationError } from '@sac/shared';
+import { AppError, AUDIT_ACTIONS, ConflictError, ValidationError } from '@sac/shared';
 
 import { hashToken, randomToken } from './auth/access-token';
 import { setUserRevocationWatermark } from './auth/access-token-revocation';
@@ -108,6 +109,8 @@ export interface AuthServiceDependencies {
    * when omitted the service builds one from the injected `cache`/`clock`.
    */
   rateLimiter?: AuthRateLimiter;
+  /** Administrative audit trail (best effort). */
+  audit?: IAuditService;
   repos: {
     agents: IAgentRepository;
     tenants: ITenantRepository;
@@ -129,6 +132,7 @@ export class AuthService implements IAuthService {
   private readonly passwordResets: IPasswordResetRepository;
   private readonly sessions: ISessionRepository;
   private readonly rateLimiter: AuthRateLimiter;
+  private readonly audit: IAuditService | undefined;
   /** Last-resort throttle window when Redis is unreachable (single instance). */
   private readonly localResendWindows = new Map<string, number>();
 
@@ -143,6 +147,7 @@ export class AuthService implements IAuthService {
     this.emailVerifications = deps.repos.emailVerifications;
     this.passwordResets = deps.repos.passwordResets;
     this.sessions = deps.repos.sessions;
+    this.audit = deps.audit;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
@@ -350,6 +355,16 @@ export class AuthService implements IAuthService {
       userId: agent.id,
       revokedSessions,
       watermarkSet,
+    });
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.passwordResetCompleted,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      resourceType: 'user',
+      resourceId: agent.id,
+      metadata: { revokedSessions, watermarkSet },
     });
   }
 

@@ -14,7 +14,9 @@ import type { InfrastructureBundle } from './infrastructure';
 import { createInfrastructure } from './infrastructure';
 
 import { AccountService } from './application/AccountService';
+import { AdminUserService } from './application/AdminUserService';
 import { AgentService } from './application/AgentService';
+import { AuditService } from './application/AuditService';
 import { AuthService } from './application/AuthService';
 import { AuthSessionService } from './application/AuthSessionService';
 import { BillingService } from './application/BillingService';
@@ -85,6 +87,15 @@ export function createContainer(args: ContainerArgs): IAppServices {
   const channelConfig: ChannelRuntimeConfig = config;
 
   const logger = infra.logger.child({ component: 'container' });
+
+  // --- 0. Audit trail (leaf: no dependency on the other services) ----------
+  // Best-effort writer shared by auth, 2FA, invitations, SSO and billing. The
+  // administrative service that backs `/admin/*` reads the same repository.
+  const audit = new AuditService({
+    logger: infra.logger,
+    clock: infra.clock,
+    repo: infra.auditEvents,
+  });
 
   // --- 1. Channel adapters ------------------------------------------------
   const adapters = createAdapterRegistry({
@@ -251,6 +262,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     logger: infra.logger,
     clock: infra.clock,
     billing: config.billing,
+    audit,
     repos: {
       tenants: infra.tenants,
       platformTenants: infra.platformTenants,
@@ -298,6 +310,19 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  // Fase 6: workspace team administration (`/admin/users`). The last-admin and
+  // self-change guards live in the service; mutations go through `audit`.
+  const adminUsers = new AdminUserService({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    audit,
+    repos: {
+      adminUsers: infra.adminUsers,
+      sessions: infra.sessions,
+    },
+  });
+
   // Fase 5: workspace IdP configuration + `enforce_sso` password gate. Built
   // BEFORE AgentService (the login gate depends on it) and reused by the public
   // SSO flow below.
@@ -322,6 +347,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     sessions,
     tenants: infra.tenants,
     sso: tenantSso,
+    audit,
     repos: {
       agents: infra.agents,
       tickets: infra.repos.tickets,
@@ -354,6 +380,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     cipher: infra.cipher,
     jwtSecret: config.jwtSecret,
     agentsService: agents,
+    audit,
     repos: {
       agents: infra.agents,
       twoFactor: infra.twoFactor,
@@ -365,6 +392,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     clock: infra.clock,
     cache: infra.cache,
     email: infra.email,
+    audit,
     config: {
       webOrigin: config.webOrigin,
       appBaseUrl: config.appBaseUrl,
@@ -390,6 +418,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
     sessions,
     planLimits,
+    audit,
     repos: {
       invitations: infra.invitations,
       agents: infra.agents,
@@ -502,6 +531,8 @@ export function createContainer(args: ContainerArgs): IAppServices {
     twoFactor,
     sessions,
     invitations,
+    audit,
+    adminUsers,
     webhooks,
     health,
     status,

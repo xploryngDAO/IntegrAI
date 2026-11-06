@@ -10,6 +10,7 @@ import type {
   BillingWebhookType,
   IBillingEventRepository,
   IBillingService,
+  IAuditService,
   IClock,
   ILogger,
   IPlatformTenantRepository,
@@ -19,6 +20,7 @@ import type {
   TenantSubscriptionPatch,
 } from '@sac/shared';
 import {
+  AUDIT_ACTIONS,
   BILLING_EVENTS_DEFAULT_LIMIT,
   BILLING_EVENTS_MAX_LIMIT,
   BILLING_WEBHOOK_TYPES,
@@ -71,6 +73,8 @@ export interface BillingServiceDependencies {
   logger: ILogger;
   clock: IClock;
   billing: BillingRuntimeConfig;
+  /** Administrative audit trail (best effort; a webhook has no actor). */
+  audit?: IAuditService;
   repos: {
     tenants: ITenantRepository;
     platformTenants: IPlatformTenantRepository;
@@ -102,6 +106,7 @@ export class BillingService implements IBillingService {
   private readonly tenants: ITenantRepository;
   private readonly platformTenants: IPlatformTenantRepository;
   private readonly billingEvents: IBillingEventRepository;
+  private readonly audit: IAuditService | undefined;
 
   constructor(deps: BillingServiceDependencies) {
     this.logger = deps.logger.child({ component: 'BillingService' });
@@ -110,6 +115,7 @@ export class BillingService implements IBillingService {
     this.tenants = deps.repos.tenants;
     this.platformTenants = deps.repos.platformTenants;
     this.billingEvents = deps.repos.billingEvents;
+    this.audit = deps.audit;
   }
 
   /* ==================================================================== */
@@ -208,6 +214,22 @@ export class BillingService implements IBillingService {
         plan: updated.plan,
         amountBrl: payload.amountBrl ?? null,
         currentPeriodEnd: payload.currentPeriodEnd?.toISOString() ?? null,
+      });
+
+      this.audit?.record({
+        action: AUDIT_ACTIONS.billingWebhookProcessed,
+        tenantId: tenant.id,
+        // The resource that changed is the workspace (a bounded UUID); the
+        // gateway event id can be up to 240 chars and lives in the metadata.
+        resourceType: 'tenant',
+        resourceId: tenant.id,
+        metadata: {
+          eventId,
+          type: payload.type,
+          previousBillingStatus: previous,
+          billingStatus: updated.billingStatus,
+          plan: updated.plan,
+        },
       });
 
       return {
