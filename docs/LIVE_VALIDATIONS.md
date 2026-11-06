@@ -459,3 +459,11 @@ GET /api/v1/version -> 200 {version:1.0.0, commit:<GIT_SHA>, node:v24.14.0,
 GET /version (bare) -> 200 com o mesmo payload
 publico (sem token) e isento de manutencao; imagem Docker recebe GIT_SHA no build (CI)
 ```
+
+### 44. Paginas publicas de retorno (billing e callback SSO)
+```
+/billing/success -> "Pagamento concluido" (confirma que a confirmacao definitiva vem pelo webhook)
+/billing/cancel  -> "Checkout cancelado" (nenhuma cobranca)
+/auth/sso/callback sem code -> "Login corporativo incompleto" com instrucao de abrir o login
+Sem overflow em 1440; mensagens de usuario (sem stack/technical dump)
+```
