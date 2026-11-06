@@ -10,11 +10,16 @@ const EMAIL = process.argv[3] ?? 'admin@integr-ai.local';
 const PASSWORD = process.argv[4] ?? 'IntegrAI-Prod-2026!';
 const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
 
-const EDGE = [
+const BROWSERS = [
+  process.env.BROWSER_PATH,
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-];
-const executablePath = EDGE.find((candidate) => existsSync(candidate));
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+].filter((candidate) => typeof candidate === 'string' && candidate.length > 0);
+const executablePath = BROWSERS.find((candidate) => existsSync(candidate));
 
 async function audit(page, name) {
   await page.evaluate(AXE);

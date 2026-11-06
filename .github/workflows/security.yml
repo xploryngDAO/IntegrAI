@@ -47,7 +47,7 @@ jobs:
       S3_SECRET_ACCESS_KEY: ci-probe-secret
       S3_FORCE_PATH_STYLE: 'true'
       APP_BASE_URL: http://localhost:4000
-      WEB_ORIGIN: http://localhost:5173
+      WEB_ORIGIN: http://localhost:5173,http://127.0.0.1:4173
       PORT: '4000'
       LOG_LEVEL: warn
       ADMIN_EMAIL: admin@integr-ai.local
@@ -83,6 +83,37 @@ jobs:
 
       - name: Security probe
         run: node scripts/security-probe.mjs http://127.0.0.1:4000 admin@integr-ai.local 'IntegrAI-CI-2026!'
+
+      - name: Build web against the local API
+        run: npm run build --workspace @sac/web
+        env:
+          VITE_API_BASE_URL: http://127.0.0.1:4000/api/v1
+
+      - name: Start web preview
+        run: |
+          cd apps/web
+          nohup npx vite preview --host 127.0.0.1 --port 4173 --strictPort > ../web.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then
+              echo "web ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "web did not become ready"; cat ../web.log; exit 1
+
+      - name: Resolve Chromium path
+        run: |
+          BROWSER=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -z "$BROWSER" ]; then echo "no Chromium/Chrome available"; exit 1; fi
+          echo "BROWSER_PATH=$BROWSER" >> "$GITHUB_ENV"
+          echo "browser=$BROWSER"
+
+      - name: Accessibility audit (WCAG AA)
+        run: node scripts/a11y-audit.mjs http://127.0.0.1:4173 admin@integr-ai.local 'IntegrAI-CI-2026!'
+
+      - name: Web log on failure
+        if: failure()
+        run: tail -n 100 web.log || true
 
       - name: API log on failure
         if: failure()
