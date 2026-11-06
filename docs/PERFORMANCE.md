@@ -93,3 +93,16 @@ As capturas do produto foram convertidas para **WebP** (quality 82, largura 1400
 `convergencia` (design system) e `icons` (lucide-react). O chunk da aplicação caiu de
 ~537 KiB para ~243 KiB; deploys de produto não invalidam o cache de vendor.
 Resultado no GitHub Pages: **Performance 100 · A11y 100 · BP 100 · SEO 100**.
+
+## Web Vitals no GitHub Pages (2026-11-06)
+
+`node scripts/web-vitals.mjs https://xploryngdao.github.io/IntegrAI` (Chromium 1440×900):
+
+| Tela | LCP | CLS | TTFB | long tasks |
+|---|---|---|---|---|
+| landing | 788 ms | 0.000 | 305 ms | 0 |
+| workspace (pós-login) | 224 ms | 0.001 | 152 ms | 0 |
+| /accounts | 596 ms | 0.000 | 153 ms | 0 |
+
+3/3 dentro do alvo (LCP ≤ 2,5 s · CLS ≤ 0,1). O TTFB maior vem do CDN do
+Pages; o cache de vendor + imagens WebP mantêm o LCP abaixo de 1 s.
