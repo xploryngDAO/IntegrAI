@@ -651,3 +651,10 @@ API: 0 FAIL / 3 WARN / 65 PASS; SPA: 0 FAIL / 8 WARN / 60 PASS
 Warns revisados e aceitos (HSTS do quick tunnel, CSP https: por hosts dinamicos,
 unsafe-inline do DS, COEP intencionalmente ausente) -> docs/PENTEST_REPORT.md
 ```
+
+### 67. Carga de producao (health/status)
+```
+autocannon -c 10 -d 10 no host publico
+/health: 222 RPS · p99 94ms · 0 erros
+/status: 233 RPS · p99 92ms · 0 erros
+```

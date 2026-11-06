@@ -55,3 +55,16 @@ npx --yes autocannon -c 10 -d 10 -p 2 http://127.0.0.1:4101/api/v1/status
   oculta) e o link volta a ser nomeado pelo texto visivel — a11y 100 local.
 - Medicao de performance (LCP/CLS) nao rodou com o Edge local (NO_NAVSTART); executar no
   host/CI com Chrome dedicado ou WebPageTest.
+
+## Produção via túnel (2026-11-06)
+
+`autocannon -c 10 -d 10` contra o host público atual (quick tunnel Cloudflare), sem cache:
+
+| Endpoint | RPS médio | p99 | erros |
+|---|---|---|---|
+| `GET /api/v1/health` | **222** | 94 ms | 0 |
+| `GET /api/v1/status` | **233** | 92 ms | 0 |
+
+Caveat: o quick tunnel adiciona latência de borda e pode limitar a vazão; no
+self-hosted (Caddy → API) os números tendem a ser iguais ou melhores. O objetivo
+é provar ausência de erros e latência p99 < 100 ms com 10 conexões concorrentes.
