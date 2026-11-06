@@ -187,3 +187,20 @@ Validação: primeira execução manual (commit `c643e2f`) → `Uptime: success`
 nenhuma issue de incidente criada (sistema saudável). Esse monitor cobre o
 período em que a API pública roda em túnel; o stack self-hosted continua com
 Prometheus/Grafana (`deploy/observability/`).
+
+## 15. Restore do PostgreSQL (VPS)
+
+Backups: cron diário às 03:17 no VPS grava `/var/backups/integrai/db-<UTC>.sql.gz`
+(retenção 14 dias, `BACKUP_RETENTION_DAYS`), gerado por
+`scripts/provision-vps.sh`.
+
+Restauração (destrutiva, exige confirmação explícita):
+```bash
+CONFIRM=yes bash scripts/restore-postgres.sh                     # backup mais recente
+CONFIRM=yes bash scripts/restore-postgres.sh /var/backups/integrai/db-20261107T031700Z.sql.gz
+```
+
+O script: gera um **backup de segurança** antes, para API/web, restaura com
+`psql -v ON_ERROR_STOP=1`, sobe os serviços e aguarda `/health/ready`.
+Depois valide login e uma tela com dados; se algo falhar, o dump
+`db-pre-restore-*.sql.gz` está no mesmo diretório.
