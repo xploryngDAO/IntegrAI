@@ -71,6 +71,7 @@ class RecordingEmailService implements IEmailService {
     this.sent.push(`reset:${to}`);
   }
   async sendInvitationEmail(): Promise<void> {}
+  async sendNewSessionAlert(): Promise<void> {}
 }
 
 class InMemoryVerificationRepository implements IEmailVerificationRepository {

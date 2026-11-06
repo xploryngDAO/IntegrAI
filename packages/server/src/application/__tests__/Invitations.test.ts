@@ -82,6 +82,10 @@ class FakeEmailService implements IEmailService {
     }
     this.invitations.push({ to, link, inviterName });
   }
+
+  async sendNewSessionAlert(): Promise<void> {
+    // New-device alerts are covered by AuthService.test.ts.
+  }
 }
 
 class InMemoryTenantRepository implements ITenantRepository {

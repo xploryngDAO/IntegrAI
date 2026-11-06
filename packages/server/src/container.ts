@@ -348,6 +348,11 @@ export function createContainer(args: ContainerArgs): IAppServices {
     tenants: infra.tenants,
     sso: tenantSso,
     audit,
+    // Security: new-device login alert (`auth.login.new_device`). The e-mail is
+    // best effort and the session repository is read directly for the exact
+    // fingerprint lookup (before the new session row is created).
+    email: infra.email,
+    sessionRepository: infra.sessions,
     repos: {
       agents: infra.agents,
       tickets: infra.repos.tickets,

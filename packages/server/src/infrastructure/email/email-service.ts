@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 
-import type { IEmailService, ILogger } from '@sac/shared';
+import type { IEmailService, ILogger, NewSessionAlertEmail } from '@sac/shared';
 
 /**
  * ============================================================================
@@ -35,6 +35,8 @@ export interface SmtpEmailServiceOptions {
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+/** Product timezone: the alert states when the login happened in local time. */
+const ALERT_TIME_ZONE = 'America/Sao_Paulo';
 
 export class SmtpEmailService implements IEmailService {
   private readonly logger: ILogger;
@@ -213,6 +215,96 @@ export class SmtpEmailService implements IEmailService {
     });
   }
 
+  /**
+   * Security alert for a login from a device fingerprint (IP + user-agent) the
+   * operator never used before.
+   *
+   * Best effort by contract: this method NEVER throws. A relay failure is only
+   * logged (`email.new_session_alert.failed`) because the login already
+   * succeeded; the caller also invokes it fire-and-forget. The dev fallback
+   * (SMTP unset / loopback outside production) prints the alert instead of a
+   * link - there is no token in this e-mail, only the device/IP/instant.
+   */
+  async sendNewSessionAlert(input: NewSessionAlertEmail): Promise<void> {
+    const recipient = (input.to ?? '').trim();
+    if (recipient.length === 0) return;
+
+    const ip = (input.ip ?? '').trim();
+    const ipLabel = ip.length > 0 ? ip : 'não identificado';
+    const deviceLabel = describeDevice(input.userAgent);
+    const whenLabel = formatAlertInstant(input.at);
+    const tenantName = (input.tenantName ?? '').trim();
+
+    if (this.options.nodeEnv === 'test') {
+      // Never reach a real SMTP server from tests.
+      this.logger.debug('email.new_session_alert.skipped_in_test', { to: recipient });
+      return;
+    }
+
+    if (!this.isConfigured()) {
+      if (this.options.nodeEnv === 'production') {
+        this.logger.error('email.smtp.not_configured', {
+          hint: 'Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD (and SMTP_FROM) to deliver new session alerts.',
+        });
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(
+        `[email:dev] new session alert for ${recipient}: device=${deviceLabel} ip=${ipLabel} at=${whenLabel}`,
+      );
+      return;
+    }
+
+    const subject = 'Novo acesso à sua conta IntegrAI';
+    const greeting = input.name !== undefined && input.name.trim().length > 0
+      ? input.name.trim()
+      : 'olá';
+    const workspaceSuffix = tenantName.length > 0 ? ` no workspace ${tenantName}` : '';
+    const text = [
+      `Olá, ${greeting}!`,
+      '',
+      `Detectamos um novo acesso à sua conta IntegrAI${workspaceSuffix}.`,
+      '',
+      `Dispositivo: ${deviceLabel}`,
+      `Endereço IP: ${ipLabel}`,
+      `Data e hora: ${whenLabel} (horário de Brasília)`,
+      '',
+      'Se foi você, nenhuma ação é necessária.',
+      'Se você não reconhece este acesso, troque sua senha imediatamente e encerre',
+      'as sessões ativas em Configurações > Segurança.',
+    ].join('\n');
+    const html = [
+      `<p>Olá, ${escapeHtml(greeting)}!</p>`,
+      `<p>Detectamos um novo acesso à sua conta IntegrAI${escapeHtml(workspaceSuffix)}.</p>`,
+      '<ul>',
+      `<li><strong>Dispositivo:</strong> ${escapeHtml(deviceLabel)}</li>`,
+      `<li><strong>Endereço IP:</strong> ${escapeHtml(ipLabel)}</li>`,
+      `<li><strong>Data e hora:</strong> ${escapeHtml(whenLabel)} (horário de Brasília)</li>`,
+      '</ul>',
+      '<p>Se foi você, nenhuma ação é necessária.</p>',
+      '<p>Se você não reconhece este acesso, <strong>troque sua senha imediatamente</strong> e encerre as sessões ativas em Configurações &gt; Segurança.</p>',
+    ].join('\n');
+
+    try {
+      const transporter = this.getTransporter();
+      await transporter.sendMail({
+        from: this.options.from,
+        to: recipient,
+        subject,
+        text,
+        html,
+      });
+    } catch (error) {
+      // Best effort: the login must never fail because the alert could not be
+      // delivered. No token/link exists here, so the warning is PII-free beyond
+      // the recipient address (already known to the operator).
+      this.logger.warn('email.new_session_alert.failed', {
+        to: recipient,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private getTransporter(): Transporter {
     if (this.transporter !== null) return this.transporter;
 
@@ -237,4 +329,24 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** Raw user-agent (already truncated at the session boundary) or a safe label. */
+function describeDevice(userAgent: string | null | undefined): string {
+  const raw = (userAgent ?? '').trim();
+  return raw.length > 0 ? raw : 'Dispositivo não identificado';
+}
+
+/**
+ * Renders the login instant in the product timezone. The formatter is built on
+ * demand (cheap, cached by the engine) and falls back safely if `at` is invalid
+ * so a malformed value can never turn the best-effort alert into a throw.
+ */
+function formatAlertInstant(at: Date): string {
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) return 'data não disponível';
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: ALERT_TIME_ZONE,
+  }).format(at);
 }

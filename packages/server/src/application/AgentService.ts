@@ -12,8 +12,10 @@ import type {
   IAuthSessionService,
   ICache,
   IClock,
+  IEmailService,
   ILogger,
   IRealtimePublisher,
+  ISessionRepository,
   ISsoPasswordGuard,
   ITenantRepository,
   ITicketRepository,
@@ -62,6 +64,22 @@ import { toAgentSummary, compareAgentsByPresence } from './mappers';
  *    the queue column updates the "Atendentes" widget without polling.
  */
 
+/** A fingerprint unseen for 90 days counts as a new device. */
+const NEW_DEVICE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+/** Same caps `AuthSessionService.createSession` applies before persisting. */
+const MAX_SESSION_USER_AGENT_LENGTH = 255;
+const MAX_SESSION_IP_LENGTH = 64;
+
+/**
+ * Fingerprint that produced a new-device alert, captured BEFORE the new session
+ * row exists (see `detectNewDevice`). `at` is the login instant from the clock.
+ */
+interface NewDeviceFingerprint {
+  ip: string;
+  userAgent: string;
+  at: Date;
+}
+
 export interface AgentServiceDependencies {
   logger: ILogger;
   clock: IClock;
@@ -91,6 +109,18 @@ export interface AgentServiceDependencies {
   sso?: ISsoPasswordGuard;
   /** Administrative audit trail (best effort; never blocks login). */
   audit?: IAuditService;
+  /**
+   * New-device security alert (`auth.login.new_device`). Optional only so
+   * legacy unit harnesses keep compiling; the container ALWAYS wires it.
+   */
+  email?: IEmailService;
+  /**
+   * Session store read by the new-device detector. This is the same Prisma
+   * repository `AuthSessionService` writes through, injected directly because
+   * the detector needs an exact fingerprint lookup the session service does not
+   * expose. Optional for legacy harnesses: without it the detector is a no-op.
+   */
+  sessionRepository?: ISessionRepository;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -133,6 +163,8 @@ export class AgentService implements IAgentService {
   private readonly rateLimiter: AuthRateLimiter;
   private readonly sso: ISsoPasswordGuard | undefined;
   private readonly audit: IAuditService | undefined;
+  private readonly email: IEmailService | undefined;
+  private readonly sessionRepository: ISessionRepository | undefined;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -148,6 +180,8 @@ export class AgentService implements IAgentService {
     this.tenants = deps.tenants;
     this.sso = deps.sso;
     this.audit = deps.audit;
+    this.email = deps.email;
+    this.sessionRepository = deps.sessionRepository;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
@@ -289,12 +323,19 @@ export class AgentService implements IAgentService {
     agent: AgentRecord,
     device?: SessionDeviceInfo,
   ): Promise<LoginSuccess> {
+    // Security: fingerprint the device BEFORE the new session row exists, so the
+    // probe cannot match the very session it is about to create. The lookup is
+    // awaited (one indexed query) and fail-open; the alert e-mail itself is
+    // fire-and-forget and never blocks/fails the login.
+    const newDevice = await this.detectNewDevice(agent, device);
     // The refresh session is minted FIRST so the access token can carry its
     // `sid` claim (`GET /auth/sessions` marks the current device). A session
     // store failure is not fatal: the operator still gets the JWT alone.
     const issued = await this.issueRefreshSession(agent, device);
     const token = this.signToken(agent, issued?.sessionId);
     await this.writePresence(agent.id, 'ONLINE', agent.name);
+
+    if (newDevice !== null) this.emitNewDeviceAlert(agent, newDevice);
 
     return {
       token,
@@ -473,6 +514,126 @@ export class AgentService implements IAgentService {
   }
 
   /* ==================================================================== */
+  /* New-device security alert                                            */
+  /* ==================================================================== */
+
+  /**
+   * Returns the fingerprint when this operator has NO session with the same IP
+   * AND the same user-agent in the last 90 days, or `null` when the device is
+   * already known / the fingerprint is unusable / the probe failed.
+   *
+   * Contract:
+   *  - a request without IP or without user-agent is ignored (no alert);
+   *  - values are trimmed and truncated exactly like `AuthSessionService`
+   *    persists them, so the equality check matches the stored row;
+   *  - the lookup is fail-open: a read failure is only logged. We cannot tell
+   *    whether the device is new, and blocking the login would be worse than
+   *    missing one alert.
+   */
+  private async detectNewDevice(
+    agent: AgentRecord,
+    device?: SessionDeviceInfo,
+  ): Promise<NewDeviceFingerprint | null> {
+    if (this.sessionRepository === undefined) return null;
+
+    const ip = normalizeSessionFingerprint(device?.ip, MAX_SESSION_IP_LENGTH);
+    const userAgent = normalizeSessionFingerprint(
+      device?.userAgent,
+      MAX_SESSION_USER_AGENT_LENGTH,
+    );
+    // A partial fingerprint cannot identify a device: never send a false alarm.
+    if (ip === null || userAgent === null) return null;
+
+    const at = this.clock.now();
+    const since = new Date(at.getTime() - NEW_DEVICE_WINDOW_MS);
+
+    try {
+      const known = await this.sessionRepository.hasSessionWithFingerprint(agent.id, {
+        ip,
+        userAgent,
+        since,
+      });
+      return known ? null : { ip, userAgent, at };
+    } catch (error) {
+      this.logger.warn('agent.login.new_device_check_failed', {
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Emits the audit row synchronously (best effort, the audit service already
+   * never throws) and kicks the e-mail off without awaiting it. The actor
+   * e-mail is redacted: the alert goes to the inbox, the audit trail keeps only
+   * the masked address, and the metadata never carries the full address.
+   */
+  private emitNewDeviceAlert(agent: AgentRecord, fingerprint: NewDeviceFingerprint): void {
+    this.audit?.record({
+      action: AUDIT_ACTIONS.loginNewDevice,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: redactPiiForLogs(agent.email),
+      resourceType: 'user',
+      resourceId: agent.id,
+      ip: fingerprint.ip,
+      userAgent: fingerprint.userAgent,
+      metadata: {
+        ip: fingerprint.ip,
+        userAgent: fingerprint.userAgent,
+        at: fingerprint.at.toISOString(),
+      },
+    });
+
+    this.logger.info('agent.login.new_device', { agentId: agent.id });
+
+    if (this.email === undefined) return;
+    // Fire-and-forget by contract: `sendNewDeviceEmail` swallows every failure,
+    // so this promise never rejects and the caller never awaits it.
+    void this.sendNewDeviceEmail(agent, fingerprint);
+  }
+
+  private async sendNewDeviceEmail(
+    agent: AgentRecord,
+    fingerprint: NewDeviceFingerprint,
+  ): Promise<void> {
+    try {
+      const tenantName = await this.resolveTenantName(agent.tenantId);
+      await this.email?.sendNewSessionAlert({
+        to: agent.email,
+        name: agent.name,
+        ip: fingerprint.ip,
+        userAgent: fingerprint.userAgent,
+        at: fingerprint.at,
+        tenantName,
+      });
+    } catch (error) {
+      // Best effort: a broken relay must not turn a successful login into a
+      // failure (nor surface as an unhandled rejection).
+      this.logger.warn('agent.login.new_device_email_failed', {
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Workspace display name for the alert body; never fatal. */
+  private async resolveTenantName(tenantId: string | null): Promise<string | null> {
+    if (tenantId === null || this.tenants === undefined) return null;
+    try {
+      const tenant = await this.tenants.findById(tenantId);
+      return tenant?.name ?? null;
+    } catch (error) {
+      this.logger.warn('agent.login.new_device_tenant_lookup_failed', {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /* ==================================================================== */
   /* Presence                                                             */
   /* ==================================================================== */
 
@@ -616,4 +777,19 @@ export class AgentService implements IAgentService {
 function normalizeClientIp(value?: string | null): string {
   const ip = (value ?? '').trim();
   return ip.length > 0 ? ip : 'unknown';
+}
+
+/**
+ * Same normalization `AuthSessionService.createSession` applies before writing
+ * `sessions.ip` / `sessions.user_agent`: trim, empty means "absent", longer
+ * values are sliced to the column cap. Keeping both sides identical is what
+ * makes the fingerprint equality check reliable.
+ */
+function normalizeSessionFingerprint(
+  value: string | null | undefined,
+  maxLength: number,
+): string | null {
+  const normalized = (value ?? '').trim();
+  if (normalized.length === 0) return null;
+  return normalized.slice(0, maxLength);
 }

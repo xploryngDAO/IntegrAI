@@ -78,6 +78,7 @@ const fakeEmail: IEmailService = {
   async sendVerificationEmail(): Promise<void> {},
   async sendPasswordResetEmail(): Promise<void> {},
   async sendInvitationEmail(): Promise<void> {},
+  async sendNewSessionAlert(): Promise<void> {},
 };
 
 const unusedTenants = {

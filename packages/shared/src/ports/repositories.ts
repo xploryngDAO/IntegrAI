@@ -605,6 +605,19 @@ export interface ITwoFactorRepository {
   consumeRecoveryCode(userId: string, codeHash: string, at: Date): Promise<boolean>;
 }
 
+/**
+ * Exact fingerprint probe used by the "new device" login alert.
+ *
+ * Both fields are mandatory: the detector never asks about a partial
+ * fingerprint (a request without IP or user-agent is simply ignored, see
+ * `AgentService`). `since` bounds the lookback window (`createdAt >= since`).
+ */
+export interface SessionFingerprintQuery {
+  ip: string;
+  userAgent: string;
+  since: Date;
+}
+
 export interface CreateSessionInput {
   userId: string;
   tenantId: string;
@@ -621,6 +634,13 @@ export interface ISessionRepository {
   findByRefreshTokenHash(tokenHash: string): Promise<SessionRecord | null>;
   /** 404-safe lookup used by `DELETE /auth/sessions/:id`. */
   findById(id: string): Promise<SessionRecord | null>;
+  /**
+   * True when the operator already opened a session with the SAME `ip` AND the
+   * SAME `userAgent` at/after `since` (new-device detector, 90 day window).
+   * Revoked/expired sessions still count: the device was known, the alert is
+   * about "never seen before", not "currently connected".
+   */
+  hasSessionWithFingerprint(userId: string, query: SessionFingerprintQuery): Promise<boolean>;
   /**
    * Live sessions of one operator (`revoked_at IS NULL`, not expired), newest
    * first — the `GET /auth/sessions` read model.

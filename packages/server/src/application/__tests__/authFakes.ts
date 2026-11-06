@@ -5,6 +5,7 @@ import type {
   IPasswordResetRepository,
   ISessionRepository,
   PasswordResetRecord,
+  SessionFingerprintQuery,
   SessionRecord,
 } from '@sac/shared';
 
@@ -99,6 +100,23 @@ export class InMemorySessionRepository implements ISessionRepository {
           row.userId === userId && row.revokedAt === null && row.expiresAt.getTime() > at.getTime(),
       )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  /**
+   * Mirrors the Prisma probe: exact `ip` + `userAgent` match, `createdAt >=
+   * since`. Revoked sessions still count (the device was known).
+   */
+  async hasSessionWithFingerprint(
+    userId: string,
+    query: SessionFingerprintQuery,
+  ): Promise<boolean> {
+    return this.rows.some(
+      (row) =>
+        row.userId === userId &&
+        row.ip === query.ip &&
+        row.userAgent === query.userAgent &&
+        row.createdAt.getTime() >= query.since.getTime(),
+    );
   }
 
   async revoke(id: string, at: Date): Promise<boolean> {

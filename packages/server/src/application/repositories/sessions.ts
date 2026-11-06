@@ -1,5 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
-import type { CreateSessionInput, ISessionRepository, SessionRecord } from '@sac/shared';
+import type {
+  CreateSessionInput,
+  ISessionRepository,
+  SessionFingerprintQuery,
+  SessionRecord,
+} from '@sac/shared';
 import { mapSession } from './mappers';
 
 /**
@@ -45,6 +50,28 @@ export class PrismaSessionRepository implements ISessionRepository {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     return records.map(mapSession);
+  }
+
+  /**
+   * New-device probe: a single indexed `findFirst` on (userId, createdAt) with
+   * an exact match on both fingerprint columns. `select: { id: true }` keeps
+   * the row payload minimal; revoked/expired sessions deliberately still match
+   * (the device was known even if that session is gone).
+   */
+  async hasSessionWithFingerprint(
+    userId: string,
+    query: SessionFingerprintQuery,
+  ): Promise<boolean> {
+    const match = await this.prisma.session.findFirst({
+      where: {
+        userId,
+        ip: query.ip,
+        userAgent: query.userAgent,
+        createdAt: { gte: query.since },
+      },
+      select: { id: true },
+    });
+    return match !== null;
   }
 
   async revoke(id: string, at: Date): Promise<boolean> {

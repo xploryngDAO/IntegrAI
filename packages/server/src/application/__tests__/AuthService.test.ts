@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import bcrypt from 'bcryptjs';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type {
   AgentPresenceStatus,
@@ -9,6 +9,7 @@ import type {
   CreateAgentInput,
   EmailVerificationRecord,
   IAgentRepository,
+  IAuditService,
   IAuthSessionService,
   ICache,
   IClock,
@@ -16,16 +17,19 @@ import type {
   IEmailVerificationRepository,
   ILogger,
   IRealtimePublisher,
+  ISessionRepository,
   ITenantRepository,
   ITicketRepository,
   LoginResult,
   LoginSuccess,
+  NewSessionAlertEmail,
   TenantRecord,
 } from '@sac/shared';
 
 import { AgentService } from '../AgentService';
 import { AuthService, slugifyCompanyName } from '../AuthService';
 import { AuthSessionService } from '../AuthSessionService';
+import { RecordingAuditService } from './adminFakes';
 import {
   InMemoryPasswordResetRepository,
   InMemorySessionRepository,
@@ -162,7 +166,12 @@ interface SentEmail {
 class FakeEmailService implements IEmailService {
   readonly sent: SentEmail[] = [];
   readonly sentResets: SentEmail[] = [];
+  /** New-device security alerts, in delivery order. */
+  readonly newSessionAlerts: NewSessionAlertEmail[] = [];
+  /** Attempts, including the ones that throw (failure-path assertions). */
+  newSessionAlertAttempts = 0;
   failNext = false;
+  failNewSessionAlerts = false;
 
   async sendVerificationEmail(to: string, link: string, name?: string): Promise<void> {
     if (this.failNext) {
@@ -182,6 +191,15 @@ class FakeEmailService implements IEmailService {
 
   async sendInvitationEmail(): Promise<void> {
     // Invitations are covered by Invitations.test.ts.
+  }
+
+  async sendNewSessionAlert(input: NewSessionAlertEmail): Promise<void> {
+    this.newSessionAlertAttempts += 1;
+    if (this.failNewSessionAlerts) {
+      this.failNewSessionAlerts = false;
+      throw new Error('smtp unavailable');
+    }
+    this.newSessionAlerts.push(input);
   }
 }
 
@@ -454,10 +472,18 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
   };
 }
 
+interface AgentServiceOverrides {
+  sessionRepository?: ISessionRepository;
+  email?: IEmailService;
+  audit?: IAuditService;
+  tenants?: ITenantRepository;
+}
+
 function buildAgentService(
   agents: InMemoryAgentRepository,
   clock: FakeClock,
   sessions?: IAuthSessionService,
+  overrides: AgentServiceOverrides = {},
 ): AgentService {
   const tickets = {
     countActiveByAgent: async (): Promise<number> => 0,
@@ -472,6 +498,12 @@ function buildAgentService(
     jwtExpiresIn: '1h',
     presenceTtlSeconds: 120,
     ...(sessions !== undefined ? { sessions } : {}),
+    ...(overrides.sessionRepository !== undefined
+      ? { sessionRepository: overrides.sessionRepository }
+      : {}),
+    ...(overrides.email !== undefined ? { email: overrides.email } : {}),
+    ...(overrides.audit !== undefined ? { audit: overrides.audit } : {}),
+    ...(overrides.tenants !== undefined ? { tenants: overrides.tenants } : {}),
     repos: { agents, tickets },
   });
 }
@@ -943,5 +975,205 @@ describe('AgentService.login + refresh token issuance', () => {
 
     expect(result.token.length).toBeGreaterThan(0);
     expect(result.refreshToken).toBeUndefined();
+  });
+});
+
+/* ==========================================================================
+ * new-device security alert (AgentService.login)
+ * ========================================================================== */
+
+describe('AgentService.login + new device alert', () => {
+  const IP = '203.0.113.10';
+  const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) IntegrAI/1.0';
+  const NEW_DEVICE_ACTION = 'auth.login.new_device';
+  let seedSequence = 0;
+
+  async function buildDeviceHarness() {
+    const clock = new FakeClock(new Date('2026-01-01T12:00:00.000Z'));
+    const cache = new FakeCache(clock);
+    const agents = new InMemoryAgentRepository(clock);
+    const sessions = new InMemorySessionRepository(clock);
+    const email = new FakeEmailService();
+    const audit = new RecordingAuditService();
+    const tenants = new InMemoryTenantRepository(clock);
+    const tenant = await tenants.create({ slug: 'acme', name: 'Acme Ltda' });
+
+    const agent = agents.seed({
+      email: 'admin@tenant.test',
+      passwordHash: verifiedPasswordHash,
+      emailVerifiedAt: new Date('2025-11-01T00:00:00.000Z'),
+      tenantId: tenant.id,
+    });
+
+    const sessionService = new AuthSessionService({
+      logger,
+      clock,
+      jwtSecret: 'unit-test-secret-with-32-characters!!',
+      jwtExpiresIn: '1h',
+      repos: { agents, sessions },
+    });
+    const service = buildAgentService(agents, clock, sessionService, {
+      sessionRepository: sessions,
+      email,
+      audit,
+      tenants,
+    });
+
+    return { clock, cache, agents, sessions, email, audit, tenants, tenant, agent, service };
+  }
+
+  async function seedKnownSession(
+    h: Awaited<ReturnType<typeof buildDeviceHarness>>,
+    input: { ip: string; userAgent: string },
+  ) {
+    return h.sessions.create({
+      userId: h.agent.id,
+      tenantId: h.tenant.id,
+      refreshTokenHash: `seed-hash-${(seedSequence += 1)}`,
+      ip: input.ip,
+      userAgent: input.userAgent,
+      expiresAt: new Date(h.clock.now().getTime() + 30 * DAY_MS),
+    });
+  }
+
+  it('e-mails the operator on a password login from an unknown device', async () => {
+    const h = await buildDeviceHarness();
+
+    const result = expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+    expect(result.token.length).toBeGreaterThan(0);
+
+    await vi.waitFor(() => expect(h.email.newSessionAlerts).toHaveLength(1));
+    expect(h.email.newSessionAlerts[0]).toMatchObject({
+      to: 'admin@tenant.test',
+      name: 'Operador',
+      ip: IP,
+      userAgent: USER_AGENT,
+      tenantName: 'Acme Ltda',
+    });
+    expect(h.email.newSessionAlerts[0].at.getTime()).toBe(h.clock.now().getTime());
+  });
+
+  it('does NOT alert when the same IP + user-agent already has a session', async () => {
+    const h = await buildDeviceHarness();
+    await seedKnownSession(h, { ip: IP, userAgent: USER_AGENT });
+
+    expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+
+    // The fingerprint probe is awaited before the session is created, so a
+    // "known device" login never schedules the fire-and-forget e-mail.
+    expect(h.email.newSessionAlerts).toHaveLength(0);
+    expect(h.audit.actions()).not.toContain(NEW_DEVICE_ACTION);
+  });
+
+  it('still treats the device as new when only the IP matches (same IP, other UA)', async () => {
+    const h = await buildDeviceHarness();
+    await seedKnownSession(h, { ip: IP, userAgent: 'AnotherBrowser/1.0' });
+
+    expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+
+    await vi.waitFor(() => expect(h.email.newSessionAlerts).toHaveLength(1));
+  });
+
+  it('treats a stale fingerprint (older than 90 days) as a new device', async () => {
+    const h = await buildDeviceHarness();
+    const stale = await seedKnownSession(h, { ip: IP, userAgent: USER_AGENT });
+    stale.createdAt = new Date(h.clock.now().getTime() - 91 * DAY_MS);
+
+    expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+
+    await vi.waitFor(() => expect(h.email.newSessionAlerts).toHaveLength(1));
+  });
+
+  it('ignores logins without an IP or without a user-agent (no false alarm)', async () => {
+    const h = await buildDeviceHarness();
+
+    expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, { userAgent: USER_AGENT }),
+    );
+    expectLoginSuccess(await h.service.login('admin@tenant.test', TEST_PASSWORD, { ip: IP }));
+    expectLoginSuccess(await h.service.login('admin@tenant.test', TEST_PASSWORD));
+
+    expect(h.email.newSessionAlerts).toHaveLength(0);
+    expect(h.email.newSessionAlertAttempts).toBe(0);
+    expect(h.audit.actions()).not.toContain(NEW_DEVICE_ACTION);
+    // The logins themselves keep working and open their sessions.
+    expect(h.sessions.rows).toHaveLength(3);
+  });
+
+  it('keeps the login successful when the alert e-mail fails', async () => {
+    const h = await buildDeviceHarness();
+    h.email.failNewSessionAlerts = true;
+
+    const result = expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+
+    expect(result.token.length).toBeGreaterThan(0);
+    expect(result.refreshToken).toBeDefined();
+    await vi.waitFor(() => expect(h.email.newSessionAlertAttempts).toBe(1));
+    expect(h.email.newSessionAlerts).toHaveLength(0);
+  });
+
+  it('also detects a new device on the shared SSO/2FA session-issuance path', async () => {
+    const h = await buildDeviceHarness();
+
+    // `SsoAuthService.exchange` and the 2FA challenge completion both call
+    // `AgentService.issueSession`, so the detector lives on that shared path.
+    await h.service.issueSession(h.agent.id, { ip: IP, userAgent: USER_AGENT });
+
+    await vi.waitFor(() => expect(h.email.newSessionAlerts).toHaveLength(1));
+    expect(h.audit.actions()).toContain(NEW_DEVICE_ACTION);
+  });
+
+  it('audits auth.login.new_device with IP/user-agent and a redacted e-mail', async () => {
+    const h = await buildDeviceHarness();
+
+    expectLoginSuccess(
+      await h.service.login('admin@tenant.test', TEST_PASSWORD, {
+        ip: IP,
+        userAgent: USER_AGENT,
+      }),
+    );
+
+    await vi.waitFor(() => expect(h.audit.actions()).toContain(NEW_DEVICE_ACTION));
+    const entry = h.audit.recorded.find((row) => row.action === NEW_DEVICE_ACTION);
+    expect(entry).toBeDefined();
+    expect(entry).toMatchObject({
+      action: NEW_DEVICE_ACTION,
+      tenantId: h.tenant.id,
+      actorId: h.agent.id,
+      resourceType: 'user',
+      resourceId: h.agent.id,
+      ip: IP,
+      userAgent: USER_AGENT,
+    });
+    // Redacted, never the full address on the row or in the metadata.
+    expect(entry?.actorEmail).toBe('ad***@tenant.test');
+    expect(entry?.actorEmail).not.toBe('admin@tenant.test');
+    expect(JSON.stringify(entry?.metadata)).not.toContain('admin@tenant.test');
+    expect(entry?.metadata).toMatchObject({ ip: IP, userAgent: USER_AGENT });
   });
 });

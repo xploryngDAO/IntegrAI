@@ -109,6 +109,23 @@ export interface IObjectStorage {
 }
 
 /**
+ * New-device login alert payload.
+ *
+ * `ip`/`userAgent` are the already-normalized fingerprint the session store
+ * matched against (absent when the request carries no usable fingerprint - the
+ * caller never sends the alert in that case). `at` is the login instant from the
+ * injected clock, so the e-mail and the audit row agree on the same timestamp.
+ */
+export interface NewSessionAlertEmail {
+  to: string;
+  name?: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  at: Date;
+  tenantName?: string | null;
+}
+
+/**
  * Transactional e-mail port.
  *
  * Implementations must never log the raw token/link in production and must
@@ -120,6 +137,12 @@ export interface IEmailService {
   sendPasswordResetEmail(to: string, link: string, name?: string): Promise<void>;
   /** Fase 1: `/invite?token=...` link; single use, 7 day TTL. */
   sendInvitationEmail(to: string, link: string, inviterName?: string): Promise<void>;
+  /**
+   * Security alert for a login from an unknown device. Best effort by contract:
+   * implementations must never throw (the login already succeeded) and must
+   * keep the dev-only log fallback when SMTP is not configured.
+   */
+  sendNewSessionAlert(input: NewSessionAlertEmail): Promise<void>;
 }
 
 export interface ISecretCipher {

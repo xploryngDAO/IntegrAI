@@ -72,6 +72,7 @@ const silentEmail: IEmailService = {
   async sendVerificationEmail(): Promise<void> {},
   async sendPasswordResetEmail(): Promise<void> {},
   async sendInvitationEmail(): Promise<void> {},
+  async sendNewSessionAlert(): Promise<void> {},
 };
 
 function createAccountHarness() {

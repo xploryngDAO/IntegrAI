@@ -78,6 +78,10 @@ class FakeEmailService implements IEmailService {
   async sendInvitationEmail(): Promise<void> {
     // Invitations are covered by Invitations.test.ts.
   }
+
+  async sendNewSessionAlert(): Promise<void> {
+    // New-device alerts are covered by AuthService.test.ts.
+  }
 }
 
 class InMemoryAgentRepository implements IAgentRepository {

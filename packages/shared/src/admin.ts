@@ -37,6 +37,12 @@ import type { AgentRole, Marketplace } from './enums';
 export const AUDIT_ACTIONS = {
   loginSuccess: 'auth.login.success',
   loginFailure: 'auth.login.failure',
+  /**
+   * Successful password/SSO login from a device fingerprint (IP + user-agent)
+   * never seen for that operator in the last 90 days. The e-mail in the row is
+   * redacted: the alert itself is delivered to the operator's inbox.
+   */
+  loginNewDevice: 'auth.login.new_device',
   logout: 'auth.logout',
   passwordResetCompleted: 'auth.password.reset_completed',
   twoFactorEnabled: 'auth.2fa.enabled',
