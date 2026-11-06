@@ -1,9 +1,21 @@
 import { createHash } from 'node:crypto';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import type { ServerSideEncryption } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AppError } from '@sac/shared';
-import type { ILogger, IObjectStorage, PutObjectInput, StoredObject } from '@sac/shared';
+import type {
+  DeleteObjectsResult,
+  ILogger,
+  IObjectStorage,
+  PutObjectInput,
+  StoredObject,
+} from '@sac/shared';
 
 /**
  * Object storage (AWS S3 or MinIO) for `.eml` artifacts, NF-e and evidence.
@@ -19,6 +31,8 @@ const ATTACHMENT_KEY_PREFIX = 'attachments/';
 const DEFAULT_PRESIGN_TTL_SECONDS = 600;
 /** Hard ceiling for pre-signed uploads (large evidence files, slow networks). */
 const PRESIGNED_UPLOAD_TIMEOUT_MS = 120_000;
+/** S3 DeleteObjects accepts at most 1.000 keys per request. */
+const MAX_KEYS_PER_DELETE = 1_000;
 
 export interface S3StorageConfig {
   endpoint?: string;
@@ -50,6 +64,23 @@ function requireSetting(value: string | undefined, name: string): string {
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * `NoSuchKey` / `NotFound` means the object is already gone, which is exactly
+ * what a delete wants. S3 returns it for some gateways (MinIO included), while
+ * a plain S3 DELETE is idempotent and usually answers 204.
+ */
+function isMissingObjectError(error: unknown): boolean {
+  const record = error as { name?: unknown; Code?: unknown; code?: unknown } | null;
+  const name = typeof record?.name === 'string' ? record.name : '';
+  const code =
+    typeof record?.Code === 'string'
+      ? record.Code
+      : typeof record?.code === 'string'
+        ? record.code
+        : '';
+  return /^(NoSuchKey|NotFound)$/i.test(name) || /^(NoSuchKey|NotFound)$/i.test(code);
 }
 
 export class S3ObjectStorage implements IObjectStorage {
@@ -149,6 +180,99 @@ export class S3ObjectStorage implements IObjectStorage {
         true,
       );
     }
+  }
+
+  /**
+   * Single-key delete (LGPD purge fallback). S3 DELETE is idempotent, but MinIO
+   * and some proxies answer `NoSuchKey`; that is the desired end state, so it
+   * is swallowed instead of surfacing as a purge failure.
+   */
+  async deleteObject(key: string): Promise<void> {
+    const bucket = this.resolveBucket(key);
+    try {
+      await this.getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (error) {
+      if (isMissingObjectError(error)) return;
+      this.logger?.error('storage.delete_failed', {
+        bucket,
+        key,
+        message: describeError(error),
+      });
+      throw new AppError(
+        'STORAGE_DELETE_FAILED',
+        `Failed to delete object ${key} from ${bucket}: ${describeError(error)}`,
+        502,
+        { bucket, key },
+        true,
+      );
+    }
+  }
+
+  /**
+   * Bulk delete used by the workspace purge.
+   *
+   * Keys are grouped by destination bucket (the `attachments/` prefix routes to
+   * the attachments bucket) and sent in chunks of 1.000. Partial failures never
+   * throw: per-key errors are counted, `NoSuchKey` counts as deleted, and the
+   * remaining chunks are still attempted. This lets the LGPD purge finish the
+   * database delete and report `s3Failed` instead of aborting.
+   */
+  async deleteObjects(keys: string[]): Promise<DeleteObjectsResult> {
+    const unique = [
+      ...new Set(keys.filter((key) => typeof key === 'string' && key.trim().length > 0)),
+    ];
+    const result: DeleteObjectsResult = { deleted: 0, failed: 0 };
+    if (unique.length === 0) return result;
+
+    const byBucket = new Map<string, string[]>();
+    for (const key of unique) {
+      const bucket = this.resolveBucket(key);
+      const bucketKeys = byBucket.get(bucket);
+      if (bucketKeys === undefined) byBucket.set(bucket, [key]);
+      else bucketKeys.push(key);
+    }
+
+    for (const [bucket, bucketKeys] of byBucket) {
+      for (let offset = 0; offset < bucketKeys.length; offset += MAX_KEYS_PER_DELETE) {
+        const chunk = bucketKeys.slice(offset, offset + MAX_KEYS_PER_DELETE);
+        try {
+          const output = await this.getClient().send(
+            new DeleteObjectsCommand({
+              Bucket: bucket,
+              Delete: { Objects: chunk.map((key) => ({ Key: key })), Quiet: false },
+            }),
+          );
+
+          const errors = output.Errors ?? [];
+          let failed = 0;
+          for (const entry of errors) {
+            if (isMissingObjectError({ name: entry.Code ?? '' })) continue;
+            failed += 1;
+          }
+          result.deleted += chunk.length - failed;
+          result.failed += failed;
+          if (failed > 0) {
+            // Never log the key: attachment names can carry buyer PII.
+            this.logger?.warn('storage.delete_objects_partial', {
+              bucket,
+              failed,
+              code: errors.find((entry) => !isMissingObjectError({ name: entry.Code ?? '' }))?.Code,
+            });
+          }
+        } catch (error) {
+          // Transport/auth failure on the whole chunk: every key stays and the
+          // caller reports `s3Failed`. The DB purge is never aborted for this.
+          result.failed += chunk.length;
+          this.logger?.error('storage.delete_objects_failed', {
+            bucket,
+            failed: chunk.length,
+            message: describeError(error),
+          });
+        }
+      }
+    }
+
+    return result;
   }
 
   async presignGet(key: string, expiresInSeconds = DEFAULT_PRESIGN_TTL_SECONDS): Promise<string> {

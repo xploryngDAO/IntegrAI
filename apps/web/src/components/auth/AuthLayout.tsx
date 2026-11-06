@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Moon, Sun } from 'lucide-react';
 import { Heading, Text } from '@xploryng/convergencia';
 import { useTheme } from '../../lib/theme';
+import { BrandMark } from '../layout/BrandMark';
 import { Avatar, Card, IconButton } from '../ui';
 
 export interface AuthLayoutProps {
@@ -34,19 +36,7 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps): J
       {/* `m-auto` centres the card when there is room and, unlike
           `justify-center`, never clips the top on short viewports. */}
       <div className="m-auto w-full max-w-[430px]">
-        <div className="mb-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-[var(--cv-radius-control)] bg-[var(--cv-color-accent)] font-mono text-[13px] font-semibold tracking-[0.06em] text-[var(--cv-color-on-accent)]">
-            SH
-          </span>
-          <div>
-            <div className="font-mono text-[15px] font-semibold tracking-[0.16em] text-[var(--cv-color-text)]">
-              SAC HUB
-            </div>
-            <div className="text-[var(--cv-font-micro)] uppercase tracking-[0.1em] text-[var(--cv-color-text-muted)]">
-              Central de atendimento omnichannel
-            </div>
-          </div>
-        </div>
+        <BrandMark className="mb-6" />
 
         <Card className="gap-4 p-6">
           <div className="flex flex-col gap-1">
@@ -56,9 +46,17 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps): J
           {children}
         </Card>
 
-        <div className="mt-6 flex items-center justify-center gap-2 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-          <Avatar name="SAC Hub" size="sm" />
-          Amazon SP-API · Mercado Livre · Shopee Open Platform v2
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <div className="flex items-center justify-center gap-2 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
+            <Avatar name="SAC Hub" size="sm" />
+            Amazon SP-API · Mercado Livre · Shopee Open Platform v2
+          </div>
+          <Link
+            to="/status"
+            className="text-[var(--cv-font-micro)] uppercase tracking-[0.08em] text-[var(--cv-color-text-muted)] underline-offset-2 hover:text-[var(--cv-color-text)] hover:underline"
+          >
+            Status dos sistemas
+          </Link>
         </div>
       </div>
     </div>

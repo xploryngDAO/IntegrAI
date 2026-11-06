@@ -578,6 +578,12 @@ export function toView(tenant: TenantRecord, counts: TenantUsageCounts): Platfor
     onboardingCompletedAt: tenant.onboardingCompletedAt?.toISOString() ?? null,
     deletedAt: tenant.deletedAt?.toISOString() ?? null,
     createdAt: tenant.createdAt.toISOString(),
+    // Billing prefill: the console edits these fields through
+    // `PATCH /platform/tenants/:id/billing`, so the list must expose the same
+    // subscription state instead of forcing a second request per row.
+    billingStatus: tenant.billingStatus,
+    trialEndsAt: tenant.trialEndsAt?.toISOString() ?? null,
+    billingEmail: tenant.billingEmail,
   };
 }
 

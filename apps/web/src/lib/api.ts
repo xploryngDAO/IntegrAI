@@ -20,6 +20,7 @@ import type {
   RouteDecision,
   SignupResult,
   SystemDiagnosis,
+  SystemStatusSnapshot,
   TicketDetail,
   TicketListItem,
   TicketStats,
@@ -176,6 +177,11 @@ interface RequestOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   /**
+   * Fetch cache mode. The public status page asks for `no-store` so the manual
+   * refresh is a real check instead of a 30 s cached snapshot.
+   */
+  cache?: RequestCache;
+  /**
    * Accepts a successful response without a JSON body (204/205/empty 2xx).
    * Logout answers 204 and a 204 must never surface as an invalid response.
    */
@@ -231,6 +237,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         method: options.method ?? 'GET',
         headers,
         body,
+        cache: options.cache,
         signal: controller.signal,
       });
     } catch (error) {
@@ -292,6 +299,12 @@ export interface ApiClient {
    */
   login(email: string, password: string): Promise<AuthResponse>;
   me(): Promise<IAgentSummary>;
+  /**
+   * Public availability snapshot (`GET /status`) consumed by `/status`.
+   * Requires no session: the page renders even when the credential gate cannot
+   * reach the API.
+   */
+  status(): Promise<SystemStatusSnapshot>;
   /** Creates tenant + first ADMIN and mails the verification link (public). */
   signup(body: SignupBody): Promise<SignupResult>;
   /** Consumes the single-use verification token (public). */
@@ -424,6 +437,27 @@ export const api: ApiClient = {
 
   me() {
     return request<IAgentSummary>('/auth/me');
+  },
+
+  async status() {
+    // Public endpoint: no session is issued or consumed, so `/status` keeps
+    // working for an anonymous visitor (and when `/auth/me` is unreachable).
+    // `no-store` keeps the manual refresh honest: the API may answer with
+    // `cache-control: max-age=30`, and a cached body would freeze `checkedAt`.
+    const payload = await request<SystemStatusSnapshot>('/status', {
+      timeoutMs: 8_000,
+      cache: 'no-store',
+    });
+    // Normalise the public payload: a server deployed ahead of this UI must not
+    // break the page, and a missing collection is rendered as empty — never as
+    // invented data. An unknown `status` string is tolerated downstream by
+    // `levelPresentation()` (it renders the raw value in a neutral tone).
+    return {
+      status: payload.status,
+      checkedAt: typeof payload.checkedAt === 'string' ? payload.checkedAt : '',
+      services: Array.isArray(payload.services) ? payload.services : [],
+      channels: Array.isArray(payload.channels) ? payload.channels : [],
+    };
   },
 
   twoFactorStatus() {
@@ -821,6 +855,10 @@ export type {
   RouteDecision,
   SendMessageBody,
   SystemDiagnosis,
+  SystemStatusChannel,
+  SystemStatusLevel,
+  SystemStatusService,
+  SystemStatusSnapshot,
   TicketDetail,
   TicketListItem,
   TicketStats,

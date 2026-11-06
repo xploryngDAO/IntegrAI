@@ -1,6 +1,7 @@
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   ITenantPurgeRepository,
+  TenantObjectKeys,
   TenantPurgeCounts,
   TenantRecord,
 } from '@sac/shared';
@@ -28,10 +29,10 @@ import { mapTenant } from './mappers';
  * (`{ ticket: { tenantId } }`, `{ account: { tenantId } }`), which keeps the
  * delete set exact without loading business rows into memory.
  *
- * Not deleted on purpose: `outbound_attempts` etc. are already covered above;
- * S3 artifacts (`body_raw_s3_uri`, attachment `s3_uri`) are NOT removed here -
- * object storage cleanup depends on the bucket lifecycle policy and is tracked
- * as a follow-up in docs/PHASE4_PLATFORM.md.
+ * S3 artifacts are NOT deleted inside the transaction. `collectObjectKeys`
+ * reads them first (read-only) and `TenantPurgeService` erases the objects
+ * through `IObjectStorage` before calling `purge`, so the DB transaction stays
+ * short and a storage outage can never leave a half-deleted workspace.
  */
 
 const DEFAULT_LIMIT = 25;
@@ -54,6 +55,54 @@ export class PrismaTenantPurgeRepository implements ITenantPurgeRepository {
       take,
     });
     return records.map(mapTenant);
+  }
+
+  /**
+   * Reads every S3 artifact the transactional purge will orphan.
+   *
+   * Scope mirrors `purge` exactly:
+   *  - `ticket_messages` / `message_attachments` through the ticket relation;
+   *  - `webhook_events` by `tenant_id` OR by one of the workspace accounts
+   *    (`account_id` is `ON DELETE SET NULL`, so legacy rows may have a NULL
+   *    tenant and would otherwise survive the delete as orphans).
+   *
+   * Only the columns that carry a key/URI are selected; `content_payload` is
+   * read solely for its `attachment_keys` metadata (never for body text) and
+   * the webhook payload JSON is not loaded.
+   */
+  async collectObjectKeys(tenantId: string): Promise<TenantObjectKeys> {
+    const accounts = await this.prisma.marketplaceAccount.findMany({
+      where: { tenantId },
+      select: { id: true },
+    });
+    const accountIds = accounts.map((account) => account.id);
+
+    const [webhooks, attachments, messages] = await Promise.all([
+      this.prisma.webhookEvent.findMany({
+        where: {
+          payloadS3Uri: { not: null },
+          ...(accountIds.length === 0
+            ? { tenantId }
+            : { OR: [{ tenantId }, { accountId: { in: accountIds } }] }),
+        },
+        select: { payloadS3Uri: true },
+      }),
+      this.prisma.messageAttachment.findMany({
+        where: { message: { ticket: { tenantId } } },
+        select: { s3Uri: true },
+      }),
+      this.prisma.ticketMessage.findMany({
+        where: { ticket: { tenantId } },
+        select: { bodyRawS3Uri: true, contentPayload: true },
+      }),
+    ]);
+
+    return {
+      webhookPayloads: collect(webhooks.map((row) => row.payloadS3Uri)),
+      messageBodies: collect(messages.map((row) => row.bodyRawS3Uri)),
+      attachments: collect(attachments.map((row) => row.s3Uri)),
+      metadataAttachments: collect(messages.flatMap((row) => attachmentKeys(row.contentPayload))),
+    };
   }
 
   async purge(tenantId: string): Promise<TenantPurgeCounts> {
@@ -166,6 +215,34 @@ export class PrismaTenantPurgeRepository implements ITenantPurgeRepository {
 function normalizeLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_LIMIT;
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
+}
+
+/** Trimmed, non-empty, de-duplicated keys (order preserved). */
+function collect(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const key = value.trim();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Outbox rows keep their attachment keys in
+ * `content_payload.attachment_keys` (see `OutboundRouterService`). JSON is
+ * untrusted, so anything that is not a non-empty string is ignored.
+ */
+function attachmentKeys(payload: Prisma.JsonValue | null | undefined): string[] {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return [];
+  const raw = (payload as Record<string, unknown>)['attachment_keys'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  );
 }
 
 export function createTenantPurgeRepository(prisma: PrismaClient): PrismaTenantPurgeRepository {

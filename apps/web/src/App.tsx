@@ -18,6 +18,7 @@ import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { InvitePage } from './pages/InvitePage';
+import { StatusPage } from './pages/StatusPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
@@ -27,9 +28,9 @@ import { SettingsPage } from './pages/SettingsPage';
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
 /**
- * Session-free routes: the credential gate plus the Fase 1 self-service screens
+ * Session-free routes: the credential gate, the Fase 1 self-service screens
  * (the API mails `/verify-email?token=…`, `/reset-password?token=…` and
- * `/invite?token=…`).
+ * `/invite?token=…`) and the public availability page (`/status`).
  */
 const PUBLIC_PATHS = new Set([
   '/login',
@@ -38,12 +39,15 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/invite',
+  '/status',
 ]);
 
 /**
  * Public routes that must render before — and without — the session probe: a
  * verification/invitation link opened from a mailbox cannot wait on `/auth/me`
- * (and must still work when the API session is unreachable).
+ * (and must still work when the API session is unreachable). `/status` is here
+ * for the same reason: the page that reports an outage cannot depend on the
+ * session that may be failing.
  */
 const NO_PROBE_PATHS = new Set([
   '/signup',
@@ -51,6 +55,7 @@ const NO_PROBE_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/invite',
+  '/status',
 ]);
 
 function normalizePath(pathname: string): string {
@@ -203,6 +208,8 @@ export default function App(): JSX.Element {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
+          {/* Public availability page: no session, no probe (see NO_PROBE_PATHS). */}
+          <Route path="/status" element={<StatusPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
 

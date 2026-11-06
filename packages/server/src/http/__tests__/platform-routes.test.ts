@@ -45,6 +45,9 @@ const TENANT_VIEW: PlatformTenantView = {
   onboardingCompletedAt: null,
   deletedAt: null,
   createdAt: '2026-11-01T10:00:00.000Z',
+  billingStatus: 'ACTIVE',
+  trialEndsAt: '2026-12-01T00:00:00.000Z',
+  billingEmail: 'finance@acme.test',
 };
 
 const LIST: PlatformTenantListResult = {
@@ -79,6 +82,8 @@ const PURGE_RESULT: TenantPurgeResult = {
     agents: 2,
     tenant: 1,
   },
+  s3ObjectsDeleted: 3,
+  s3Failed: 0,
   manual: true,
 };
 
@@ -309,6 +314,12 @@ describe('platform console routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ data: LIST });
+    // Billing prefill travels with the list (same shape as PATCH .../billing).
+    expect(response.json().data.items[0]).toMatchObject({
+      billingStatus: 'ACTIVE',
+      trialEndsAt: '2026-12-01T00:00:00.000Z',
+      billingEmail: 'finance@acme.test',
+    });
     expect(listTenants).toHaveBeenCalledWith({ page: 2, pageSize: 5 });
     expect(requirePlatformAdmin).toHaveBeenCalledWith('platform-admin');
   });

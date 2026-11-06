@@ -79,6 +79,14 @@ export interface StoredObject {
   sha256: string;
 }
 
+/** Outcome of a bulk delete; missing objects count as deleted (idempotent). */
+export interface DeleteObjectsResult {
+  /** Keys confirmed absent after the call (actually removed or already gone). */
+  deleted: number;
+  /** Keys the provider refused to delete (permissions, transport, ...). */
+  failed: number;
+}
+
 export interface IObjectStorage {
   putObject(input: PutObjectInput): Promise<StoredObject>;
   getObject(key: string): Promise<Buffer>;
@@ -86,6 +94,18 @@ export interface IObjectStorage {
   putToPresignedUrl(url: string, body: Buffer, headers?: Record<string, string>): Promise<void>;
   presignGet(key: string, expiresInSeconds?: number): Promise<string>;
   buildUri(key: string): string;
+  /**
+   * Deletes one object. Idempotent: a key that does not exist (NoSuchKey /
+   * NotFound) is treated as already deleted instead of throwing.
+   */
+  deleteObject(key: string): Promise<void>;
+  /**
+   * Bulk delete used by the LGPD purge. Must NEVER abort the caller for a
+   * partially failed batch: keys that could not be removed are counted in
+   * `failed` and the remaining keys are still attempted. Missing keys count as
+   * `deleted` (NoSuchKey tolerance).
+   */
+  deleteObjects(keys: string[]): Promise<DeleteObjectsResult>;
 }
 
 /**

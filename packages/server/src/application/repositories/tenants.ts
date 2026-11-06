@@ -17,6 +17,30 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
+/**
+ * Explicit console projection: every field `mapTenant` needs, including the
+ * billing columns rendered as the prefill of the billing form. Keeping the
+ * select narrow avoids shipping `deletedAt`-adjacent internals by accident and
+ * makes a new `TenantRecord` field a compile-time failure here (instead of a
+ * silent `undefined` in the JSON).
+ */
+const TENANT_LIST_SELECT = {
+  id: true,
+  slug: true,
+  name: true,
+  status: true,
+  plan: true,
+  maxAccounts: true,
+  maxAgents: true,
+  billingStatus: true,
+  trialEndsAt: true,
+  billingEmail: true,
+  onboardingCompletedAt: true,
+  deletedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.TenantSelect;
+
 function clampInt(value: number, min: number, max: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(value)));
@@ -108,6 +132,7 @@ export class PrismaTenantRepository implements ITenantRepository, IPlatformTenan
         orderBy: { createdAt: 'desc' },
         skip: (currentPage - 1) * pageSize,
         take: pageSize,
+        select: TENANT_LIST_SELECT,
       }),
       this.prisma.tenant.count({ where }),
     ]);

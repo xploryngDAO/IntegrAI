@@ -28,6 +28,7 @@ import type {
   PlatformTenantUpdateCommand,
   PlatformTenantView,
   QueueSnapshot,
+  SystemStatusSnapshot,
   TenantBillingUpdateCommand,
   TenantBillingView,
   TenantExportPayload,
@@ -573,6 +574,18 @@ export interface IHealthService {
   channels(): Promise<ChannelHealthView[]>;
 }
 
+/**
+ * Public status page (`GET /status`, `GET /api/v1/status`).
+ *
+ * Anonymous and PII-free. It reuses only the infrastructure probes (database,
+ * Redis, object storage) and aggregates the stored account state per
+ * marketplace: no adapter/marketplace call is made, so the endpoint is cheap
+ * and cannot spend paid API quota.
+ */
+export interface IStatusService {
+  snapshot(): Promise<SystemStatusSnapshot>;
+}
+
 /* ==========================================================================
  * Live diagnostics (real credentials; used by /diagnostics and `npm run doctor`)
  * ========================================================================== */
@@ -632,6 +645,7 @@ export interface IAppServices {
   readonly invitations: IInvitationService;
   readonly webhooks: IWebhookIngressService;
   readonly health: IHealthService;
+  readonly status: IStatusService;
   readonly files: IFileService;
   readonly diagnostics: IDiagnosticsService;
 }

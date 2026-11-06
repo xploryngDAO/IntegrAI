@@ -10,14 +10,14 @@
 |---|---|
 | Schema | `tenants.plan` (`TenantPlan`), `max_accounts`, `max_agents`, `deleted_at`, `billing_status` (`BillingStatus`), `trial_ends_at`, `billing_email`; `agents.is_platform_admin` |
 | Limites | `max_agents` ao convidar/aceitar convite; `max_accounts` ao conectar loja nova |
-| Console | `GET /platform/tenants` (paginação + busca), `PATCH /platform/tenants/:id`, `GET /platform/metrics`, `GET /platform/tenants/:id/metrics`, `GET /platform/alerts`, `POST /platform/tenants/:id/purge` |
-| Billing (base) | `GET /platform/billing/summary` (MRR por plano), `PATCH /platform/tenants/:id/billing`; preços em `shared/plans.ts` |
-| LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete), purga física diária (`queue.tenant.purge`) + purga manual |
+| Console | `GET /platform/tenants` (paginação + busca + billing prefill), `PATCH /platform/tenants/:id`, `GET /platform/metrics`, `GET /platform/tenants/:id/metrics`, `GET /platform/alerts`, `POST /platform/tenants/:id/purge` |
+| Billing (base) | `GET /platform/billing/summary` (MRR por plano), `PATCH /platform/tenants/:id/billing`; preços em `shared/plans.ts`; `billingStatus`/`trialEndsAt`/`billingEmail` no item da listagem |
+| LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete), purga física diária (`queue.tenant.purge`) + purga manual, com remoção dos objetos S3 do workspace antes do delete transacional |
+| Status page | `GET /status` e `GET /api/v1/status` públicos (probes de infra + contadores agregados por canal) |
 | Sessão | tenant `SUSPENDED`/`DELETED` responde `403 TENANT_INACTIVE` no login e em toda requisição |
 
 Fora do escopo desta fase (backlog): integração com gateway de pagamento
-(Stripe/Pagar.me etc.), status page, backup/restore por tenant, UI do console e
-limpeza dos artefatos S3 da purga.
+(Stripe/Pagar.me etc.), backup/restore por tenant e UI do console.
 
 ## Modelo de dados
 
@@ -94,7 +94,10 @@ Cada item:
   "limits": { "maxAccounts": 10, "maxAgents": 25 },
   "counts": { "accounts": 3, "agents": 5, "tickets": 40 },
   "onboardingCompletedAt": null, "deletedAt": null,
-  "createdAt": "2026-11-01T10:00:00.000Z"
+  "createdAt": "2026-11-01T10:00:00.000Z",
+  "billingStatus": "ACTIVE",
+  "trialEndsAt": "2026-12-01T00:00:00.000Z",
+  "billingEmail": "finance@acme.test"
 }
 ```
 
@@ -103,6 +106,14 @@ case-insensitive em `name` **OU** `slug`. Um `?search=` vazio é tratado como
 ausência de filtro; acima de 120 chars → `422`. `total`/`totalPages` refletem o
 conjunto filtrado (o `count` usa o mesmo `where` do `findMany`), e só os itens da
 página consultam contagens de uso.
+
+Os três campos de billing (`billingStatus`, `trialEndsAt`, `billingEmail`) são o
+**prefill** do formulário de assinatura: a listagem devolve o mesmo estado que
+`PATCH /platform/tenants/:id/billing` persiste, sem uma segunda requisição por
+workspace. `trialEndsAt`/`billingEmail` são `null` quando não definidos (nunca
+`undefined`). O `select` do Prisma é explícito (`TENANT_LIST_SELECT`), então um
+campo novo em `TenantRecord` falha a compilação em vez de virar `undefined` no
+JSON.
 
 ### `POST /platform/tenants/:id/purge`
 Purga física **manual** (LGPD) de um workspace já soft-deleted.
@@ -263,6 +274,8 @@ abaixo só persistem/derivam o estado comercial.
   TENANT_DELETED`) para workspace soft-deleted; `422` body vazio/ inválido.
 - Suspender um workspace não impede ajustar o billing (cobrança e operação são
   eixos separados).
+- Os três campos de assinatura também vêm no item de `GET /platform/tenants`
+  (prefill do formulário), com os mesmos valores e `null` explícito.
 
 **Follow-up (fora do escopo):** integrar um gateway (Stripe/Pagar.me) com
 webhooks idempotentes para `invoice.paid`/`payment_failed`, histórico de
@@ -318,8 +331,17 @@ O soft delete preserva tudo; a exclusão definitiva é feita pelo
 
 Regras:
 
-- **Uma transação por tenant** (`PrismaTenantPurgeRepository.purge`), com ordem
-  FK-safe: `sessions` → `invitations` → `password_resets` /
+- **Artefatos S3 antes, transação depois.** Antes do delete transacional o job
+  coleta as chaves do workspace (`webhook_events.payload_s3_uri`,
+  `ticket_messages.body_raw_s3_uri`,
+  `ticket_messages.content_payload.attachment_keys` e
+  `message_attachments.s3_uri` — o schema guarda a URI, não um `s3_key`) e as
+  apaga via `IObjectStorage.deleteObjects`, tolerando `NoSuchKey`. O resultado
+  registra `s3ObjectsDeleted`/`s3Failed`. Se o storage falhar (ou a coleta
+  falhar), a purga do banco continua e o job reporta `s3Failed`; os objetos
+  órfãos ficam para retry manual / lifecycle policy do bucket. O delete de cada
+  tenant continua em **uma transação** (`PrismaTenantPurgeRepository.purge`),
+  com ordem FK-safe: `sessions` → `invitations` → `password_resets` /
   `email_verifications` / `two_factor_recovery_codes` (pelos ids dos agentes) →
   `buyer_pii_vault` → `message_attachments` → `ticket_messages` →
   `ticket_events` → `outbound_attempts` → `support_tickets` → `orders_cache` →
@@ -334,10 +356,52 @@ Regras:
   contagem por tabela e `tenant.purge.completed` com os totais.
 - Um candidato sem `deleted_at` é recusado defensivamente
   (`TENANT_NOT_SOFT_DELETED`) — nunca há hard delete de workspace ativo.
-- **Pendência:** os artefatos S3 (`body_raw_s3_uri`, `s3_uri` de anexos) não são
-  apagados por este job; dependem de lifecycle policy do bucket / follow-up.
-  Retenções legais (fiscal/financeiro) devem ser avaliadas antes de encurtar o
-  prazo de 30 dias.
+- **Retenção legal** (fiscal/financeiro) deve ser avaliada antes de encurtar o
+  prazo de 30 dias. A purga é irreversível (não há restore nesta fase).
+
+## Status page pública
+
+`GET /status` (bare) e `GET /api/v1/status` (prefixo do SPA) são **públicos**
+(allowlist do auth middleware) e devolvem o corpo plano, sem envelope `{ data }`:
+
+```json
+{
+  "status": "operational",
+  "checkedAt": "2026-11-05T12:00:00.000Z",
+  "services": [
+    { "name": "api", "status": "operational", "latencyMs": 3 },
+    { "name": "database", "status": "operational", "latencyMs": 11 },
+    { "name": "redis", "status": "operational", "latencyMs": 4 },
+    { "name": "storage", "status": "operational", "latencyMs": 25 }
+  ],
+  "channels": [
+    { "marketplace": "MERCADO_LIVRE", "accounts": 3, "healthy": 2, "lastErrorAt": "2026-11-05T11:40:00.000Z" }
+  ]
+}
+```
+
+Regras:
+
+- **Só probes de infraestrutura.** `database` = `SELECT 1`, `redis` = `PING`,
+  `storage` = probe real do bucket. Nenhum adaptador/marketplace é chamado:
+  a página é barata e **não gasta quota paga**. Reutiliza os mesmos probes de
+  `HealthService`/`DiagnosticsService`.
+- **Sem PII nem segredos.** `services` expõe apenas nome/status/latência (sem
+  `detail`, connection string ou mensagem de erro). `channels` é agregado por
+  marketplace: `accounts` (total), `healthy` (quantas contas estão saudáveis
+  pelo estado armazenado) e `lastErrorAt` (o erro mais recente, ISO ou `null`).
+  Nunca sai `accountId`, nome da loja, e-mail ou token.
+- **Saudável sem chamada ao marketplace:** conta `ACTIVE`, com credencial
+  armazenada e sem erro nos últimos 30 minutos. Token de acesso expirado
+  isoladamente não derruba o canal (o refresh é automático).
+- **Nível geral:** `database` ou `redis` fora → `down`; `storage` fora ou
+  qualquer canal parcialmente saudável → `degraded`; tudo ok → `operational`.
+  `api` é `operational` por construção (a própria resposta prova).
+- **Sempre HTTP 200**, inclusive em `degraded`/`down`; monitores leem o campo
+  `status`. Se o snapshot falhar de forma inesperada, a rota responde um
+  fallback conservador `down` (200) em vez de 500. Timeout de 5 s por probe.
+- **Cache:** `public, max-age=30` no `/status` bare; sob `/api/v1` o hook global
+  de `no-store` prevalece.
 
 ## Segurança
 
@@ -366,9 +430,14 @@ Regras:
   agregações, snapshot de alertas e filtro de soft-deleted no billing.
 - `TenantPrivacy.test.ts` — export sem segredos/PII, delete com senha/slug e erros.
 - `TenantPurge.test.ts` — carência de 30 dias, lote, falha isolada, purga manual
-  (409 para workspace ativo/404 desconhecido).
-- `repositories/tenant-purge.test.ts` — ordem FK-safe, transação única e escopo
-  por tenant (Prisma fake, sem banco).
+  (409 para workspace ativo/404 desconhecido), S3 antes do banco, `s3Failed`
+  quando o storage falha e `NoSuchKey`/duplicatas normalizadas.
+- `repositories/tenant-purge.test.ts` — ordem FK-safe, transação única, escopo
+  por tenant e coleta das chaves S3 (`payload_s3_uri`, `body_raw_s3_uri`,
+  `s3_uri`, `attachment_keys`) com Prisma fake, sem banco.
+- `infrastructure/storage/s3-delete.test.ts` — `deleteObject`/`deleteObjects`
+  com cliente fake: roteamento por bucket, chunk de 1.000, `NoSuchKey`
+  tolerado, falha parcial/transporte contada sem throw.
 - `repositories/tenants.list.test.ts` — busca `name`/`slug` case-insensitive com
   `findMany` e `count` usando o mesmo `where`.
 - `queues/tenantPurgeWiring.test.ts` — nomes de fila/job, cron `0 3 * * *` e
@@ -376,3 +445,7 @@ Regras:
 - `AgentTenantGate.test.ts` — login/verify de tenant ativo, suspenso, excluído e legado.
 - `platform-routes.test.ts` / `tenant-privacy-routes.test.ts` — HTTP, 401/403/422,
   busca, purga manual, headers de download e 202.
+- `StatusService.test.ts` — níveis (`operational`/`degraded`/`down`), agregação
+  por marketplace sem PII, timeouts e probe/repositório falhando sem throw.
+- `status-routes.test.ts` — corpo plano nos dois caminhos públicos, allowlist
+  exata e fallback `down` em HTTP 200.

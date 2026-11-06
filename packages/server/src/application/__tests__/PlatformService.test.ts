@@ -102,6 +102,9 @@ describe('PlatformService.listTenants', () => {
       onboardingCompletedAt: null,
       deletedAt: null,
       createdAt: '2026-11-01T10:00:00.000Z',
+      billingStatus: 'TRIALING',
+      trialEndsAt: null,
+      billingEmail: null,
     });
     expect(page.items[0]).toMatchObject({
       id: beta.id,
@@ -109,6 +112,43 @@ describe('PlatformService.listTenants', () => {
       limits: { maxAccounts: 1, maxAgents: 3 },
     });
     expect(h.platform.usageRequests).toEqual([['tenant-2', 'tenant-1']]);
+  });
+
+  it('prefills billing status, trial end and billing e-mail on every item', async () => {
+    const h = createHarness();
+    h.tenants.seed({
+      id: 'tenant-1',
+      slug: 'acme',
+      name: 'Acme',
+      plan: 'PRO',
+      billingStatus: 'PAST_DUE',
+      trialEndsAt: new Date('2026-12-01T00:00:00.000Z'),
+      billingEmail: 'finance@acme.test',
+    });
+    h.tenants.seed({
+      id: 'tenant-2',
+      slug: 'beta',
+      name: 'Beta',
+      billingStatus: 'CANCELED',
+      trialEndsAt: null,
+      billingEmail: null,
+    });
+
+    const page = await h.service.listTenants({ page: 1, pageSize: 25 });
+    const bySlug = new Map(page.items.map((item) => [item.slug, item]));
+
+    expect(bySlug.get('acme')).toMatchObject({
+      billingStatus: 'PAST_DUE',
+      trialEndsAt: '2026-12-01T00:00:00.000Z',
+      billingEmail: 'finance@acme.test',
+    });
+    // Nullable fields stay explicit (`null`, never `undefined`) so the console
+    // can clear its form without a second request.
+    expect(bySlug.get('beta')).toMatchObject({
+      billingStatus: 'CANCELED',
+      trialEndsAt: null,
+      billingEmail: null,
+    });
   });
 
   it('paginates without leaking counts between pages', async () => {

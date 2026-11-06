@@ -11,6 +11,7 @@ import { fileRoutes } from './files.routes';
 import { diagnosticsRoutes } from './diagnostics.routes';
 import { telemetryRoutes } from './telemetry.routes';
 import { healthRoutes } from './health.routes';
+import { statusRoutes } from './status.routes';
 import { webhookRoutes } from './webhooks.routes';
 
 /**
@@ -29,13 +30,15 @@ export async function registerApiRoutes(app: FastifyInstance, ctx: HttpRouteCont
   await app.register(diagnosticsRoutes, ctx);
   await app.register(telemetryRoutes, ctx);
   await app.register(healthRoutes, ctx);
+  await app.register(statusRoutes, ctx);
 }
 
 /**
- * Root-mounted, unauthenticated surfaces: marketplace webhooks and the bare
- * `/health` probe (contract §7 and §4).
+ * Root-mounted, unauthenticated surfaces: marketplace webhooks, the bare
+ * `/health` probe (contract §4) and the public `/status` page.
  */
 export async function registerRootRoutes(app: FastifyInstance, ctx: HttpRouteContext): Promise<void> {
   await app.register(webhookRoutes, { prefix: '/webhooks', ...ctx });
   await app.register(healthRoutes, ctx);
+  await app.register(statusRoutes, ctx);
 }

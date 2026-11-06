@@ -667,6 +667,27 @@ export interface IPlatformTenantRepository {
 }
 
 /**
+ * Object-storage artifacts owned by one workspace, grouped by their source.
+ *
+ * Values are whatever the column stores (`s3://bucket/key` URI or a bare key);
+ * the purge service normalizes them before calling `IObjectStorage`.
+ *
+ * Schema note: `message_attachments` has a single `s3_uri` column (no
+ * `s3_key`/`storage_key`), and outbox metadata keeps its keys in
+ * `ticket_messages.content_payload.attachment_keys`.
+ */
+export interface TenantObjectKeys {
+  /** `webhook_events.payload_s3_uri` (raw payload dumps). */
+  webhookPayloads: string[];
+  /** `ticket_messages.body_raw_s3_uri` (immutable raw artifacts, `.eml`, ...). */
+  messageBodies: string[];
+  /** `message_attachments.s3_uri` (evidence, NF-e, dispute media). */
+  attachments: string[];
+  /** `ticket_messages.content_payload.attachment_keys` (outbox metadata). */
+  metadataAttachments: string[];
+}
+
+/**
  * Physical (LGPD) purge of a soft-deleted workspace.
  *
  * The repository owns the FK-safe delete order; the service owns the retention
@@ -676,6 +697,13 @@ export interface IPlatformTenantRepository {
 export interface ITenantPurgeRepository {
   /** Soft-deleted tenants whose `deleted_at` is older than `cutoff`, oldest first. */
   findPurgeable(cutoff: Date, limit: number): Promise<TenantRecord[]>;
+  /**
+   * Reads the workspace's object-storage keys WITHOUT mutating any row.
+   *
+   * Called before `purge` so the service can delete the S3 objects first; it
+   * uses the exact same tenant/account scope as the transactional delete.
+   */
+  collectObjectKeys(tenantId: string): Promise<TenantObjectKeys>;
   /** Deletes every row owned by the tenant and returns the per-table counts. */
   purge(tenantId: string): Promise<TenantPurgeCounts>;
 }

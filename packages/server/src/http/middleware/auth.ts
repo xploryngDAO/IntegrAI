@@ -20,6 +20,9 @@ import { stripQuery } from '../utils/query';
 const PUBLIC_EXACT_PATHS: readonly string[] = [
   '/health',
   '/api/v1/health',
+  // Public status page: anonymous by design, PII-free, infra probes only.
+  '/status',
+  '/api/v1/status',
   '/api/v1/auth/login',
   '/api/v1/auth/signup',
   '/api/v1/auth/verify-email',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '@xploryng/convergencia';
 import { api, ApiClientError } from '../lib/api';
 import { useWorkspace } from '../lib/store';
@@ -22,6 +22,24 @@ function settingsErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : 'Não foi possível falar com a API. Tente novamente.';
+}
+
+/**
+ * Discreet footer of the settings surface. `/status` is a public page (outside
+ * the session gate), so it stays reachable even when the workspace API fails.
+ */
+function StatusFooter(): JSX.Element {
+  return (
+    <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--cv-color-border)] pt-4 text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
+      <span>SAC Hub · Central de atendimento omnichannel</span>
+      <Link
+        to="/status"
+        className="underline-offset-2 hover:text-[var(--cv-color-text)] hover:underline"
+      >
+        Status dos sistemas
+      </Link>
+    </footer>
+  );
 }
 
 /**
@@ -140,6 +158,7 @@ export function SettingsPage(): JSX.Element {
             }
           />
         </Card>
+        <StatusFooter />
       </div>
     );
   }
@@ -313,6 +332,8 @@ export function SettingsPage(): JSX.Element {
           </div>
         </Card>
       </section>
+
+      <StatusFooter />
 
       {deleteOpen && profile !== null ? (
         <DeleteWorkspaceDialog tenant={profile} onClose={() => setDeleteOpen(false)} />

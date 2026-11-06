@@ -59,12 +59,26 @@ function makeTenantRow(overrides: Partial<Tenant> = {}): Tenant {
   };
 }
 
-function createHarness(options: { rows?: Tenant[]; agentIds?: string[]; accountIds?: string[] } = {}) {
+interface ObjectRows {
+  webhookEvents?: Array<{ payloadS3Uri: string | null }>;
+  attachments?: Array<{ s3Uri: string }>;
+  messages?: Array<{ bodyRawS3Uri: string | null; contentPayload: unknown }>;
+}
+
+function createHarness(
+  options: {
+    rows?: Tenant[];
+    agentIds?: string[];
+    accountIds?: string[];
+    objectRows?: ObjectRows;
+  } = {},
+) {
   const calls: Call[] = [];
   const transactionOptions: unknown[] = [];
   const rows = options.rows ?? [makeTenantRow()];
   const agentIds = options.agentIds ?? ['agent-1', 'agent-2'];
   const accountIds = options.accountIds ?? [];
+  const objectRows = options.objectRows ?? {};
 
   const model = (name: string) => ({
     deleteMany: async (args: Record<string, unknown>) => {
@@ -75,6 +89,9 @@ function createHarness(options: { rows?: Tenant[]; agentIds?: string[]; accountI
       calls.push({ model: name, op: 'findMany', args });
       if (name === 'agent') return agentIds.map((id) => ({ id }));
       if (name === 'marketplaceAccount') return accountIds.map((id) => ({ id }));
+      if (name === 'webhookEvent') return objectRows.webhookEvents ?? [];
+      if (name === 'messageAttachment') return objectRows.attachments ?? [];
+      if (name === 'ticketMessage') return objectRows.messages ?? [];
       return [];
     },
   });
@@ -109,6 +126,10 @@ function createHarness(options: { rows?: Tenant[]; agentIds?: string[]; accountI
 
   const prisma = {
     tenant: tenantModel,
+    marketplaceAccount: model('marketplaceAccount'),
+    webhookEvent: model('webhookEvent'),
+    messageAttachment: model('messageAttachment'),
+    ticketMessage: model('ticketMessage'),
     $transaction: async (
       fn: (client: typeof tx) => Promise<unknown>,
       optionsArg: unknown,
@@ -274,6 +295,85 @@ describe('PrismaTenantPurgeRepository.purge', () => {
     // account scope to be removed with the workspace.
     expect(webhooks?.args.where).toEqual({
       OR: [{ tenantId: TENANT_ID }, { accountId: { in: ['account-1', 'account-2'] } }],
+    });
+  });
+});
+
+describe('PrismaTenantPurgeRepository.collectObjectKeys', () => {
+  it('groups every S3 artifact and only selects the key columns', async () => {
+    const h = createHarness({
+      accountIds: ['account-1'],
+      objectRows: {
+        webhookEvents: [
+          { payloadS3Uri: 's3://raw/webhooks/push.json' },
+          { payloadS3Uri: null },
+        ],
+        attachments: [{ s3Uri: 's3://attachments/attachments/a.pdf' }],
+        messages: [
+          {
+            bodyRawS3Uri: 's3://raw/amazon/2026/11/m1.eml',
+            contentPayload: { attachment_keys: ['attachments/b.pdf', ''] },
+          },
+          {
+            bodyRawS3Uri: null,
+            contentPayload: { attachment_keys: 'not-an-array' },
+          },
+          {
+            bodyRawS3Uri: 's3://raw/amazon/2026/11/m1.eml',
+            contentPayload: { attachment_keys: ['attachments/b.pdf', 'attachments/c.png'] },
+          },
+        ],
+      },
+    });
+
+    const keys = await h.repository.collectObjectKeys(TENANT_ID);
+
+    expect(keys).toEqual({
+      webhookPayloads: ['s3://raw/webhooks/push.json'],
+      messageBodies: ['s3://raw/amazon/2026/11/m1.eml'],
+      attachments: ['s3://attachments/attachments/a.pdf'],
+      metadataAttachments: ['attachments/b.pdf', 'attachments/c.png'],
+    });
+
+    // Only key/URI columns are read: no payload, body text or buyer PII.
+    expect(h.calls.find((entry) => entry.model === 'webhookEvent')?.args).toEqual({
+      where: {
+        payloadS3Uri: { not: null },
+        OR: [{ tenantId: TENANT_ID }, { accountId: { in: ['account-1'] } }],
+      },
+      select: { payloadS3Uri: true },
+    });
+    expect(h.calls.find((entry) => entry.model === 'messageAttachment')?.args).toEqual({
+      where: { message: { ticket: { tenantId: TENANT_ID } } },
+      select: { s3Uri: true },
+    });
+    expect(h.calls.find((entry) => entry.model === 'ticketMessage')?.args).toEqual({
+      where: { ticket: { tenantId: TENANT_ID } },
+      select: { bodyRawS3Uri: true, contentPayload: true },
+    });
+  });
+
+  it('scopes webhook payloads by tenant when the workspace has no accounts', async () => {
+    const h = createHarness({ accountIds: [] });
+
+    await h.repository.collectObjectKeys(TENANT_ID);
+
+    expect(h.calls.find((entry) => entry.model === 'webhookEvent')?.args).toEqual({
+      where: { payloadS3Uri: { not: null }, tenantId: TENANT_ID },
+      select: { payloadS3Uri: true },
+    });
+  });
+
+  it('returns empty groups for a workspace without artifacts', async () => {
+    const h = createHarness();
+
+    const keys = await h.repository.collectObjectKeys(TENANT_ID);
+
+    expect(keys).toEqual({
+      webhookPayloads: [],
+      messageBodies: [],
+      attachments: [],
+      metadataAttachments: [],
     });
   });
 });

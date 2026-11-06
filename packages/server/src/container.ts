@@ -29,6 +29,7 @@ import {
 import { PlanLimitService } from './application/PlanLimitService';
 import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
+import { StatusService } from './application/StatusService';
 import { TenantPrivacyService } from './application/TenantPrivacyService';
 import { TenantPurgeService } from './application/TenantPurgeService';
 import { TenantService } from './application/TenantService';
@@ -236,6 +237,9 @@ export function createContainer(args: ContainerArgs): IAppServices {
   const tenantPurge = new TenantPurgeService({
     logger: infra.logger,
     clock: infra.clock,
+    // LGPD: artifacts are removed through the same storage used for uploads
+    // BEFORE the transactional delete (missing keys are tolerated).
+    storage: infra.storage,
     retentionDays: config.tenantPurgeRetentionDays,
     repos: {
       tenants: infra.tenants,
@@ -332,29 +336,52 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  // Shared infrastructure probes. The public status page deliberately reuses
+  // the SAME probes as health/diagnostics: no adapter call, therefore no paid
+  // marketplace quota is spent by `GET /status`.
+  const probeDatabase = async (): Promise<void> => {
+    await infra.prisma.$queryRawUnsafe('SELECT 1');
+  };
+  const probeRedis = async (): Promise<void> => {
+    const pong = await infra.redis.ping();
+    if (pong !== 'PONG') throw new Error(`Unexpected Redis PING reply: ${pong}`);
+  };
+  const probeStoragePresign = async (): Promise<void> => {
+    // Best effort: presigning validates the bucket/credentials locally and
+    // fails fast when the storage client is misconfigured.
+    await infra.storage.presignGet('attachments/health/probe.txt', 60);
+  };
+  const probeStorageBucket = async (): Promise<void> => {
+    await probeStorage(infra.storage);
+  };
+
   const health = new HealthService({
     logger: infra.logger,
     clock: infra.clock,
     cache: infra.cache,
     realtime,
     probes: {
-      database: async () => {
-        await infra.prisma.$queryRawUnsafe('SELECT 1');
-      },
-      redis: async () => {
-        const pong = await infra.redis.ping();
-        if (pong !== 'PONG') throw new Error(`Unexpected Redis PING reply: ${pong}`);
-      },
-      storage: async () => {
-        // Best effort: presigning validates the bucket/credentials locally and
-        // fails fast when the storage client is misconfigured.
-        await infra.storage.presignGet('attachments/health/probe.txt', 60);
-      },
+      database: probeDatabase,
+      redis: probeRedis,
+      storage: probeStoragePresign,
     },
     repos: {
       accounts: infra.repos.accounts,
       tickets: infra.repos.tickets,
     },
+  });
+
+  // Public status page: infra probes + aggregated account counters only. It
+  // never calls an adapter/marketplace, so it is safe to expose anonymously.
+  const status = new StatusService({
+    logger: infra.logger,
+    clock: infra.clock,
+    probes: {
+      database: probeDatabase,
+      redis: probeRedis,
+      storage: probeStorageBucket,
+    },
+    repos: { accounts: infra.repos.accounts },
   });
 
   const diagnostics = new DiagnosticsService({
@@ -363,16 +390,9 @@ export function createContainer(args: ContainerArgs): IAppServices {
     adapters,
     repos: { accounts: infra.repos.accounts },
     probes: {
-      database: async () => {
-        await infra.prisma.$queryRawUnsafe('SELECT 1');
-      },
-      redis: async () => {
-        const pong = await infra.redis.ping();
-        if (pong !== 'PONG') throw new Error(`Unexpected Redis PING reply: ${pong}`);
-      },
-      storage: async () => {
-        await probeStorage(infra.storage);
-      },
+      database: probeDatabase,
+      redis: probeRedis,
+      storage: probeStorageBucket,
       storageConfigured: Boolean(
         config.s3.bucket &&
           config.s3.region &&
@@ -406,6 +426,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     invitations,
     webhooks,
     health,
+    status,
     files,
     diagnostics,
   };

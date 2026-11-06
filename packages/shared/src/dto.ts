@@ -276,6 +276,12 @@ export interface PlatformTenantView {
   /** Soft-delete marker (null = live workspace). */
   deletedAt: string | null;
   createdAt: string;
+  /* ---- Billing prefill (Fase 4): same values PATCH .../billing returns. ---- */
+  billingStatus: BillingStatus;
+  /** End of the trial window; null when the workspace is not time-boxed. */
+  trialEndsAt: string | null;
+  /** Billing contact e-mail (null when the console has not set one). */
+  billingEmail: string | null;
 }
 
 export interface PlatformTenantListResult {
@@ -452,6 +458,16 @@ export interface TenantPurgeResult {
   deletedAt: string | null;
   purgedAt: string;
   counts: TenantPurgeCounts;
+  /**
+   * S3 objects removed BEFORE the transactional delete. Missing objects
+   * (NoSuchKey) count as deleted because the desired end state was achieved.
+   */
+  s3ObjectsDeleted: number;
+  /**
+   * S3 objects that could not be removed. The DB purge still runs; these
+   * orphans are reported so the operator can retry/clean them manually.
+   */
+  s3Failed: number;
   /** True when a platform administrator ran it manually instead of the cron. */
   manual: boolean;
 }
@@ -910,6 +926,47 @@ export interface ChannelHealthView {
   tokenExpiresAt: string | null;
   detail: string;
   crrPercent: number | null;
+}
+
+/* ==========================================================================
+ * Public status page (`GET /status` and `GET /api/v1/status`)
+ *
+ * Anonymous, PII-free snapshot: only infrastructure probes (database, Redis,
+ * object storage) and AGGREGATED per-marketplace account counters are exposed.
+ * No account id, display name, operator e-mail, error message or secret ever
+ * crosses this contract.
+ * ========================================================================== */
+
+/** Overall level rendered by the public status page. */
+export type SystemStatusLevel = 'operational' | 'degraded' | 'down';
+
+/** Dependency probed for the status page (the API itself is implicit). */
+export type SystemStatusServiceName = 'api' | 'database' | 'redis' | 'storage';
+
+export interface SystemStatusService {
+  name: SystemStatusServiceName;
+  /** `operational` when the probe passed; `down` when it failed. */
+  status: SystemStatusLevel;
+  /** Probe duration in milliseconds (null when it could not be measured). */
+  latencyMs: number | null;
+}
+
+/** Per-marketplace aggregate; counts only, never account identifiers. */
+export interface SystemStatusChannel {
+  marketplace: Marketplace;
+  /** Accounts of this marketplace known to the API (connected or not). */
+  accounts: number;
+  /** Accounts considered healthy from their stored state (no live API call). */
+  healthy: number;
+  /** Most recent `last_error_at` among the accounts (null = no error). */
+  lastErrorAt: string | null;
+}
+
+export interface SystemStatusSnapshot {
+  status: SystemStatusLevel;
+  checkedAt: string;
+  services: SystemStatusService[];
+  channels: SystemStatusChannel[];
 }
 
 export interface ConnectAccountView {
