@@ -136,3 +136,12 @@ npm run validate:live       → 11/11
 4. **Produção**: `prisma migrate deploy`, SMTP/S3 reais, `VITE_API_BASE_URL` na Vercel.
 
 As páginas `/setup` (guia com valores copiáveis e status) e `/status` foram publicadas para apoiar esses passos.
+
+### 11. E2E em navegador limpo (Edge/puppeteer, sem interceptação)
+```
+landingVisible=true · loginVisible=true · authenticated=true · localStorageToken=true (sessão persiste no reload)
+/profile: sessões ativas=true · sair de todos=true
+/admin: usuários=true · logs=true · acesso restrito=false (ADMIN)
+logout pelo menu da conta -> /login e token removido (onLogin=true, tokenCleared=true)
+```
+Script: `node scripts/verify-live.mjs https://integrai-dev.vercel.app <email> <senha>`

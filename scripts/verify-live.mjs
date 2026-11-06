@@ -50,8 +50,13 @@ try {
   });
 
   await page.goto(URL, { waitUntil: 'networkidle2', timeout: 45_000 });
+  result.steps.landingVisible = await page.evaluate(() => document.body.innerText.includes('Criar conta'));
+  const loginOnRoot = await page.evaluate(() => Boolean(document.querySelector('input[type="email"]')));
+  if (!loginOnRoot) {
+    await page.goto(`${URL}/login`, { waitUntil: 'networkidle2', timeout: 45_000 });
+  }
 
-  const loginVisible = await page.evaluate(() => document.body.innerText.includes('Entrar no workspace'));
+  const loginVisible = await page.evaluate(() => Boolean(document.querySelector('input[type="email"]')));
   result.steps.loginVisible = loginVisible;
 
   if (loginVisible) {
@@ -115,6 +120,47 @@ try {
     });
     await page.screenshot({ path: 'screenshots/live-diagnostics.png' });
   }
+
+  await page.goto(`${URL.replace(/\/$/, '')}/profile`, { waitUntil: 'networkidle2', timeout: 45_000 });
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  result.steps.profilePage = await page.evaluate(() => {
+    const text = document.body.innerText;
+    return { sessions: /Sessões ativas/i.test(text), logoutAll: /Sair de todos/i.test(text) };
+  });
+
+  await page.goto(`${URL.replace(/\/$/, '')}/admin`, { waitUntil: 'networkidle2', timeout: 45_000 });
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  result.steps.adminPage = await page.evaluate(() => {
+    const text = document.body.innerText;
+    return { users: /Usuários/i.test(text), logs: /Logs/i.test(text), forbidden: /Acesso restrito/i.test(text) };
+  });
+  await page.screenshot({ path: 'screenshots/live-admin.png' });
+
+  const accountMenuButton = await page.evaluateHandle(() =>
+    document.querySelector('button[aria-haspopup="menu"]'),
+  );
+  if (await accountMenuButton.asElement()) {
+    await accountMenuButton.asElement().click();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+
+  const logoutButton = await page.evaluateHandle(() =>
+    Array.from(document.querySelectorAll('button,[role="menuitem"]')).find((button) =>
+      /^Sair(\s+de\s+todos)?$/i.test((button.textContent ?? '').trim()),
+    ),
+  );
+  if (await logoutButton.asElement()) {
+    await logoutButton.asElement().click();
+    try {
+      await page.waitForFunction(() => window.location.pathname === '/login', { timeout: 20_000 });
+    } catch {
+      // fall through: loggedOut below reports the real state
+    }
+  }
+  result.steps.loggedOut = await page.evaluate(() => ({
+    onLogin: window.location.pathname === '/login',
+    tokenCleared: !window.localStorage.getItem('sac.auth.token'),
+  }));
 
   result.api = apiResponses.slice(-14);
 } finally {
