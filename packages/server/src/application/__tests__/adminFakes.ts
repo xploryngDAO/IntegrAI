@@ -1,4 +1,5 @@
 import type {
+  AdminUserListFilter,
   AdminUserRecord,
   AgentRecord,
   AgentRole,
@@ -148,6 +149,8 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
   readonly sessionsCount = new Map<string, number>();
   /** userId -> last session instant (test-controlled). */
   readonly lastLoginAt = new Map<string, Date>();
+  /** Last filter received by `listFiltered` (lets tests assert pagination). */
+  lastFilter: AdminUserListFilter | null = null;
 
   constructor(private readonly clock: IClock) {}
 
@@ -158,18 +161,42 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
   }
 
   async listByTenant(tenantId: string, _at: Date): Promise<AdminUserRecord[]> {
-    return this.rows
-      .filter((row) => row.tenantId === tenantId)
-      .slice()
-      .sort(
-        (a, b) =>
-          a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
-      )
-      .map((agent) => ({
-        agent,
-        sessionsCount: this.sessionsCount.get(agent.id) ?? 0,
-        lastLoginAt: this.lastLoginAt.get(agent.id) ?? null,
-      }));
+    return sortByCreatedAt(this.rows.filter((row) => row.tenantId === tenantId)).map((agent) =>
+      this.toRecord(agent),
+    );
+  }
+
+  async listFiltered(
+    filter: AdminUserListFilter,
+    _at: Date,
+  ): Promise<{ items: AdminUserRecord[]; total: number }> {
+    this.lastFilter = filter;
+    const search = filter.search?.trim().toLowerCase();
+
+    const matched = sortByCreatedAt(
+      this.rows
+        .filter((row) => row.tenantId === filter.tenantId)
+        .filter((row) => filter.role === undefined || row.role === filter.role)
+        .filter(
+          (row) =>
+            filter.status === undefined ||
+            row.isActive === (filter.status === 'ACTIVE'),
+        )
+        .filter(
+          (row) =>
+            search === undefined ||
+            row.name.toLowerCase().includes(search) ||
+            row.email.toLowerCase().includes(search),
+        ),
+    );
+
+    return {
+      items: matched
+        .slice(filter.offset, filter.offset + filter.limit)
+        .map((agent) => this.toRecord(agent)),
+      // `total` describes the FILTERED set, mirroring the Prisma `count`.
+      total: matched.length,
+    };
   }
 
   async findById(id: string): Promise<AgentRecord | null> {
@@ -195,6 +222,24 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
       (row) => row.tenantId === tenantId && row.role === 'ADMIN' && row.isActive,
     ).length;
   }
+
+  private toRecord(agent: AgentRecord): AdminUserRecord {
+    return {
+      agent,
+      sessionsCount: this.sessionsCount.get(agent.id) ?? 0,
+      lastLoginAt: this.lastLoginAt.get(agent.id) ?? null,
+    };
+  }
+}
+
+/** Same ordering the Prisma repository applies: `created_at`, then `id`. */
+function sortByCreatedAt(rows: AgentRecord[]): AgentRecord[] {
+  return rows
+    .slice()
+    .sort(
+      (a, b) =>
+        a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    );
 }
 
 /** Minimal session view helper for controller tests (not a repository). */

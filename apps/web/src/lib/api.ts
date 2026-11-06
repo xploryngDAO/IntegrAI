@@ -34,6 +34,8 @@ import type {
   AdminInvitationsResult,
   AdminUser,
   AdminUserUpdate,
+  AdminUsersExportQuery,
+  AdminUsersQuery,
   AdminUsersResult,
   AuditLogEntry,
   AuditLogExportQuery,
@@ -740,8 +742,17 @@ export interface ApiClient {
   /** `POST /auth/sessions/revoke-others` — revokes every other device. */
   revokeOtherSessions(): Promise<{ revoked: number }>;
   /* ---- Administração do workspace (ADMIN) ---- */
-  /** `GET /admin/users` — operators of the workspace. */
-  adminUsers(): Promise<AdminUsersResult>;
+  /**
+   * `GET /admin/users?search=&role=&status=&page=&perPage=` — one page of the
+   * workspace operators and the total of the filtered set (server-side filters
+   * and pagination; the CSV export shares the same filters).
+   */
+  adminUsers(query?: AdminUsersQuery): Promise<AdminUsersResult>;
+  /**
+   * `GET /admin/users/export.csv?search=&role=&status=` — every operator
+   * matching the applied filters as an authenticated `text/csv` download.
+   */
+  exportAdminUsersCsv(query: AdminUsersExportQuery): Promise<DownloadedFile>;
   /** `PATCH /admin/users/:id` — role and/or active flag. */
   updateAdminUser(id: string, body: AdminUserUpdate): Promise<AdminUser>;
   /** `POST /admin/users/:id/revoke-sessions` — closes every session of one user. */
@@ -820,6 +831,16 @@ function asCounter(value: unknown): number {
     return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
   }
   return 0;
+}
+
+/** Positive integer (>= 1) from a number or numeric string, else `fallback`. */
+function asPositiveInt(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 1) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 1) return Math.trunc(parsed);
+  }
+  return fallback;
 }
 
 /**
@@ -1624,8 +1645,17 @@ export const api: ApiClient = {
     return { revoked: isRecord(payload) ? asCounter(payload.revoked) : 0 };
   },
 
-  async adminUsers() {
-    const payload = await request<unknown>('/admin/users', {
+  async adminUsers(query = {}) {
+    const search = encodeQuery({
+      // An empty search/select is "absent", never a filter that would match
+      // nothing; `encodeQuery` also drops it from the URL.
+      search: query.search?.trim(),
+      role: query.role,
+      status: query.status,
+      page: query.page,
+      perPage: query.perPage,
+    });
+    const payload = await request<unknown>(`/admin/users${search}`, {
       cache: 'no-store',
       timeoutMs: 12_000,
     });
@@ -1635,13 +1665,35 @@ export const api: ApiClient = {
           .map((entry) => normalizeAdminUser(entry))
           .filter((entry): entry is AdminUser => entry !== null)
       : [];
+    // `total` counts the filtered set, not the page; when the API omits it the
+    // visible rows are the only truth available (the old unpaginated payload).
+    const total =
+      container.total === undefined || container.total === null
+        ? items.length
+        : asCounter(container.total);
+    // The contract echoes the effective pagination. A deployment still on the
+    // unpaginated route returns every operator and echoes neither field: the
+    // whole payload is one page, so `perPage` is its size instead of a 25-row
+    // page the server would not honour.
+    const echoesPagination = container.page !== undefined || container.perPage !== undefined;
     return {
       items,
-      total:
-        typeof container.total === 'number' && Number.isFinite(container.total)
-          ? Math.max(0, Math.trunc(container.total))
-          : items.length,
+      total,
+      page: asPositiveInt(container.page, query.page ?? 1),
+      perPage: asPositiveInt(
+        container.perPage,
+        echoesPagination ? (query.perPage ?? 25) : Math.max(1, items.length),
+      ),
     };
+  },
+
+  exportAdminUsersCsv(query) {
+    const search = encodeQuery({
+      search: query.search?.trim(),
+      role: query.role,
+      status: query.status,
+    });
+    return downloadFile(`/admin/users/export.csv${search}`);
   },
 
   async updateAdminUser(id, body) {
@@ -1816,6 +1868,8 @@ export type {
   AdminInvitationsResult,
   AdminUser,
   AdminUserUpdate,
+  AdminUsersExportQuery,
+  AdminUsersQuery,
   AdminUsersResult,
   AgentPresenceStatus,
   AuditLogEntry,

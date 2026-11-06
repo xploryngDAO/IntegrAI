@@ -15,6 +15,12 @@ import { Alert, Button, Card, EmptyState, Input, Select, Skeleton } from '../ui'
 
 const PER_PAGE = 25;
 
+/**
+ * Upper bound of the actor roster. `GET /admin/users` caps `perPage` at 100 and
+ * the select needs the whole team, not the current page of the Users tab.
+ */
+const ACTOR_ROSTER_LIMIT = 100;
+
 /** Fallback name when the API omits `Content-Disposition`: `auditoria-<YYYY-MM-DD>.csv`. */
 function defaultExportName(): string {
   return `auditoria-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -30,7 +36,6 @@ interface AppliedFilters {
 const EMPTY_FILTERS: AppliedFilters = { action: '', actorId: '', from: '', to: '' };
 
 export interface AdminLogsTabProps {
-  users: AdminUser[];
   /** A 403 anywhere turns the whole `/admin` page into "Acesso restrito". */
   onForbidden: () => void;
   /** Page-level refresh counter (the header "Atualizar" also reloads the logs). */
@@ -44,13 +49,18 @@ export interface AdminLogsTabProps {
  * &page=&perPage=&from=&to=`). Dates are sent as ISO instants covering the whole
  * local day, and the actor is chosen from the workspace roster (a stable id),
  * never typed as free text. Metadata is expandable per row.
+ *
+ * The actor roster is read here (`GET /admin/users?page=1&perPage=100`) because
+ * the Users tab paginates/filters server-side: its current page is no longer the
+ * whole team. `refreshKey` re-reads it after a page-level refresh.
  */
-export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTabProps): JSX.Element {
+export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps): JSX.Element {
   const [draft, setDraft] = useState<AppliedFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<AppliedFilters>(EMPTY_FILTERS);
   const [formError, setFormError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
+  const [actors, setActors] = useState<AdminUser[]>([]);
   const [items, setItems] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [perPage, setPerPage] = useState(PER_PAGE);
@@ -109,6 +119,27 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
     };
   }, [applied, onForbidden, page, refreshKey, reloadKey]);
 
+  // The actor roster is only an option list: a failed read leaves "Todos os
+  // atores" and the trail request itself surfaces the real error (a 403 flips
+  // the page), so the roster never becomes a second, competing alert.
+  useEffect(() => {
+    let active = true;
+
+    async function loadActors(): Promise<void> {
+      try {
+        const result = await api.adminUsers({ page: 1, perPage: ACTOR_ROSTER_LIMIT });
+        if (active) setActors(result.items);
+      } catch {
+        if (active) setActors([]);
+      }
+    }
+
+    void loadActors();
+    return () => {
+      active = false;
+    };
+  }, [refreshKey]);
+
   // A deleted last page (e.g. after a filter narrowed the result) must not leave
   // the paginator on a page that no longer exists.
   useEffect(() => {
@@ -118,12 +149,12 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
   const actorOptions = useMemo(
     () => [
       { value: '', label: 'Todos os atores' },
-      ...users.map((user) => ({
+      ...actors.map((user) => ({
         value: user.id,
         label: `${user.name} · ${user.email}`,
       })),
     ],
-    [users],
+    [actors],
   );
 
   function applyFilters(): void {

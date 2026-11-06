@@ -64,6 +64,58 @@ export function roleOptionsFor(current: string | null | undefined): RoleOption[]
 }
 
 /* ==========================================================================
+ * Workspace users (`GET /admin/users` filters + export)
+ * ========================================================================== */
+
+/**
+ * Status values accepted by `GET /admin/users?status=`.
+ *
+ * The API enums of this project are uppercase (`ADMIN`/`SUPERVISOR`/`AGENT`,
+ * `ACTIVE`/`SUSPENDED`, invitation statuses), so the filter follows the same
+ * convention instead of inventing a lowercase query dialect.
+ */
+export const ADMIN_USER_STATUS_OPTIONS: readonly RoleOption[] = [
+  { value: 'ACTIVE', label: 'Ativo' },
+  { value: 'INACTIVE', label: 'Inativo' },
+];
+
+/** Page sizes offered by the Users tab (`perPage`; the API caps at 100). */
+export const ADMIN_USERS_PAGE_SIZES: readonly number[] = [25, 50, 100];
+
+/**
+ * `1–25 de 40` for the current page.
+ *
+ * `visible` is the number of rows the page actually holds, so the range never
+ * claims rows the API did not return; `total` is the filtered set size. An
+ * empty page renders `0 de N`.
+ */
+export function adminUsersRangeLabel(
+  page: number,
+  perPage: number,
+  total: number,
+  visible: number,
+): string {
+  const rows = Math.max(0, Math.trunc(visible));
+  // The rows on screen exist even if a deployment under-reported `total`, so
+  // the range is never narrower than what the operator is looking at.
+  const safeTotal = Math.max(0, Math.trunc(total), rows);
+  if (rows === 0) return `0 de ${safeTotal}`;
+  const size = Math.max(1, Math.trunc(perPage));
+  const start = (Math.max(1, Math.trunc(page)) - 1) * size + 1;
+  const end = Math.min(safeTotal, start + rows - 1);
+  return `${start}–${end} de ${safeTotal}`;
+}
+
+/**
+ * `usuarios-YYYY-MM-DD.csv` — fallback name when the API omits
+ * `Content-Disposition`. The server name always wins; this mirrors the API's
+ * own name (`adminUsersCsvFileName`, UTC day) so both spellings agree.
+ */
+export function adminUsersExportName(date: Date = new Date()): string {
+  return `usuarios-${date.toISOString().slice(0, 10)}.csv`;
+}
+
+/* ==========================================================================
  * Errors
  * ========================================================================== */
 

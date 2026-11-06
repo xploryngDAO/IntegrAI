@@ -16,6 +16,12 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
   const adminOnly = requireRole('ADMIN');
 
   app.get('/users', { preHandler: adminOnly }, controllers.listUsers);
+  // Declared right after `/users`: the static child never shadows the parent.
+  app.get(
+    '/users/export.csv',
+    { preHandler: adminOnly },
+    controllers.exportUsersCsv,
+  );
   app.patch('/users/:id', { preHandler: adminOnly }, controllers.updateUser);
   app.post(
     '/users/:id/revoke-sessions',

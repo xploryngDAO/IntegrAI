@@ -1,8 +1,10 @@
 import type { AuditActorContext } from '@sac/shared';
-import { AUDIT_EXPORT_MAX_ROWS } from '@sac/shared';
+import { ADMIN_USERS_EXPORT_MAX_ROWS, AUDIT_EXPORT_MAX_ROWS } from '@sac/shared';
 import type { FastifyRequest } from 'fastify';
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
+  adminUserExportQuerySchema,
+  adminUserListQuerySchema,
   adminUserParamsSchema,
   auditExportQuerySchema,
   auditLogQuerySchema,
@@ -12,7 +14,12 @@ import {
 import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
 import { requireAgent, requireTenantId } from '../middleware/auth';
-import { auditCsvFileName, buildAuditCsv } from '../utils/csv';
+import {
+  adminUsersCsvFileName,
+  auditCsvFileName,
+  buildAdminUsersCsv,
+  buildAuditCsv,
+} from '../utils/csv';
 
 /**
  * `/admin/*` - workspace administration (ADMIN only).
@@ -24,6 +31,7 @@ import { auditCsvFileName, buildAuditCsv } from '../utils/csv';
  */
 export interface AdminControllers {
   listUsers: RouteHandler;
+  exportUsersCsv: RouteHandler;
   updateUser: RouteHandler;
   revokeUserSessions: RouteHandler;
   listInvitations: RouteHandler;
@@ -50,10 +58,43 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
   const { services } = ctx;
 
   return {
-    /** `GET /admin/users` - tenant-scoped team list, ordered by `createdAt`. */
+    /**
+     * `GET /admin/users` - tenant-scoped team list, ordered by `createdAt`.
+     *
+     * Optional `search` (name/e-mail, case-insensitive), `role`, `status` and
+     * 1-based `page`/`perPage` (default 25, max 100). The response carries the
+     * FILTERED `total` plus the resolved pagination so the UI can compute the
+     * number of pages.
+     */
     async listUsers(request) {
       const tenantId = requireTenantId(request);
-      return ok(await services.adminUsers.list(tenantId));
+      const query = parseInput(adminUserListQuerySchema, request.query, 'query');
+      return ok(await services.adminUsers.list(tenantId, query));
+    },
+
+    /**
+     * `GET /admin/users/export.csv` - bounded CSV snapshot of the team.
+     *
+     * Same filters/tenant scope as `/users`, ordered by `createdAt` ascending,
+     * capped at `ADMIN_USERS_EXPORT_MAX_ROWS` (10k). The raw string (not the
+     * JSON envelope) is sent as an attachment.
+     */
+    async exportUsersCsv(request, reply) {
+      const tenantId = requireTenantId(request);
+      const query = parseInput(adminUserExportQuerySchema, request.query, 'query');
+
+      const rows = await services.adminUsers.exportRows(
+        tenantId,
+        query,
+        ADMIN_USERS_EXPORT_MAX_ROWS,
+      );
+
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        `attachment; filename=${adminUsersCsvFileName(services.clock.now())}`,
+      );
+      return reply.send(buildAdminUsersCsv(rows));
     },
 
     /**

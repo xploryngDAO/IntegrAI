@@ -208,6 +208,57 @@ export interface IAuditService {
  * Workspace users (`/admin/users`)
  * ========================================================================== */
 
+/**
+ * Pagination/filter defaults of `GET /admin/users`.
+ *
+ * `perPage` above the cap is a 422 (the HTTP schema rejects it) instead of a
+ * silent truncation, exactly like `GET /admin/audit-logs`.
+ */
+export const ADMIN_USERS_DEFAULT_PER_PAGE = 25;
+export const ADMIN_USERS_MAX_PER_PAGE = 100;
+
+/** Longest accepted `search` term of `GET /admin/users` (chars, after trim). */
+export const ADMIN_USER_SEARCH_MAX_LENGTH = 120;
+
+/**
+ * Hard cap of `GET /admin/users/export.csv`. The export is a bounded snapshot
+ * (no pagination): at most the 10k oldest matching rows are written so the
+ * response stays memory-safe regardless of the workspace size.
+ */
+export const ADMIN_USERS_EXPORT_MAX_ROWS = 10_000;
+
+/** Derived status filter of `GET /admin/users` (maps to `is_active`). */
+export type AdminUserStatus = 'ACTIVE' | 'INACTIVE';
+
+/**
+ * Query of `GET /admin/users`: optional filters plus 1-based pagination.
+ *
+ * The HTTP layer parses the raw strings with zod (`422` on invalid role/status/
+ * page) and the service re-normalizes/clamps so other callers (worker, CLI)
+ * cannot bypass the cap.
+ */
+export interface AdminUserListQuery {
+  /** Case-insensitive substring of the name OR the e-mail (trimmed). */
+  search?: string;
+  role?: AgentRole;
+  status?: AdminUserStatus;
+  page?: number;
+  perPage?: number;
+}
+
+/**
+ * Repository query: tenant is ALWAYS injected from the JWT/actor, never from
+ * the client. `offset`/`limit` are already resolved by the service.
+ */
+export interface AdminUserListFilter {
+  tenantId: string;
+  search?: string;
+  role?: AgentRole;
+  status?: AdminUserStatus;
+  offset: number;
+  limit: number;
+}
+
 /** One operator row of `GET /admin/users` (ISO-8601 instants). */
 export interface AdminUserView {
   id: string;
@@ -224,7 +275,10 @@ export interface AdminUserView {
 
 export interface AdminUserListResult {
   items: AdminUserView[];
+  /** Total rows matching the filters (NOT the page length). */
   total: number;
+  page: number;
+  perPage: number;
 }
 
 export interface UpdateAdminUserCommand {
@@ -242,6 +296,14 @@ export interface AdminUserRecord {
 export interface IAdminUserRepository {
   /** Tenant-scoped, ordered by `created_at` ascending; counters derived here. */
   listByTenant(tenantId: string, at: Date): Promise<AdminUserRecord[]>;
+  /**
+   * Tenant-scoped filtered page (search/role/status) ordered by `created_at`
+   * ascending with `id` as tiebreaker. `total` counts the FILTERED set.
+   */
+  listFiltered(
+    filter: AdminUserListFilter,
+    at: Date,
+  ): Promise<{ items: AdminUserRecord[]; total: number }>;
   findById(id: string): Promise<AgentRecord | null>;
   update(id: string, patch: { role?: AgentRole; isActive?: boolean }): Promise<AgentRecord>;
   /** Active ADMINs of the workspace (last-admin guard). */
@@ -261,7 +323,18 @@ export interface IAdminUserRepository {
  *    impossible.
  */
 export interface IAdminUserService {
-  list(tenantId: string): Promise<AdminUserListResult>;
+  /** Filtered, paginated team list (tenant always comes from the JWT). */
+  list(tenantId: string, query?: AdminUserListQuery): Promise<AdminUserListResult>;
+  /**
+   * CSV read used by `GET /admin/users/export.csv`: same filters/tenant scope
+   * as `list`, ordered by `created_at` ascending, no pagination. Always bounded
+   * by `ADMIN_USERS_EXPORT_MAX_ROWS` (10k).
+   */
+  exportRows(
+    tenantId: string,
+    query?: AdminUserListQuery,
+    limit?: number,
+  ): Promise<AdminUserView[]>;
   update(
     tenantId: string,
     actor: AuditActorContext,

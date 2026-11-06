@@ -50,7 +50,8 @@ Decisões:
 | POST | `/auth/accept-invitation` | pública | consome o token, define a senha, cria usuário e abre sessão |
 | GET | `/users` | ADMIN | lista equipe do tenant |
 | PATCH | `/users/:id` | ADMIN | papel/ativo |
-| GET | `/admin/users` | ADMIN | equipe do tenant com `sessionsCount`/`lastLoginAt` |
+| GET | `/admin/users` | ADMIN | equipe do tenant com `sessionsCount`/`lastLoginAt`; filtros `search`/`role`/`status` e paginação (`page`, `perPage` ≤ 100) |
+| GET | `/admin/users/export.csv` | ADMIN | CSV (RFC 4180, cap 10k) dos mesmos filtros, sem paginação |
 | PATCH | `/admin/users/:id` | ADMIN | papel/ativo; 409 para self e para o último ADMIN ativo; 404 cross-tenant |
 | POST | `/admin/users/:id/revoke-sessions` | ADMIN | revoga refresh sessions + watermark de JWT; 409 para self |
 | GET | `/admin/audit-logs` | ADMIN | trilha paginada/filtrada (tenant do JWT, `perPage` ≤ 100) |

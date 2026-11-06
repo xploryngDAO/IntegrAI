@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { AuditEventView } from '@sac/shared';
+import type { AdminUserView, AuditEventView } from '@sac/shared';
 
 import {
+  ADMIN_USERS_CSV_COLUMNS,
   AUDIT_CSV_COLUMNS,
+  adminUsersCsvFileName,
   auditCsvFileName,
+  buildAdminUsersCsv,
   buildAuditCsv,
   escapeCsvCell,
 } from '../csv';
@@ -95,6 +98,75 @@ describe('auditCsvFileName', () => {
     );
     expect(auditCsvFileName(new Date('2026-01-01T00:00:00.000Z'))).toBe(
       'audit-logs-2026-01-01.csv',
+    );
+  });
+});
+
+/* ==========================================================================
+ * Workspace users export (`GET /admin/users/export.csv`)
+ * ========================================================================== */
+
+function makeUser(overrides: Partial<AdminUserView> = {}): AdminUserView {
+  return {
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'Bob',
+    email: 'bob@acme.test',
+    role: 'AGENT',
+    isActive: true,
+    lastLoginAt: '2026-11-05T10:00:00.000Z',
+    createdAt: '2026-11-01T10:00:00.000Z',
+    sessionsCount: 2,
+    ...overrides,
+  };
+}
+
+describe('buildAdminUsersCsv', () => {
+  it('writes the stable header and CRLF-terminated records', () => {
+    const csv = buildAdminUsersCsv([makeUser()]);
+
+    expect(ADMIN_USERS_CSV_COLUMNS).toEqual([
+      'name',
+      'email',
+      'role',
+      'is_active',
+      'last_login_at',
+      'created_at',
+      'sessions_count',
+    ]);
+    expect(csv).toBe(
+      `${ADMIN_USERS_CSV_COLUMNS.join(',')}\r\n` +
+        'Bob,bob@acme.test,AGENT,true,2026-11-05T10:00:00.000Z,2026-11-01T10:00:00.000Z,2\r\n',
+    );
+  });
+
+  it('escapes hostile values and leaves last_login_at empty for a never-logged operator', () => {
+    const csv = buildAdminUsersCsv([
+      makeUser({
+        name: 'Bob, "The Builder"',
+        email: 'bob@acme.test',
+        isActive: false,
+        lastLoginAt: null,
+        sessionsCount: 0,
+      }),
+    ]);
+
+    expect(csv.split('\r\n')[1]).toBe(
+      '"Bob, ""The Builder""",bob@acme.test,AGENT,false,,2026-11-01T10:00:00.000Z,0',
+    );
+  });
+
+  it('returns only the header when there is nothing to export', () => {
+    expect(buildAdminUsersCsv([])).toBe(`${ADMIN_USERS_CSV_COLUMNS.join(',')}\r\n`);
+  });
+});
+
+describe('adminUsersCsvFileName', () => {
+  it('formats the UTC day as usuarios-YYYY-MM-DD.csv', () => {
+    expect(adminUsersCsvFileName(new Date('2026-11-06T23:59:59.000Z'))).toBe(
+      'usuarios-2026-11-06.csv',
+    );
+    expect(adminUsersCsvFileName(new Date('2026-01-01T00:00:00.000Z'))).toBe(
+      'usuarios-2026-01-01.csv',
     );
   });
 });

@@ -1,9 +1,18 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { DataTable } from '@xploryng/convergencia';
-import { api } from '../../lib/api';
-import { adminErrorMessage, roleLabel, roleTone } from '../../lib/admin';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { DataTable, Pagination } from '@xploryng/convergencia';
+import { api, ApiClientError } from '../../lib/api';
+import {
+  ADMIN_USERS_PAGE_SIZES,
+  ADMIN_USER_STATUS_OPTIONS,
+  ROLE_OPTIONS,
+  adminErrorMessage,
+  adminUsersExportName,
+  adminUsersRangeLabel,
+  roleLabel,
+  roleTone,
+} from '../../lib/admin';
 import { formatDateTime } from '../../lib/labels';
-import type { AdminUser } from '../../lib/types';
+import type { AdminUser, AdminUserStatus } from '../../lib/types';
 import {
   Alert,
   Avatar,
@@ -13,30 +22,59 @@ import {
   EmptyState,
   Pill,
   SearchField,
+  Select,
   Skeleton,
+  type SelectOption,
 } from '../ui';
 import { InviteUserDialog } from './InviteUserDialog';
 import { UserRoleDialog } from './UserRoleDialog';
 
-export interface AdminUsersTabProps {
-  users: AdminUser[];
-  total: number;
-  loading: boolean;
-  error: string | null;
-  currentAgentId: string | null;
-  onRetry: () => void;
-  /** Re-reads `GET /admin/users` after a successful write. */
-  onChanged: () => void;
-  /** A 403 anywhere turns the whole `/admin` page into "Acesso restrito". */
-  onForbidden: () => void;
+/** Debounce of the name/e-mail search; `Enter` applies it immediately. */
+const SEARCH_DEBOUNCE_MS = 350;
+/** Default `perPage` of the API — the select offers 25/50/100. */
+const DEFAULT_PER_PAGE = 25;
+
+const ROLE_FILTER_OPTIONS: SelectOption[] = [
+  { value: '', label: 'Todos os papéis' },
+  ...ROLE_OPTIONS.map(({ value, label }) => ({ value, label })),
+];
+
+const STATUS_FILTER_OPTIONS: SelectOption[] = [
+  { value: '', label: 'Todos os status' },
+  ...ADMIN_USER_STATUS_OPTIONS.map(({ value, label }) => ({ value, label })),
+];
+
+const PER_PAGE_OPTIONS: SelectOption[] = ADMIN_USERS_PAGE_SIZES.map((size) => ({
+  value: String(size),
+  label: String(size),
+}));
+
+/** Filters applied to `GET /admin/users` (empty string = filter absent). */
+interface AppliedUsersFilters {
+  search: string;
+  role: string;
+  status: string;
 }
 
-function normalizeSearch(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('pt-BR')
-    .trim();
+const EMPTY_FILTERS: AppliedUsersFilters = { search: '', role: '', status: '' };
+
+/** The select only ever sends the two statuses the API documents. */
+function asStatusFilter(value: string): AdminUserStatus | undefined {
+  return value === 'ACTIVE' || value === 'INACTIVE' ? value : undefined;
+}
+
+export interface AdminUsersTabProps {
+  /** Id of the signed-in operator; their own row cannot be edited here. */
+  currentAgentId: string | null;
+  /** Page-level refresh counter (the header "Atualizar" reloads this list). */
+  refreshKey?: number;
+  /** A 403 anywhere turns the whole `/admin` page into "Acesso restrito". */
+  onForbidden: () => void;
+  /**
+   * Reports the list's loading state so the page header can show its busy
+   * indicator. The callback must be stable (a `useState` setter).
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /**
@@ -46,21 +84,42 @@ function normalizeSearch(value: string): string {
  * API exposes: change role, activate/deactivate and revoke every session of one
  * operator. The CTA sends a real invitation (Fase 1 `/invitations`).
  *
+ * Filtering and pagination are **server-side** (`GET /admin/users?search=&role=
+ * &status=&page=&perPage=`): the name/e-mail search is debounced by 350ms (and
+ * applied at once on `Enter`), the role/status selects apply immediately, and
+ * any filter change returns to page 1. After a successful write the current
+ * page is re-read — never an optimistic guess — so a row that no longer matches
+ * the active filters disappears exactly like the API says.
+ *
+ * "Exportar CSV" downloads `GET /admin/users/export.csv` with the **applied**
+ * filters (all pages of the result, not just the visible one) through the
+ * authenticated blob path, so the JWT never travels in the URL.
+ *
  * Guards: the API answers 403/404/409/422 with a real message, which is always
  * shown; the operator cannot change their own role/active flag from this table
  * (an ADMIN locking themselves out is a support incident, not a workflow).
  */
 export function AdminUsersTab({
-  users,
-  total,
-  loading,
-  error,
   currentAgentId,
-  onRetry,
-  onChanged,
+  refreshKey = 0,
   onForbidden,
+  onBusyChange,
 }: AdminUsersTabProps): JSX.Element {
-  const [query, setQuery] = useState('');
+  const [draftSearch, setDraftSearch] = useState('');
+  const [filters, setFilters] = useState<AppliedUsersFilters>(EMPTY_FILTERS);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE);
+
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [roleTarget, setRoleTarget] = useState<AdminUser | null>(null);
   const [statusTarget, setStatusTarget] = useState<AdminUser | null>(null);
@@ -70,18 +129,111 @@ export function AdminUsersTab({
   const [revoking, setRevoking] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
 
-  const filtered = useMemo(() => {
-    const needle = normalizeSearch(query);
-    if (needle.length === 0) return users;
-    return users.filter(
-      (user) =>
-        normalizeSearch(user.name).includes(needle) ||
-        normalizeSearch(user.email).includes(needle),
-    );
-  }, [query, users]);
+  const hasFilters =
+    filters.search.length > 0 || filters.role.length > 0 || filters.status.length > 0;
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, perPage)));
+  const currentPage = Math.min(page, totalPages);
 
-  const activeCount = users.filter((user) => user.isActive).length;
-  const filtering = query.trim().length > 0;
+  // Debounced search: typing narrows the server-side result after a pause. The
+  // effect depends on `filters.search` too, so committing the search with
+  // `Enter` re-runs it and cancels the pending timer.
+  useEffect(() => {
+    const next = draftSearch.trim();
+    if (next === filters.search) return;
+    const timer = window.setTimeout(() => {
+      setFilters((current) => (current.search === next ? current : { ...current, search: next }));
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draftSearch, filters.search]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadUsers(): Promise<void> {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await api.adminUsers({
+          search: filters.search.length > 0 ? filters.search : undefined,
+          role: filters.role.length > 0 ? filters.role : undefined,
+          status: asStatusFilter(filters.status),
+          page,
+          perPage,
+        });
+        if (!active) return;
+        setUsers(result.items);
+        setTotal(result.total);
+      } catch (failure) {
+        if (!active) return;
+        if (failure instanceof ApiClientError && failure.status === 403) {
+          onForbidden();
+          return;
+        }
+        setUsers([]);
+        setTotal(0);
+        setError(adminErrorMessage(failure));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadUsers();
+    return () => {
+      active = false;
+    };
+  }, [filters, onForbidden, page, perPage, refreshKey, reloadKey]);
+
+  // A page that no longer exists (filter narrowed the set, or the last row of
+  // the page was deactivated and left the filter) must not stay on screen.
+  useEffect(() => {
+    if (!loading && page > totalPages) setPage(totalPages);
+  }, [loading, page, totalPages]);
+
+  useEffect(() => {
+    onBusyChange?.(loading);
+  }, [loading, onBusyChange]);
+
+  // The tab unmounts when another `/admin` tab is selected; the header must not
+  // stay spinning because of a list that is no longer mounted.
+  useEffect(() => {
+    return () => onBusyChange?.(false);
+  }, [onBusyChange]);
+
+  function reload(): void {
+    setReloadKey((key) => key + 1);
+  }
+
+  function applyFilters(patch: Partial<AppliedUsersFilters>): void {
+    const next = { ...filters, ...patch };
+    if (
+      next.search === filters.search &&
+      next.role === filters.role &&
+      next.status === filters.status
+    ) {
+      return;
+    }
+    setFilters(next);
+    setPage(1);
+    setExportError(null);
+    setExportNotice(null);
+  }
+
+  function commitSearchNow(): void {
+    applyFilters({ search: draftSearch.trim() });
+  }
+
+  function clearFilters(): void {
+    setDraftSearch('');
+    setExportError(null);
+    setExportNotice(null);
+    if (!hasFilters) {
+      // Nothing was applied yet: only the draft needed clearing (no refetch).
+      return;
+    }
+    setFilters(EMPTY_FILTERS);
+    setPage(1);
+  }
 
   function handleFailure(failure: unknown): void {
     // A revoked permission on any write must flip the page to the 403 state.
@@ -112,7 +264,7 @@ export function AdminUsersTab({
           updated.isActive ? '' : ' Revogue as sessões ativas para encerrar o acesso imediatamente.'
         }`,
       });
-      onChanged();
+      reload();
     } catch (failure) {
       setStatusError(adminErrorMessage(failure));
     } finally {
@@ -131,12 +283,56 @@ export function AdminUsersTab({
         tone: 'success',
         text: `${result.revoked} sessão(ões) de ${target.name} revogada(s).`,
       });
-      onChanged();
+      reload();
     } catch (failure) {
       setRevokeTarget(null);
       handleFailure(failure);
     } finally {
       setRevoking(false);
+    }
+  }
+
+  /**
+   * Downloads the CSV of the **applied** filters (all pages of the result).
+   *
+   * The file is fetched with the bearer token and saved from a Blob, so the
+   * authenticated route works without putting the JWT in the URL. The name comes
+   * from `Content-Disposition` when the API sends it, else `usuarios-YYYY-MM-DD.csv`.
+   */
+  async function handleExport(): Promise<void> {
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
+    setExportNotice(null);
+    try {
+      const file = await api.exportAdminUsersCsv({
+        search: filters.search.length > 0 ? filters.search : undefined,
+        role: filters.role.length > 0 ? filters.role : undefined,
+        status: asStatusFilter(filters.status),
+      });
+      const url = URL.createObjectURL(file.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.fileName ?? adminUsersExportName();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      setExportNotice(
+        `Download iniciado: ${anchor.download}. ${
+          hasFilters
+            ? 'O arquivo respeita os filtros aplicados (todos os operadores do resultado, não só esta página).'
+            : 'Sem filtros: a equipe completa do workspace foi solicitada.'
+        }`,
+      );
+    } catch (failure) {
+      if (failure instanceof ApiClientError && failure.status === 403) {
+        onForbidden();
+        return;
+      }
+      setExportError(adminErrorMessage(failure));
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -152,7 +348,7 @@ export function AdminUsersTab({
 
   const rows = useMemo<Record<string, ReactNode>[]>(
     () =>
-      filtered.map((user) => {
+      users.map((user) => {
         const self = user.id === currentAgentId;
         return {
           user: (
@@ -232,28 +428,68 @@ export function AdminUsersTab({
           ),
         };
       }),
-    [currentAgentId, filtered],
+    [currentAgentId, users],
   );
 
   return (
     <Card
       title="Equipe do workspace"
-      subtitle={`${activeCount} ativo(s) de ${total} operador(es). O papel define o que cada um pode ver e fazer.`}
+      subtitle={
+        loading
+          ? 'Consultando a equipe do workspace…'
+          : `${total} operador(es)${
+              hasFilters ? ' nos filtros aplicados' : ' no workspace'
+            }. O papel define o que cada um pode ver e fazer.`
+      }
     >
-      <div className="flex flex-col gap-3">
-        <div className="sac-admin-toolbar">
+      <div className="flex flex-col gap-4">
+        <div className="sac-admin-filters">
           <SearchField
-            label="Filtrar equipe"
-            value={query}
+            label="Buscar por nome ou e-mail"
+            value={draftSearch}
             placeholder="Nome ou e-mail"
-            onChange={setQuery}
+            onChange={setDraftSearch}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              // `Enter` applies the search now instead of waiting for the debounce.
+              event.preventDefault();
+              commitSearchNow();
+            }}
           />
+          <Select
+            label="Papel"
+            value={filters.role}
+            options={ROLE_FILTER_OPTIONS}
+            onChange={(event) => applyFilters({ role: event.target.value })}
+          />
+          <Select
+            label="Status"
+            value={filters.status}
+            options={STATUS_FILTER_OPTIONS}
+            onChange={(event) => applyFilters({ status: event.target.value })}
+          />
+        </div>
+
+        <div className="sac-admin-toolbar">
           <div className="sac-admin-toolbar__actions">
-            <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-              {filtering
-                ? `${filtered.length} de ${users.length} operador(es)`
-                : `${total} operador(es) no workspace`}
-            </span>
+            <Button
+              variant="ghost"
+              disabled={!hasFilters && draftSearch.trim().length === 0}
+              onClick={clearFilters}
+            >
+              Limpar
+            </Button>
+            <Button
+              variant="secondary"
+              icon="file"
+              loading={exporting}
+              title="Baixa o CSV de todos os operadores que correspondem aos filtros aplicados."
+              onClick={() => void handleExport()}
+            >
+              Exportar CSV
+            </Button>
+          </div>
+          <div className="sac-admin-toolbar__actions">
             <Button variant="primary" icon="plus" onClick={() => setInviteOpen(true)}>
               Convidar operador
             </Button>
@@ -263,6 +499,25 @@ export function AdminUsersTab({
         {notice !== null ? (
           <Alert title={notice.tone === 'success' ? 'Equipe atualizada' : 'Ação não concluída'} tone={notice.tone}>
             {notice.text}
+          </Alert>
+        ) : null}
+
+        {exportError !== null ? (
+          <Alert title="Não foi possível exportar o CSV" tone="danger">
+            <div className="flex flex-col gap-2">
+              <span>{exportError}</span>
+              <div>
+                <Button size="sm" icon="file" loading={exporting} onClick={() => void handleExport()}>
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
+          </Alert>
+        ) : null}
+
+        {exportNotice !== null ? (
+          <Alert title="Exportação iniciada" tone="success">
+            {exportNotice}
           </Alert>
         ) : null}
 
@@ -277,25 +532,25 @@ export function AdminUsersTab({
             <div className="flex flex-col gap-2">
               <span>{error}</span>
               <div>
-                <Button size="sm" icon="pulse" onClick={onRetry}>
+                <Button size="sm" icon="pulse" onClick={reload}>
                   Tentar novamente
                 </Button>
               </div>
             </div>
           </Alert>
-        ) : filtered.length === 0 ? (
+        ) : users.length === 0 ? (
           <EmptyState
-            icon={filtering ? 'search' : 'users'}
-            title={filtering ? 'Nenhum operador encontrado' : 'Nenhum operador cadastrado'}
+            icon={hasFilters ? 'search' : 'users'}
+            title={hasFilters ? 'Nenhum operador encontrado' : 'Nenhum operador cadastrado'}
             description={
-              filtering
-                ? `Nenhum nome ou e-mail corresponde a "${query.trim()}". Ajuste o filtro ou limpe a busca.`
+              hasFilters
+                ? 'Nenhum operador corresponde aos filtros aplicados. Ajuste a busca, o papel ou o status — ou limpe os filtros.'
                 : 'Convide o primeiro operador para começar a atender em equipe. O convite chega por e-mail.'
             }
             action={
-              filtering ? (
-                <Button variant="secondary" onClick={() => setQuery('')}>
-                  Limpar filtro
+              hasFilters ? (
+                <Button variant="secondary" onClick={clearFilters}>
+                  Limpar filtros
                 </Button>
               ) : (
                 <Button variant="primary" icon="plus" onClick={() => setInviteOpen(true)}>
@@ -310,16 +565,44 @@ export function AdminUsersTab({
               Deslize a tabela para ver papel, status, sessões e ações.
             </p>
             <DataTable
-              caption={`Equipe do workspace — ${filtered.length} operador(es)`}
+              caption={`Equipe do workspace — ${users.length} de ${total} operador(es)`}
               columns={columns}
               rows={rows}
             />
+
+            <div className="sac-admin-pagination">
+              <span className="sac-admin-pagination__summary">
+                {adminUsersRangeLabel(currentPage, perPage, total, users.length)} operador(es) ·
+                página {currentPage} de {totalPages}
+              </span>
+              <div className="sac-admin-pagination__controls">
+                <div className="sac-admin-perpage">
+                  <Select
+                    label="Itens por página"
+                    value={String(perPage)}
+                    options={PER_PAGE_OPTIONS}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (!Number.isFinite(next) || next < 1) return;
+                      setPerPage(next);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <Pagination
+                  page={currentPage}
+                  total={totalPages}
+                  onPageChange={(next) => setPage(Math.min(Math.max(1, next), totalPages))}
+                />
+              </div>
+            </div>
           </>
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamadas: <span className="sac-num">GET /admin/users</span> ·{' '}
-          <span className="sac-num">PATCH /admin/users/:id</span> ·{' '}
+          Chamadas: <span className="sac-num">GET /admin/users?search=&amp;role=&amp;status=&amp;page=&amp;perPage=</span>{' '}
+          · <span className="sac-num">GET /admin/users/export.csv?search=&amp;role=&amp;status=</span>{' '}
+          (download autenticado) · <span className="sac-num">PATCH /admin/users/:id</span> ·{' '}
           <span className="sac-num">POST /admin/users/:id/revoke-sessions</span>
         </p>
       </div>
@@ -345,7 +628,7 @@ export function AdminUsersTab({
           onClose={() => setRoleTarget(null)}
           onSaved={(updated) => {
             setNotice({ tone: 'success', text: `${updated.name} agora é ${roleLabel(updated.role)}.` });
-            onChanged();
+            reload();
           }}
         />
       ) : null}

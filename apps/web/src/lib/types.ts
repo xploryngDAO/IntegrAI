@@ -607,7 +607,9 @@ export interface DeleteTenantBody {
  *   GET   /auth/sessions              -> { items: UserSession[] }
  *   DELETE /auth/sessions/:id         -> 204
  *   POST  /auth/sessions/revoke-others-> { revoked: number }
- *   GET   /admin/users                -> { items: AdminUser[], total }
+ *   GET   /admin/users?search=&role=&status=&page=&perPage=
+ *                                     -> { items, total, page, perPage }
+ *   GET   /admin/users/export.csv?search=&role=&status= -> text/csv
  *   PATCH /admin/users/:id            -> AdminUser
  *   POST  /admin/users/:id/revoke-sessions -> { revoked: number }
  *   GET   /admin/audit-logs           -> { items, page, perPage, total }
@@ -644,10 +646,52 @@ export interface AdminUser {
   sessionsCount: number;
 }
 
-/** `GET /admin/users` envelope. */
+/**
+ * Status values accepted by `GET /admin/users?status=` (same union as
+ * `AdminUserStatus` in `@sac/shared`).
+ *
+ * Uppercase on purpose: the API enums of this project (`TenantStatus`,
+ * `TicketStatus`, invitation status) are uppercase and the role filter already
+ * sends `ADMIN`/`SUPERVISOR`/`AGENT`. `INACTIVE` names the deactivated operator.
+ */
+export type AdminUserStatus = 'ACTIVE' | 'INACTIVE';
+
+/**
+ * Query of `GET /admin/users` (server-side filtering + pagination).
+ *
+ * Every filter is optional and an empty string is omitted from the URL, exactly
+ * like the other list endpoints. `page` is 1-based and the API caps `perPage` at
+ * 100 — the tab only offers 25/50/100.
+ */
+export interface AdminUsersQuery {
+  /** Free text matched against the operator name/e-mail (trimmed by the client). */
+  search?: string;
+  /** `ADMIN` | `SUPERVISOR` | `AGENT`; absent = every role. */
+  role?: string;
+  /** Active flag; absent = both. */
+  status?: AdminUserStatus;
+  /** 1-based page (API default: 1). */
+  page?: number;
+  /** Page size, 1..100 (API default: 25). */
+  perPage?: number;
+}
+
+/** Query of `GET /admin/users/export.csv` — the same filters, without pagination. */
+export type AdminUsersExportQuery = Omit<AdminUsersQuery, 'page' | 'perPage'>;
+
+/**
+ * `GET /admin/users` envelope.
+ *
+ * `total` is the size of the whole filtered set (not only the returned page);
+ * `page`/`perPage` are the effective values echoed by the API, so the client
+ * paginates by what the server actually did. The client tolerates a deployment
+ * that omits them (see `api.adminUsers`).
+ */
 export interface AdminUsersResult {
   items: AdminUser[];
   total: number;
+  page: number;
+  perPage: number;
 }
 
 /** Body of `PATCH /admin/users/:id` — only the changed fields are sent. */

@@ -132,7 +132,13 @@ describe('admin HTTP routes', () => {
     if (principal === undefined) throw new AuthenticationError('Invalid token');
     return principal as never;
   });
-  const listUsers = vi.fn(async () => ({ items: [USER], total: 1 }));
+  const listUsers = vi.fn(async () => ({
+    items: [USER],
+    total: 1,
+    page: 1,
+    perPage: 25,
+  }));
+  const exportUsers = vi.fn(async () => [USER]);
   const updateUser = vi.fn(async () => USER);
   const revokeSessions = vi.fn(async () => ({ revoked: 3 }));
   const listInvitations = vi.fn(async () => INVITATION_LIST);
@@ -151,7 +157,12 @@ describe('admin HTTP routes', () => {
     app = await buildTestApp({
       services: {
         agents: { verifyToken },
-        adminUsers: { list: listUsers, update: updateUser, revokeSessions },
+        adminUsers: {
+          list: listUsers,
+          exportRows: exportUsers,
+          update: updateUser,
+          revokeSessions,
+        },
         invitations: {
           listForAdmin: listInvitations,
           revokeForAdmin: revokeInvitation,
@@ -174,6 +185,7 @@ describe('admin HTTP routes', () => {
   beforeEach(() => {
     verifyToken.mockClear();
     listUsers.mockClear();
+    exportUsers.mockClear();
     updateUser.mockClear();
     revokeSessions.mockClear();
     listInvitations.mockClear();
@@ -182,6 +194,13 @@ describe('admin HTTP routes', () => {
     listAuditLogs.mockClear();
     exportAuditRows.mockClear();
     updateUser.mockImplementation(async () => USER);
+    listUsers.mockImplementation(async () => ({
+      items: [USER],
+      total: 1,
+      page: 1,
+      perPage: 25,
+    }));
+    exportUsers.mockImplementation(async () => [USER]);
     revokeSessions.mockImplementation(async () => ({ revoked: 3 }));
     listInvitations.mockImplementation(async () => INVITATION_LIST);
     revokeInvitation.mockImplementation(async () => undefined);
@@ -203,6 +222,7 @@ describe('admin HTTP routes', () => {
   it('answers 401 without a bearer token on every admin route', async () => {
     const requests = [
       { method: 'GET' as const, url: '/api/v1/admin/users' },
+      { method: 'GET' as const, url: '/api/v1/admin/users/export.csv' },
       { method: 'PATCH' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222' },
       { method: 'POST' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/revoke-sessions' },
       { method: 'GET' as const, url: '/api/v1/admin/invitations' },
@@ -226,6 +246,11 @@ describe('admin HTTP routes', () => {
     for (const token of [AGENT_TOKEN, SUPERVISOR_TOKEN]) {
       const responses = await Promise.all([
         app.inject({ method: 'GET', url: '/api/v1/admin/users', headers: auth(token) }),
+        app.inject({
+          method: 'GET',
+          url: '/api/v1/admin/users/export.csv',
+          headers: auth(token),
+        }),
         app.inject({
           method: 'PATCH',
           url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222',
@@ -272,6 +297,17 @@ describe('admin HTTP routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({ error: { code: 'AUTHORIZATION_ERROR' } });
+
+    const exportResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(TENANTLESS_ADMIN_TOKEN),
+    });
+    expect(exportResponse.statusCode).toBe(403);
+    expect(exportResponse.json()).toMatchObject({
+      error: { code: 'AUTHORIZATION_ERROR' },
+    });
+    expect(exportUsers).not.toHaveBeenCalled();
   });
 
   it('GET /admin/users returns the tenant team inside the data envelope', async () => {
@@ -282,8 +318,132 @@ describe('admin HTTP routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: { items: [USER], total: 1 } });
-    expect(listUsers).toHaveBeenCalledWith('tenant-1');
+    expect(response.json()).toEqual({
+      data: { items: [USER], total: 1, page: 1, perPage: 25 },
+    });
+    expect(listUsers).toHaveBeenCalledWith('tenant-1', { page: 1, perPage: 25 });
+  });
+
+  it('GET /admin/users parses search/role/status/pagination and scopes by JWT tenant', async () => {
+    listUsers.mockResolvedValueOnce({
+      items: [USER],
+      total: 42,
+      page: 2,
+      perPage: 10,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url:
+        '/api/v1/admin/users?search=%20%20Ana%20%20&role=AGENT&status=ACTIVE' +
+        '&page=2&perPage=10',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: { items: [USER], total: 42, page: 2, perPage: 10 },
+    });
+    expect(listUsers).toHaveBeenCalledWith('tenant-1', {
+      search: 'Ana',
+      role: 'AGENT',
+      status: 'ACTIVE',
+      page: 2,
+      perPage: 10,
+    });
+  });
+
+  it('GET /admin/users answers 422 for an invalid role/status/page/perPage/search', async () => {
+    const invalidUrls = [
+      '/api/v1/admin/users?role=OWNER',
+      '/api/v1/admin/users?status=DISABLED',
+      '/api/v1/admin/users?page=0',
+      '/api/v1/admin/users?page=abc',
+      '/api/v1/admin/users?perPage=101',
+      `/api/v1/admin/users?search=${'a'.repeat(121)}`,
+    ];
+
+    for (const url of invalidUrls) {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: auth(ADMIN_TOKEN),
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
+
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it('GET /admin/users/export.csv sends the filtered team as an RFC4180 attachment', async () => {
+    exportUsers.mockResolvedValueOnce([
+      {
+        ...USER,
+        name: 'Bob, "The Builder"',
+        lastLoginAt: null,
+        sessionsCount: 0,
+      },
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv?search=Bob&role=AGENT&status=INACTIVE',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(response.headers['content-disposition']).toBe(
+      'attachment; filename=usuarios-2026-11-05.csv',
+    );
+    expect(response.body).toBe(
+      'name,email,role,is_active,last_login_at,created_at,sessions_count\r\n' +
+        '"Bob, ""The Builder""",bob@acme.test,AGENT,true,,2026-11-01T10:00:00.000Z,0\r\n',
+    );
+
+    const [tenantId, query, limit] = exportUsers.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+      number,
+    ];
+    expect(tenantId).toBe('tenant-1');
+    expect(query).toEqual({ search: 'Bob', role: 'AGENT', status: 'INACTIVE' });
+    expect(limit).toBe(10_000);
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it('GET /admin/users/export.csv returns the header only when there is nothing to export', async () => {
+    exportUsers.mockResolvedValueOnce([]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toBe(
+      'name,email,role,is_active,last_login_at,created_at,sessions_count\r\n',
+    );
+  });
+
+  it('GET /admin/users/export.csv answers 422 for invalid filters without querying', async () => {
+    for (const url of [
+      '/api/v1/admin/users/export.csv?role=OWNER',
+      '/api/v1/admin/users/export.csv?status=DISABLED',
+      `/api/v1/admin/users/export.csv?search=${'a'.repeat(121)}`,
+    ]) {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: auth(ADMIN_TOKEN),
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
+
+    expect(exportUsers).not.toHaveBeenCalled();
   });
 
   it('PATCH /admin/users/:id forwards the JWT tenant + actor and returns the user', async () => {

@@ -1,5 +1,7 @@
 import type {
   AgentRecord,
+  AdminUserListFilter,
+  AdminUserListQuery,
   AdminUserRecord,
   AdminUserListResult,
   AdminUserView,
@@ -13,7 +15,14 @@ import type {
   ISessionRepository,
   UpdateAdminUserCommand,
 } from '@sac/shared';
-import { AppError, AUDIT_ACTIONS, NotFoundError } from '@sac/shared';
+import {
+  ADMIN_USERS_DEFAULT_PER_PAGE,
+  ADMIN_USERS_EXPORT_MAX_ROWS,
+  ADMIN_USERS_MAX_PER_PAGE,
+  AppError,
+  AUDIT_ACTIONS,
+  NotFoundError,
+} from '@sac/shared';
 
 import { setUserRevocationWatermark } from './auth/access-token-revocation';
 
@@ -78,9 +87,45 @@ export class AdminUserService implements IAdminUserService {
   /* List                                                                 */
   /* ==================================================================== */
 
-  async list(tenantId: string): Promise<AdminUserListResult> {
-    const rows = await this.adminUsers.listByTenant(tenantId, this.clock.now());
-    return { items: rows.map(toAdminUserView), total: rows.length };
+  /**
+   * Filtered, paginated team list. `total` counts the FILTERED set (used by the
+   * UI to compute the number of pages) and the order is `createdAt` ascending
+   * with `id` as a deterministic tiebreaker (both at the database and in the
+   * in-memory doubles).
+   */
+  async list(tenantId: string, query: AdminUserListQuery = {}): Promise<AdminUserListResult> {
+    const page = clampInteger(query.page, 1, Number.MAX_SAFE_INTEGER, 1);
+    const perPage = clampInteger(
+      query.perPage,
+      1,
+      ADMIN_USERS_MAX_PER_PAGE,
+      ADMIN_USERS_DEFAULT_PER_PAGE,
+    );
+
+    const { items, total } = await this.adminUsers.listFiltered(
+      buildListFilter(tenantId, query, (page - 1) * perPage, perPage),
+      this.clock.now(),
+    );
+
+    return { items: items.map(toAdminUserView), total, page, perPage };
+  }
+
+  /**
+   * CSV export read: same tenant scope/filters as `list`, no pagination and
+   * hard-capped at `ADMIN_USERS_EXPORT_MAX_ROWS` (10k) so a huge workspace
+   * cannot exhaust the API memory.
+   */
+  async exportRows(
+    tenantId: string,
+    query: AdminUserListQuery = {},
+    limit: number = ADMIN_USERS_EXPORT_MAX_ROWS,
+  ): Promise<AdminUserView[]> {
+    const rows = clampInteger(limit, 1, ADMIN_USERS_EXPORT_MAX_ROWS, ADMIN_USERS_EXPORT_MAX_ROWS);
+    const { items } = await this.adminUsers.listFiltered(
+      buildListFilter(tenantId, query, 0, rows),
+      this.clock.now(),
+    );
+    return items.map(toAdminUserView);
   }
 
   /* ==================================================================== */
@@ -270,4 +315,32 @@ function toAdminUserView(row: AdminUserRecord): AdminUserView {
     createdAt: row.agent.createdAt.toISOString(),
     sessionsCount: row.sessionsCount,
   };
+}
+
+/**
+ * Tenant is always the first, non-overridable field; the optional filters are
+ * only added when present so the repository can build a minimal `where`.
+ */
+function buildListFilter(
+  tenantId: string,
+  query: AdminUserListQuery,
+  offset: number,
+  limit: number,
+): AdminUserListFilter {
+  const filter: AdminUserListFilter = { tenantId, offset, limit };
+  const search = query.search?.trim();
+  if (search !== undefined && search.length > 0) filter.search = search;
+  if (query.role !== undefined) filter.role = query.role;
+  if (query.status !== undefined) filter.status = query.status;
+  return filter;
+}
+
+function clampInteger(
+  value: number | undefined,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
 }

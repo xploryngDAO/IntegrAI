@@ -1,4 +1,10 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type {
+  InputHTMLAttributes,
+  KeyboardEventHandler,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from 'react';
 import {
   SearchField as CvSearch,
   Select as CvSelect,
@@ -67,12 +73,15 @@ export function SearchField({
   label = 'Buscar',
   value,
   onChange,
+  onKeyDown,
   placeholder,
   className,
 }: {
   label?: string;
   value: string;
   onChange: (value: string) => void;
+  /** Keyboard handler of the input (e.g. `Enter` applying the search now). */
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
   placeholder?: string;
   className?: string;
 }) {
@@ -82,6 +91,7 @@ export function SearchField({
         label={label}
         value={value}
         placeholder={placeholder}
+        onKeyDown={onKeyDown}
         onChange={(event) => onChange(event.target.value)}
       />
     </div>

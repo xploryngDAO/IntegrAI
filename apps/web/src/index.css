@@ -2171,16 +2171,42 @@ body {
   gap: 12px;
 }
 
-.sac-admin-toolbar > :first-child {
-  flex: 1 1 260px;
-  max-width: 360px;
-}
-
 .sac-admin-toolbar__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+.sac-admin-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sac-admin-pagination__summary {
+  font-size: var(--cv-font-meta);
+  color: var(--cv-color-text-muted);
+}
+
+.sac-admin-pagination__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.sac-admin-perpage {
+  flex: 0 0 132px;
+  max-width: 132px;
+  min-width: 0;
+}
+
+/* The secondary action group keeps to the right even when it wraps alone. */
+.sac-admin-toolbar > .sac-admin-toolbar__actions:last-child {
+  margin-left: auto;
 }
 
 .sac-admin-scroll-hint {
@@ -2378,12 +2404,18 @@ body {
     text-align: left;
   }
 
-  .sac-admin-toolbar > :first-child {
-    max-width: none;
-  }
-
   .sac-admin-scroll-hint {
     display: block;
+  }
+
+  /* Phone width: the page-size select and the pager each get their own line,
+     with the pager centred by the DS `.cv-pagination` rule. */
+  .sac-admin-pagination__controls {
+    width: 100%;
+  }
+
+  .sac-admin-pagination__controls .cv-pagination {
+    flex: 1 1 100%;
   }
 }
 

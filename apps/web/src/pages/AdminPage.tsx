@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader, Tabs } from '@xploryng/convergencia';
-import { api, ApiClientError } from '../lib/api';
 import { useWorkspace } from '../lib/store';
 import { isTenantAdmin } from '../lib/platform';
-import { adminErrorMessage, roleLabel } from '../lib/admin';
-import type { AdminUser } from '../lib/types';
+import { roleLabel } from '../lib/admin';
 import { Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { AdminInvitationsTab } from '../components/admin/AdminInvitationsTab';
 import { AdminLogsTab } from '../components/admin/AdminLogsTab';
@@ -24,9 +22,11 @@ function asAdminTab(value: string): AdminTab {
  * `/admin` — workspace administration for the tenant ADMIN.
  *
  * Three tabs share one page:
- *  - **Usuários**: the operator roster with role, activation and session
- *    revoke actions plus the invitation CTA (`GET|PATCH /admin/users`,
- *    `POST /admin/users/:id/revoke-sessions`, `POST /invitations`);
+ *  - **Usuários**: the operator roster with server-side filters (name/e-mail,
+ *    role, status), server-side pagination and the CSV export of the applied
+ *    filters, plus the role/activation/session-revoke actions and the invitation
+ *    CTA (`GET|PATCH /admin/users`, `POST /admin/users/:id/revoke-sessions`,
+ *    `GET /admin/users/export.csv`, `POST /invitations`);
  *  - **Convites**: pending/accepted/expired invitations with revoke for PENDING
  *    rows and re-send for PENDING/EXPIRED rows, never ACCEPTED
  *    (`GET|DELETE /admin/invitations`, `POST /admin/invitations/:id/resend`);
@@ -34,21 +34,19 @@ function asAdminTab(value: string): AdminTab {
  *    server-side pagination and the CSV export of the applied filters
  *    (`GET /admin/audit-logs`, `GET /admin/audit-logs/export.csv`).
  *
- * The API is the real guard. A 403 anywhere (or a role that is not ADMIN)
- * renders the access-restricted state instead of a broken screen; the page
- * never retries a forbidden call in a loop.
+ * Each tab owns its own reads: the page only coordinates the header refresh and
+ * the access-restricted state. The API is the real guard. A 403 anywhere (or a
+ * role that is not ADMIN) renders the access-restricted state instead of a
+ * broken screen; the page never retries a forbidden call in a loop.
  */
 export function AdminPage(): JSX.Element {
   const navigate = useNavigate();
   const currentAgent = useWorkspace((state) => state.currentAgent);
 
   const [tab, setTab] = useState<AdminTab>('users');
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [total, setTotal] = useState(0);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [usersError, setUsersError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [forbidden, setForbidden] = useState(false);
+  const [usersBusy, setUsersBusy] = useState(false);
 
   const isAdmin = currentAgent !== null && isTenantAdmin(currentAgent);
   const restricted = forbidden || (currentAgent !== null && !isAdmin);
@@ -57,49 +55,10 @@ export function AdminPage(): JSX.Element {
     setForbidden(true);
   }, []);
 
+  /** Header "Atualizar": every mounted tab reloads and keeps its own state. */
   const retry = useCallback((): void => {
     setReloadKey((key) => key + 1);
   }, []);
-
-  const reloadUsers = useCallback((): void => {
-    setReloadKey((key) => key + 1);
-  }, []);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      setUsersLoading(false);
-      return;
-    }
-
-    let active = true;
-
-    async function loadUsers(): Promise<void> {
-      setUsersLoading(true);
-      setUsersError(null);
-      try {
-        const result = await api.adminUsers();
-        if (!active) return;
-        setUsers(result.items);
-        setTotal(result.total);
-      } catch (error) {
-        if (!active) return;
-        if (error instanceof ApiClientError && error.status === 403) {
-          handleForbidden();
-          return;
-        }
-        setUsers([]);
-        setTotal(0);
-        setUsersError(adminErrorMessage(error));
-      } finally {
-        if (active) setUsersLoading(false);
-      }
-    }
-
-    void loadUsers();
-    return () => {
-      active = false;
-    };
-  }, [handleForbidden, isAdmin, reloadKey]);
 
   if (currentAgent === null) {
     // The identity is still being resolved (fresh login): do not flash the
@@ -162,7 +121,7 @@ export function AdminPage(): JSX.Element {
         title="Equipe e auditoria"
         description="Gerencie quem acessa o workspace, o papel de cada operador e o registro das ações administrativas."
         actions={
-          <Button variant="secondary" icon="pulse" loading={usersLoading} onClick={retry}>
+          <Button variant="secondary" icon="pulse" loading={usersBusy} onClick={retry}>
             Atualizar
           </Button>
         }
@@ -178,13 +137,9 @@ export function AdminPage(): JSX.Element {
             label: 'Usuários',
             content: (
               <AdminUsersTab
-                users={users}
-                total={total}
-                loading={usersLoading}
-                error={usersError}
                 currentAgentId={currentAgent?.id ?? null}
-                onRetry={retry}
-                onChanged={reloadUsers}
+                refreshKey={reloadKey}
+                onBusyChange={setUsersBusy}
                 onForbidden={handleForbidden}
               />
             ),
@@ -199,13 +154,7 @@ export function AdminPage(): JSX.Element {
           {
             value: 'logs',
             label: 'Logs',
-            content: (
-              <AdminLogsTab
-                users={users}
-                onForbidden={handleForbidden}
-                refreshKey={reloadKey}
-              />
-            ),
+            content: <AdminLogsTab onForbidden={handleForbidden} refreshKey={reloadKey} />,
           },
         ]}
       />

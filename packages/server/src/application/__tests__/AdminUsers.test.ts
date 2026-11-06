@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentRecord, ILogger } from '@sac/shared';
+import { ADMIN_USERS_EXPORT_MAX_ROWS } from '@sac/shared';
 
 import { userRevocationWatermarkKey } from '../auth/access-token-revocation';
 import { AdminUserService } from '../AdminUserService';
@@ -93,6 +94,158 @@ describe('AdminUserService.list', () => {
     });
     expect(result.items[1]).toMatchObject({ id: 'agent-2', lastLoginAt: null, sessionsCount: 0 });
     expect(second.id).toBe('agent-2');
+  });
+
+  it('defaults to page 1 / perPage 25 and clamps out-of-range pagination', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, { id: 'agent-1', createdAt: new Date(T0.getTime()) });
+
+    const defaults = await service.list('tenant-1');
+    expect(defaults).toMatchObject({ page: 1, perPage: 25, total: 1 });
+
+    const clampedPage = await service.list('tenant-1', { page: 0 });
+    expect(clampedPage.page).toBe(1);
+
+    const clampedPerPage = await service.list('tenant-1', { perPage: 1_000 });
+    expect(clampedPerPage.perPage).toBe(100);
+  });
+
+  it('searches name OR email case-insensitively after trimming the term', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, {
+      id: 'agent-1',
+      name: 'Ana Admin',
+      email: 'ana@acme.test',
+    });
+    seedAgent(repo, {
+      id: 'agent-2',
+      name: 'Bob',
+      email: 'ana.silva@acme.test',
+    });
+    seedAgent(repo, { id: 'foreign', tenantId: 'tenant-2', name: 'Ana Foreign' });
+
+    const byName = await service.list('tenant-1', { search: '  ANA  ' });
+    expect(byName.total).toBe(2);
+    expect(byName.items.map((entry) => entry.id)).toEqual(['agent-1', 'agent-2']);
+
+    const byEmail = await service.list('tenant-1', { search: 'ANA.SILVA@' });
+    expect(byEmail.total).toBe(1);
+    expect(byEmail.items[0]?.id).toBe('agent-2');
+
+    const blank = await service.list('tenant-1', { search: '   ' });
+    expect(blank.total).toBe(2);
+  });
+
+  it('combines role + status filters with pagination and reports the filtered total', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, {
+      id: 'agent-1',
+      name: 'Ana Admin',
+      role: 'ADMIN',
+      createdAt: new Date(T0.getTime()),
+    });
+    seedAgent(repo, {
+      id: 'agent-2',
+      name: 'Ana Admin',
+      role: 'ADMIN',
+      isActive: false,
+      createdAt: new Date(T0.getTime() + 1_000),
+    });
+    seedAgent(repo, {
+      id: 'agent-3',
+      name: 'Bob Agent',
+      role: 'AGENT',
+      createdAt: new Date(T0.getTime() + 2_000),
+    });
+    seedAgent(repo, {
+      id: 'agent-4',
+      name: 'Carol Agent',
+      role: 'AGENT',
+      createdAt: new Date(T0.getTime() + 3_000),
+    });
+    seedAgent(repo, {
+      id: 'agent-5',
+      name: 'Sara Supervisor',
+      role: 'SUPERVISOR',
+      createdAt: new Date(T0.getTime() + 4_000),
+    });
+    seedAgent(repo, { id: 'foreign', tenantId: 'tenant-2', role: 'AGENT' });
+
+    const secondPage = await service.list('tenant-1', {
+      role: 'AGENT',
+      status: 'ACTIVE',
+      page: 2,
+      perPage: 1,
+    });
+
+    expect(secondPage.total).toBe(2); // FILTERED set, not the 5-row team
+    expect(secondPage.page).toBe(2);
+    expect(secondPage.perPage).toBe(1);
+    expect(secondPage.items.map((entry) => entry.id)).toEqual(['agent-4']);
+
+    const inactive = await service.list('tenant-1', { status: 'INACTIVE' });
+    expect(inactive.total).toBe(1);
+    expect(inactive.items.map((entry) => entry.id)).toEqual(['agent-2']);
+
+    const combined = await service.list('tenant-1', {
+      search: 'admin',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+    expect(combined.total).toBe(1);
+    expect(combined.items.map((entry) => entry.id)).toEqual(['agent-1']);
+  });
+
+  it('breaks createdAt ties by id so pagination is deterministic', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, { id: 'agent-b', createdAt: new Date(T0.getTime()) });
+    seedAgent(repo, { id: 'agent-a', createdAt: new Date(T0.getTime()) });
+
+    const result = await service.list('tenant-1');
+
+    expect(result.items.map((entry) => entry.id)).toEqual(['agent-a', 'agent-b']);
+  });
+});
+
+describe('AdminUserService.exportRows', () => {
+  it('returns the filtered rows without pagination and keeps the tenant scope', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, { id: 'agent-1', role: 'AGENT', createdAt: new Date(T0.getTime()) });
+    seedAgent(repo, {
+      id: 'agent-2',
+      role: 'AGENT',
+      createdAt: new Date(T0.getTime() + 1_000),
+    });
+    seedAgent(repo, {
+      id: 'agent-3',
+      role: 'ADMIN',
+      createdAt: new Date(T0.getTime() + 2_000),
+    });
+    seedAgent(repo, { id: 'foreign', tenantId: 'tenant-2', role: 'AGENT' });
+
+    const rows = await service.exportRows('tenant-1', { role: 'AGENT' });
+
+    expect(rows.map((row) => row.id)).toEqual(['agent-1', 'agent-2']);
+    expect(repo.lastFilter).toMatchObject({
+      tenantId: 'tenant-1',
+      role: 'AGENT',
+      offset: 0,
+      limit: ADMIN_USERS_EXPORT_MAX_ROWS,
+    });
+
+    const capped = await service.exportRows('tenant-1', {}, 2);
+    expect(capped.map((row) => row.id)).toEqual(['agent-1', 'agent-2']);
+    expect(repo.lastFilter?.limit).toBe(2);
+  });
+
+  it('hard-caps the limit at 10k even when a caller asks for more', async () => {
+    const { repo, service } = build();
+    seedAgent(repo, { id: 'agent-1' });
+
+    await service.exportRows('tenant-1', {}, 50_000);
+
+    expect(repo.lastFilter?.limit).toBe(ADMIN_USERS_EXPORT_MAX_ROWS);
+    expect(ADMIN_USERS_EXPORT_MAX_ROWS).toBe(10_000);
   });
 });
 
