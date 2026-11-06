@@ -180,3 +180,12 @@ A-admin-patch-usuario-B-404 / revoga-convite-B-404 / revoga-sessao-B-404
 cleanup                           tenants restantes=0
 14/14 verificações passaram
 ```
+
+### 15. Alerta por e-mail em login de novo dispositivo
+```
+login com User-Agent novo (IntegrAI-Validator/1.0) -> 200
+Mailpit "Novo acesso à sua conta IntegrAI" -> 1 mensagem (corpo contém dispositivo e IP)
+login repetido com o MESMO ip+user-agent -> nenhuma nova mensagem (fingerprint conhecido)
+audit auth.login.new_device gravado (e-mail redigido)
+validate:live -> 11/11
+```
