@@ -132,7 +132,7 @@ Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação 
 
 ## Demo alternativa (GitHub Pages)
 
-O branch **`gh-pages`** já está publicado com o build mais recente (base `/IntegrAI/`, router com
+O branch **`gh-pages`** está publicado com o build atual (`index-7e5sbE_A.js`, base `/IntegrAI/`, router com
 `basename` e API resolvida em runtime). Para ativar (uma vez): **Settings → Pages → Source:
 Deploy from a branch → `gh-pages` / root**. URL: <https://xploryngdao.github.io/IntegrAI/>.
 O CORS da API já autoriza essa origem. Validado localmente servindo o build em `/IntegrAI/`

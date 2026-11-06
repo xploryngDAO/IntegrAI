@@ -81,7 +81,7 @@ npx vercel --prod --yes
 node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 violações
 ```
 
-## 7.1 SPA alternativo no GitHub Pages`n`nO branch `gh-pages` ja contem o build com base `/IntegrAI/`; para ativar: **Settings -> Pages -> Deploy from a branch -> gh-pages / root**. URL: https://xploryngdao.github.io/IntegrAI/ (CORS da API ja autoriza). Validado localmente servindo o dist em `/IntegrAI/`.  `n`n## 8. Depois do go-live
+## 7.1 SPA alternativo no GitHub Pages`n`nO branch `gh-pages` ja contem o build atual (`index-7e5sbE_A.js`, base `/IntegrAI/`); para ativar: **Settings -> Pages -> Deploy from a branch -> gh-pages / root**. URL: https://xploryngdao.github.io/IntegrAI/ (CORS da API ja autoriza). Validado localmente servindo o dist em `/IntegrAI/`.  `n`n## 8. Depois do go-live
 
 - Rodar `npm run validate:live`, `isolation-test` e `security-probe` no host novo.
 - Ativar backup diário off-site (`npm run db:backup` + cópia para S3).
