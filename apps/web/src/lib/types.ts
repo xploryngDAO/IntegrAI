@@ -607,6 +607,7 @@ export interface DeleteTenantBody {
  *   GET   /auth/sessions              -> { items: UserSession[] }
  *   DELETE /auth/sessions/:id         -> 204
  *   POST  /auth/sessions/revoke-others-> { revoked: number }
+ *   GET   /admin/overview             -> AdminOverview
  *   GET   /admin/users?search=&role=&status=&page=&perPage=
  *                                     -> { items, total, page, perPage }
  *   GET   /admin/users/export.csv?search=&role=&status= -> text/csv
@@ -620,6 +621,72 @@ export interface DeleteTenantBody {
  * Every response travels inside the standard `{ data }` envelope, which the
  * HTTP client unwraps before these types apply.
  * ========================================================================== */
+
+/**
+ * `GET /admin/overview` (ADMIN) — the counters shown above the `/admin` tabs.
+ *
+ * Contract: `{ data: { users: { total, active, admins }, sessions: { active },
+ * invitations: { pending }, accounts: { total, connected, byMarketplace:
+ * { AMAZON, MERCADO_LIVRE, SHOPEE } }, tickets: { total, unread, unassigned },
+ * audit: { last24h } } }`. The HTTP client unwraps `data`, so this read model
+ * starts at the six groups below (`api.adminOverview`).
+ *
+ * The wire type also exists as `AdminOverview` in `@sac/shared`; this local copy
+ * is the tolerant read model of the SPA. It keeps `byMarketplace` keyed by the
+ * plain marketplace code, so a deployment that adds a channel is displayed
+ * instead of rejected by the type — the same reason `AdminUser.role` is a
+ * `string` here and an `AgentRole` there.
+ *
+ * Every counter is an integer `>= 0`: `api.adminOverview` renders an absent
+ * field as `0` and clamps a negative/invalid value to `0`, so a card never
+ * shows `-1`, `NaN` or a blank where the API omitted a metric.
+ */
+export interface AdminOverview {
+  users: {
+    /** Every operator of the workspace (active + inactive). */
+    total: number;
+    /** Operators with `isActive` (the ones that can sign in). */
+    active: number;
+    /** ADMIN operators of the workspace, active or not. */
+    admins: number;
+  };
+  sessions: {
+    /** Live refresh sessions (`revoked_at IS NULL` and not expired). */
+    active: number;
+  };
+  invitations: {
+    /** Invitations not accepted and not expired. */
+    pending: number;
+  };
+  accounts: {
+    /** Marketplace accounts of the workspace, any status. */
+    total: number;
+    /** Accounts currently `ACTIVE` (usable token). */
+    connected: number;
+    /**
+     * Accounts per marketplace code, upper-cased (`AMAZON`, `MERCADO_LIVRE`,
+     * `SHOPEE`). The three channels this UI knows are always present (zero when
+     * the API omitted them); an extra code sent by a newer deployment is kept
+     * verbatim so the breakdown never hides a connected channel.
+     *
+     * Each row counts **every** account of that channel, whatever its status;
+     * `connected` above is the `ACTIVE` subset.
+     */
+    byMarketplace: Record<string, number>;
+  };
+  tickets: {
+    /** Every support ticket of the workspace. */
+    total: number;
+    /** Tickets in the `UNREAD` status (a new buyer message arrived). */
+    unread: number;
+    /** Non-terminal tickets without an assignee. */
+    unassigned: number;
+  };
+  audit: {
+    /** Administrative audit events recorded in the last rolling 24h. */
+    last24h: number;
+  };
+}
 
 /** One active refresh session of the authenticated operator. */
 export interface UserSession {

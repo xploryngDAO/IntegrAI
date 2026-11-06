@@ -32,6 +32,7 @@ import type {
   ActionBody,
   AdminInvitation,
   AdminInvitationsResult,
+  AdminOverview,
   AdminSession,
   AdminSessionsQuery,
   AdminSessionsResult,
@@ -746,6 +747,16 @@ export interface ApiClient {
   revokeOtherSessions(): Promise<{ revoked: number }>;
   /* ---- Administração do workspace (ADMIN) ---- */
   /**
+   * `GET /admin/overview` — the workspace counters above the `/admin` tabs
+   * (users, sessions, invitations, accounts, tickets and the 24h audit count).
+   *
+   * Every counter is normalised before it reaches the page: an absent field is
+   * `0` and a negative/invalid value is clamped to `0`. That is a deliberate
+   * trade: the overview is a real snapshot of the workspace, and a metric the
+   * deployment did not send must render as "zero now" instead of a blank card.
+   */
+  adminOverview(): Promise<AdminOverview>;
+  /**
    * `GET /admin/users?search=&role=&status=&page=&perPage=` — one page of the
    * workspace operators and the total of the filtered set (server-side filters
    * and pagination; the CSV export shares the same filters).
@@ -1029,6 +1040,74 @@ function normalizeResendInvitation(
     role: invitation.role,
     expiresAt: invitation.expiresAt,
     status: invitation.status,
+  };
+}
+
+/* ==========================================================================
+ * Workspace overview (`GET /admin/overview`)
+ * ========================================================================== */
+
+/** Marketplaces whose breakdown row always exists, even when the API omits it. */
+const OVERVIEW_MARKETPLACES = ['AMAZON', 'MERCADO_LIVRE', 'SHOPEE'] as const;
+
+/** One group of the overview payload (`{ users: {...} }`) or the empty group. */
+function overviewGroup(source: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = source[key];
+  return isRecord(value) ? value : {};
+}
+
+/**
+ * `GET /admin/overview` read model.
+ *
+ * The overview is a snapshot, so the page renders every counter: a metric the
+ * deployment omitted is `0` and an invalid one is clamped to `0` by `asCounter`
+ * (never `NaN`/negative). A body that is not an object yields every group at
+ * zero rather than an exception — the endpoint answered, the fields are what the
+ * normalisation owns.
+ *
+ * `byMarketplace` starts with the three channels this UI knows (zeroed) and then
+ * merges whatever the API sent: keys are trimmed/upper-cased (so `mercado_livre`
+ * and `MERCADO_LIVRE` are the same channel, summed) and an extra channel is kept
+ * so a newer deployment is displayed instead of hidden.
+ */
+function normalizeAdminOverview(payload: unknown): AdminOverview {
+  const source = isRecord(payload) ? payload : {};
+  const users = overviewGroup(source, 'users');
+  const sessions = overviewGroup(source, 'sessions');
+  const invitations = overviewGroup(source, 'invitations');
+  const accounts = overviewGroup(source, 'accounts');
+  const tickets = overviewGroup(source, 'tickets');
+  const audit = overviewGroup(source, 'audit');
+
+  const byMarketplace: Record<string, number> = {};
+  for (const marketplace of OVERVIEW_MARKETPLACES) byMarketplace[marketplace] = 0;
+  for (const [rawKey, rawValue] of Object.entries(
+    isRecord(accounts.byMarketplace) ? accounts.byMarketplace : {},
+  )) {
+    const key = rawKey.trim().toUpperCase();
+    if (key.length === 0) continue;
+    byMarketplace[key] = (byMarketplace[key] ?? 0) + asCounter(rawValue);
+  }
+
+  return {
+    users: {
+      total: asCounter(users.total),
+      active: asCounter(users.active),
+      admins: asCounter(users.admins),
+    },
+    sessions: { active: asCounter(sessions.active) },
+    invitations: { pending: asCounter(invitations.pending) },
+    accounts: {
+      total: asCounter(accounts.total),
+      connected: asCounter(accounts.connected),
+      byMarketplace,
+    },
+    tickets: {
+      total: asCounter(tickets.total),
+      unread: asCounter(tickets.unread),
+      unassigned: asCounter(tickets.unassigned),
+    },
+    audit: { last24h: asCounter(audit.last24h) },
   };
 }
 
@@ -1684,6 +1763,16 @@ export const api: ApiClient = {
     return { revoked: isRecord(payload) ? asCounter(payload.revoked) : 0 };
   },
 
+  async adminOverview() {
+    // `no-store` keeps the header "Atualizar" honest: the counters are a
+    // snapshot of right now, not a cached one from the previous visit.
+    const payload = await request<unknown>('/admin/overview', {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
+    return normalizeAdminOverview(payload);
+  },
+
   async adminUsers(query = {}) {
     const search = encodeQuery({
       // An empty search/select is "absent", never a filter that would match
@@ -1953,6 +2042,7 @@ export type {
   ActionBody,
   AdminInvitation,
   AdminInvitationsResult,
+  AdminOverview,
   AdminSession,
   AdminSessionsQuery,
   AdminSessionsResult,

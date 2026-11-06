@@ -1,4 +1,5 @@
 import type {
+  AdminOverview,
   AgentRecord,
   AdminSessionListQuery,
   AdminSessionListResult,
@@ -92,6 +93,21 @@ export class AdminUserService implements IAdminUserService {
     this.adminUsers = deps.repos.adminUsers;
     this.sessions = deps.repos.sessions;
     this.audit = deps.audit;
+  }
+
+  /* ==================================================================== */
+  /* Workspace overview                                                   */
+  /* ==================================================================== */
+
+  /**
+   * Aggregated snapshot of the caller workspace (`GET /admin/overview`).
+   *
+   * The tenant is always the JWT one (never client-controlled) and the reference
+   * instant is the injected clock, so "active session" / "pending invitation" /
+   * "last 24h audit" share one consistent `now`.
+   */
+  async overview(tenantId: string): Promise<AdminOverview> {
+    return this.adminUsers.overview(tenantId, this.clock.now());
   }
 
   /* ==================================================================== */

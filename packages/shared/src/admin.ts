@@ -1,5 +1,5 @@
 import type { AgentRecord, SessionRecord } from './dto';
-import type { AgentRole } from './enums';
+import type { AgentRole, Marketplace } from './enums';
 
 /**
  * ============================================================================
@@ -8,6 +8,7 @@ import type { AgentRole } from './enums';
  *
  * The UI consumes these shapes verbatim (`apps/web/src/lib/types.ts`):
  *
+ *   GET   /api/v1/admin/overview            -> AdminOverview
  *   GET   /api/v1/admin/users               -> AdminUserListResult
  *   PATCH /api/v1/admin/users/:id           -> AdminUserView
  *   POST  /api/v1/admin/users/:id/revoke-sessions -> { revoked }
@@ -209,6 +210,60 @@ export interface IAuditService {
 }
 
 /* ==========================================================================
+ * Workspace overview (`/admin/overview`)
+ * ========================================================================== */
+
+/**
+ * Aggregated snapshot of the caller workspace.
+ *
+ * Every number is tenant-scoped by the JWT: the service never accepts a tenant
+ * id from the client, and the repository derives all counters with
+ * `count`/`groupBy` aggregates (no per-row N+1). The "now" instant comes from
+ * the injected `IClock`, so the live/pending predicates are deterministic.
+ *
+ * Definitions (they mirror the SQL emitted by the repository):
+ *  - `users.active` -> `agents.is_active = true`;
+ *  - `users.admins` -> `agents.role = 'ADMIN'` AND `agents.is_active = true`;
+ *  - `sessions.active` -> `revoked_at IS NULL` AND `expires_at > now`;
+ *  - `invitations.pending` -> `accepted_at IS NULL` AND `expires_at > now`;
+ *  - `accounts.connected` -> `status = 'ACTIVE'`;
+ *  - `accounts.byMarketplace` -> the three real marketplaces, ALWAYS present and
+ *    zero-filled; each value counts the workspace accounts of that marketplace
+ *    regardless of status (i.e. it partitions `accounts.total`);
+ *  - `tickets.unread` -> `status = 'UNREAD'`;
+ *  - `tickets.unassigned` -> `assigned_agent_id IS NULL` and the ticket is not
+ *    terminal. The schema has no `CLOSED`: the terminal statuses are
+ *    `NO_RESPONSE_NEEDED` and `RESOLVED` (`TERMINAL_TICKET_STATUSES`);
+ *  - `audit.last24h` -> audit rows created at/after `now - 24h`.
+ */
+export interface AdminOverview {
+  users: {
+    total: number;
+    active: number;
+    admins: number;
+  };
+  sessions: {
+    active: number;
+  };
+  invitations: {
+    pending: number;
+  };
+  accounts: {
+    total: number;
+    connected: number;
+    byMarketplace: Record<Marketplace, number>;
+  };
+  tickets: {
+    total: number;
+    unread: number;
+    unassigned: number;
+  };
+  audit: {
+    last24h: number;
+  };
+}
+
+/* ==========================================================================
  * Workspace users (`/admin/users`)
  * ========================================================================== */
 
@@ -360,6 +415,12 @@ export interface AdminSessionListResult {
 }
 
 export interface IAdminUserRepository {
+  /**
+   * Tenant-scoped overview counters (`GET /admin/overview`). One aggregate
+   * `count`/`groupBy` per concern; `at` is the injected clock instant used by
+   * the live/pending predicates.
+   */
+  overview(tenantId: string, at: Date): Promise<AdminOverview>;
   /** Tenant-scoped, ordered by `created_at` ascending; counters derived here. */
   listByTenant(tenantId: string, at: Date): Promise<AdminUserRecord[]>;
   /**
@@ -404,6 +465,8 @@ export interface IAdminUserRepository {
  *    impossible.
  */
 export interface IAdminUserService {
+  /** Aggregated, tenant-scoped snapshot of `GET /admin/overview`. */
+  overview(tenantId: string): Promise<AdminOverview>;
   /** Filtered, paginated team list (tenant always comes from the JWT). */
   list(tenantId: string, query?: AdminUserListQuery): Promise<AdminUserListResult>;
   /**

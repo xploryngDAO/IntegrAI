@@ -15,6 +15,8 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
   const controllers = createAdminControllers(ctx);
   const adminOnly = requireRole('ADMIN');
 
+  // Workspace snapshot: aggregated, tenant-scoped counters (ADMIN only).
+  app.get('/overview', { preHandler: adminOnly }, controllers.overview);
   app.get('/users', { preHandler: adminOnly }, controllers.listUsers);
   // Declared right after `/users`: the static child never shadows the parent.
   app.get(

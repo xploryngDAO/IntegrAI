@@ -1,4 +1,6 @@
 import type {
+  AccountStatus,
+  AdminOverview,
   AdminSessionListFilter,
   AdminSessionRecord,
   AdminUserListFilter,
@@ -15,8 +17,14 @@ import type {
   IAuditEventRepository,
   IAuditService,
   IClock,
+  Marketplace,
   SessionRecord,
+  TicketStatus,
   UserSessionView,
+} from '@sac/shared';
+import {
+  MARKETPLACES,
+  TERMINAL_TICKET_STATUSES,
 } from '@sac/shared';
 
 import { makeAgent } from './platformFakes';
@@ -146,10 +154,39 @@ export class RecordingAuditService implements IAuditService {
   }
 }
 
+/** Minimal row shapes the in-memory `/admin/overview` double aggregates over. */
+export interface OverviewAccountRow {
+  tenantId: string;
+  marketplace: Marketplace;
+  status: AccountStatus;
+}
+
+export interface OverviewInvitationRow {
+  tenantId: string;
+  acceptedAt: Date | null;
+  expiresAt: Date;
+}
+
+export interface OverviewTicketRow {
+  tenantId: string;
+  status: TicketStatus;
+  assignedAgentId: string | null;
+}
+
+export interface OverviewAuditRow {
+  tenantId: string | null;
+  createdAt: Date;
+}
+
 export class InMemoryAdminUserRepository implements IAdminUserRepository {
   readonly rows: AgentRecord[] = [];
   /** Session rows addressed by the admin `/admin/sessions` methods. */
   readonly sessions: SessionRecord[] = [];
+  /** Rows aggregated by `/admin/overview` (independent of the session slice). */
+  readonly overviewAccounts: OverviewAccountRow[] = [];
+  readonly overviewInvitations: OverviewInvitationRow[] = [];
+  readonly overviewTickets: OverviewTicketRow[] = [];
+  readonly overviewAuditEvents: OverviewAuditRow[] = [];
   private sessionSequence = 0;
   /** userId -> live session counter (test-controlled). */
   readonly sessionsCount = new Map<string, number>();
@@ -190,6 +227,92 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
     };
     this.sessions.push(row);
     return row;
+  }
+
+  seedAccount(row: OverviewAccountRow): OverviewAccountRow {
+    this.overviewAccounts.push(row);
+    return row;
+  }
+
+  seedInvitation(row: OverviewInvitationRow): OverviewInvitationRow {
+    this.overviewInvitations.push(row);
+    return row;
+  }
+
+  seedTicket(row: OverviewTicketRow): OverviewTicketRow {
+    this.overviewTickets.push(row);
+    return row;
+  }
+
+  seedAuditEvent(row: OverviewAuditRow): OverviewAuditRow {
+    this.overviewAuditEvents.push(row);
+    return row;
+  }
+
+  /**
+   * Mirrors the production aggregates for one tenant. The in-memory double is
+   * deliberately independent per table so a tenant with no rows at all yields
+   * the zero-filled shape (including the three marketplace keys).
+   */
+  async overview(tenantId: string, at: Date): Promise<AdminOverview> {
+    const users = this.rows.filter((row) => row.tenantId === tenantId);
+    const auditSince = new Date(at.getTime() - 24 * 60 * 60 * 1_000);
+
+    const byMarketplace = {} as AdminOverview['accounts']['byMarketplace'];
+    for (const marketplace of MARKETPLACES) byMarketplace[marketplace] = 0;
+
+    let accountsTotal = 0;
+    let connected = 0;
+    for (const account of this.overviewAccounts) {
+      if (account.tenantId !== tenantId) continue;
+      accountsTotal += 1;
+      if (account.status === 'ACTIVE') connected += 1;
+      byMarketplace[account.marketplace] += 1;
+    }
+
+    let ticketsTotal = 0;
+    let unread = 0;
+    let unassigned = 0;
+    for (const ticket of this.overviewTickets) {
+      if (ticket.tenantId !== tenantId) continue;
+      ticketsTotal += 1;
+      if (ticket.status === 'UNREAD') unread += 1;
+      if (ticket.assignedAgentId === null && !isTerminalTicket(ticket.status)) {
+        unassigned += 1;
+      }
+    }
+
+    return {
+      users: {
+        total: users.length,
+        active: users.filter((row) => row.isActive).length,
+        admins: users.filter((row) => row.role === 'ADMIN').length,
+      },
+      sessions: {
+        active: this.sessions.filter(
+          (row) =>
+            row.tenantId === tenantId &&
+            row.revokedAt === null &&
+            row.expiresAt.getTime() > at.getTime(),
+        ).length,
+      },
+      invitations: {
+        pending: this.overviewInvitations.filter(
+          (row) =>
+            row.tenantId === tenantId &&
+            row.acceptedAt === null &&
+            row.expiresAt.getTime() > at.getTime(),
+        ).length,
+      },
+      accounts: { total: accountsTotal, connected, byMarketplace },
+      tickets: { total: ticketsTotal, unread, unassigned },
+      audit: {
+        last24h: this.overviewAuditEvents.filter(
+          (row) =>
+            row.tenantId === tenantId && row.createdAt.getTime() >= auditSince.getTime(),
+        ).length,
+      },
+    };
   }
 
   async listByTenant(tenantId: string, _at: Date): Promise<AdminUserRecord[]> {
@@ -317,6 +440,11 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
       lastLoginAt: this.lastLoginAt.get(agent.id) ?? null,
     };
   }
+}
+
+/** `NO_RESPONSE_NEEDED` and `RESOLVED` never enter the unassigned backlog. */
+function isTerminalTicket(status: TicketStatus): boolean {
+  return TERMINAL_TICKET_STATUSES.includes(status);
 }
 
 /** Same ordering the Prisma repository applies: `created_at`, then `id`. */

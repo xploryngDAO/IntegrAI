@@ -75,6 +75,12 @@ export interface AdminUsersTabProps {
    * indicator. The callback must be stable (a `useState` setter).
    */
   onBusyChange?: (busy: boolean) => void;
+  /**
+   * Called after a write that changes a workspace counter (role, activation,
+   * revoked sessions, sent invitation) so `Visão geral` re-reads
+   * `GET /admin/overview`. Never called for a failed write.
+   */
+  onMutated?: () => void;
 }
 
 /**
@@ -104,6 +110,7 @@ export function AdminUsersTab({
   refreshKey = 0,
   onForbidden,
   onBusyChange,
+  onMutated,
 }: AdminUsersTabProps): JSX.Element {
   const [draftSearch, setDraftSearch] = useState('');
   const [filters, setFilters] = useState<AppliedUsersFilters>(EMPTY_FILTERS);
@@ -265,6 +272,7 @@ export function AdminUsersTab({
         }`,
       });
       reload();
+      onMutated?.();
     } catch (failure) {
       setStatusError(adminErrorMessage(failure));
     } finally {
@@ -284,6 +292,7 @@ export function AdminUsersTab({
         text: `${result.revoked} sessão(ões) de ${target.name} revogada(s).`,
       });
       reload();
+      onMutated?.();
     } catch (failure) {
       setRevokeTarget(null);
       handleFailure(failure);
@@ -617,6 +626,8 @@ export function AdminUsersTab({
                 result.expiresAt ? formatDateTime(result.expiresAt) : '7 dias'
               }.`,
             });
+            // A new pending invitation changes the overview counter.
+            onMutated?.();
           }}
         />
       ) : null}
@@ -629,6 +640,7 @@ export function AdminUsersTab({
           onSaved={(updated) => {
             setNotice({ tone: 'success', text: `${updated.name} agora é ${roleLabel(updated.role)}.` });
             reload();
+            onMutated?.();
           }}
         />
       ) : null}

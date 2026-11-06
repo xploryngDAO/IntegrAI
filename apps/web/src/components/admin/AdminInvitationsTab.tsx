@@ -23,6 +23,11 @@ export interface AdminInvitationsTabProps {
   onForbidden: () => void;
   /** Page-level refresh counter (the header "Atualizar" also reloads the list). */
   refreshKey?: number;
+  /**
+   * Called after a write that changes the pending-invitation counter (sent,
+   * revoked or re-sent invite) so `Visão geral` re-reads `GET /admin/overview`.
+   */
+  onMutated?: () => void;
 }
 
 /**
@@ -47,6 +52,7 @@ export interface AdminInvitationsTabProps {
 export function AdminInvitationsTab({
   onForbidden,
   refreshKey = 0,
+  onMutated,
 }: AdminInvitationsTabProps): JSX.Element {
   const [items, setItems] = useState<AdminInvitation[]>([]);
   const [total, setTotal] = useState(0);
@@ -115,6 +121,7 @@ export function AdminInvitationsTab({
         text: `Convite de ${target.email} revogado. O link enviado por e-mail deixa de funcionar.`,
       });
       reload();
+      onMutated?.();
     } catch (failure) {
       if (failure instanceof ApiClientError && failure.status === 403) {
         onForbidden();
@@ -124,6 +131,8 @@ export function AdminInvitationsTab({
       // whole point of this error state. Re-reading the list updates the status.
       setRevokeError(invitationErrorMessage(failure));
       reload();
+      // The invite was accepted/removed elsewhere: the counter moved too.
+      onMutated?.();
     } finally {
       setRevoking(false);
     }
@@ -150,6 +159,7 @@ export function AdminInvitationsTab({
       // The POST response is only the success signal: the row is re-read from
       // the server so the status/expiry shown are the API's, not a local patch.
       reload();
+      onMutated?.();
     } catch (failure) {
       if (failure instanceof ApiClientError && failure.status === 403) {
         setResendTarget(null);
@@ -160,6 +170,7 @@ export function AdminInvitationsTab({
       // e-mail not delivered…) and refresh the list so the row stops lying.
       setResendError(resendInvitationErrorMessage(failure));
       reload();
+      onMutated?.();
     } finally {
       setResending(false);
       setResendingId(null);
@@ -346,6 +357,7 @@ export function AdminInvitationsTab({
               }.`,
             });
             reload();
+            onMutated?.();
           }}
         />
       ) : null}

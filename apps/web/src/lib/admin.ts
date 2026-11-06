@@ -7,6 +7,7 @@
  * verbatim — never coerced into AGENT.
  */
 import { ApiClientError } from './api';
+import { MARKETPLACE_LABEL, MARKETPLACE_ORDER } from './labels';
 
 /* ==========================================================================
  * Roles
@@ -61,6 +62,48 @@ export function roleOptionsFor(current: string | null | undefined): RoleOption[]
     options.push({ value, label: roleLabel(value) });
   }
   return options;
+}
+
+/* ==========================================================================
+ * Workspace overview (`GET /admin/overview`)
+ * ========================================================================== */
+
+/** One marketplace row of the accounts breakdown of the overview. */
+export interface AdminOverviewMarketplace {
+  /** Marketplace code as returned by the API (`AMAZON`, `MERCADO_LIVRE`, …). */
+  key: string;
+  /** PT-BR label of the known channel; the raw code when it is unknown. */
+  label: string;
+  /** Accounts of that channel (`>= 0`). */
+  count: number;
+}
+
+/**
+ * Rows of the accounts breakdown, in the canonical channel order.
+ *
+ * The three marketplaces the product supports always come first (Amazon,
+ * Mercado Livre, Shopee — `MARKETPLACE_ORDER`), followed by any extra code the
+ * API returned: a deployment ahead of this UI shows its new channel instead of
+ * hiding it. An unknown code keeps its raw label — the operator needs the exact
+ * channel name, not an invented one.
+ *
+ * `api.adminOverview` already guarantees the known keys and non-negative
+ * integers; the clamp here keeps a call site that builds the record by hand from
+ * rendering a negative count.
+ */
+export function adminOverviewMarketplaces(
+  byMarketplace: Record<string, number>,
+): AdminOverviewMarketplace[] {
+  const known = MARKETPLACE_ORDER as readonly string[];
+  const labels = MARKETPLACE_LABEL as Record<string, string>;
+  const extras = Object.keys(byMarketplace)
+    .filter((key) => !known.includes(key))
+    .sort((left, right) => left.localeCompare(right, 'pt-BR'));
+  return [...known, ...extras].map((key) => ({
+    key,
+    label: labels[key] ?? key,
+    count: Math.max(0, Math.trunc(byMarketplace[key] ?? 0)),
+  }));
 }
 
 /* ==========================================================================
@@ -173,6 +216,22 @@ export function adminErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : 'Não foi possível falar com a API. Tente novamente.';
+}
+
+/**
+ * Failure of `GET /admin/overview` (the counters above the `/admin` tabs).
+ *
+ * A 404 here never means "record not found": the overview is a page-level
+ * aggregate with no id, so the only honest reading is that this deployment does
+ * not expose the route yet (the SPA can ship before the API). Reusing
+ * `adminErrorMessage` would tell the operator that a *user* was not found, which
+ * is not what happened. Every other status keeps the shared mapping.
+ */
+export function adminOverviewErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError && error.status === 404) {
+    return 'Esta versão da API não expõe a visão geral (HTTP 404 em /admin/overview). Confirme se a API está atualizada; os contadores voltam a aparecer quando o endpoint estiver disponível.';
+  }
+  return adminErrorMessage(error);
 }
 
 /**

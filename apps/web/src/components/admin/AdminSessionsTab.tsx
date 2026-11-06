@@ -53,6 +53,11 @@ export interface AdminSessionsTabProps {
    * indicator. The callback must be stable (a `useState` setter).
    */
   onBusyChange?: (busy: boolean) => void;
+  /**
+   * Called after a revocation (or a 404/409 that proves the session is already
+   * gone) so `Visão geral` re-reads `GET /admin/overview`.
+   */
+  onMutated?: () => void;
 }
 
 /**
@@ -77,6 +82,7 @@ export function AdminSessionsTab({
   onForbidden,
   refreshKey = 0,
   onBusyChange,
+  onMutated,
 }: AdminSessionsTabProps): JSX.Element {
   const [items, setItems] = useState<AdminSession[]>([]);
   const [total, setTotal] = useState(0);
@@ -160,6 +166,7 @@ export function AdminSessionsTab({
         )} revogada. Esse dispositivo precisará entrar novamente.`,
       );
       reload();
+      onMutated?.();
     } catch (failure) {
       if (failure instanceof ApiClientError && failure.status === 403) {
         setRevokeTarget(null);
@@ -174,6 +181,8 @@ export function AdminSessionsTab({
         (failure.status === 404 || failure.status === 409)
       ) {
         reload();
+        // The session expired/was revoked elsewhere: the counter moved too.
+        onMutated?.();
       }
     } finally {
       setRevoking(false);

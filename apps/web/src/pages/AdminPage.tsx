@@ -7,6 +7,7 @@ import { roleLabel } from '../lib/admin';
 import { Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { AdminInvitationsTab } from '../components/admin/AdminInvitationsTab';
 import { AdminLogsTab } from '../components/admin/AdminLogsTab';
+import { AdminOverview } from '../components/admin/AdminOverview';
 import { AdminSessionsTab } from '../components/admin/AdminSessionsTab';
 import { AdminUsersTab } from '../components/admin/AdminUsersTab';
 
@@ -21,6 +22,11 @@ function asAdminTab(value: string): AdminTab {
 
 /**
  * `/admin` — workspace administration for the tenant ADMIN.
+ *
+ * Above the tabs, **Visão geral** renders the workspace snapshot of
+ * `GET /admin/overview`: operators, live sessions, pending invitations,
+ * marketplace accounts (with the channel breakdown) and tickets, plus the audit
+ * volume of the last 24h.
  *
  * Four tabs share one page:
  *  - **Usuários**: the operator roster with server-side filters (name/e-mail,
@@ -38,8 +44,11 @@ function asAdminTab(value: string): AdminTab {
  *    server-side pagination and the CSV export of the applied filters
  *    (`GET /admin/audit-logs`, `GET /admin/audit-logs/export.csv`).
  *
- * Each tab owns its own reads: the page only coordinates the header refresh and
- * the access-restricted state. The API is the real guard. A 403 anywhere (or a
+ * Each surface owns its own reads: the page coordinates the header refresh
+ * (which re-reads the overview **and** the mounted tab) and the access-restricted
+ * state. A write that changes a counter (an invite, a role, a revoked session)
+ * bumps the overview through `onMutated`, so the numbers above the tab never
+ * contradict the list below it. The API is the real guard. A 403 anywhere (or a
  * role that is not ADMIN) renders the access-restricted state instead of a
  * broken screen; the page never retries a forbidden call in a loop.
  */
@@ -49,6 +58,8 @@ export function AdminPage(): JSX.Element {
 
   const [tab, setTab] = useState<AdminTab>('users');
   const [reloadKey, setReloadKey] = useState(0);
+  /** Separate counter: a tab write re-reads the overview without reloading it. */
+  const [overviewKey, setOverviewKey] = useState(0);
   const [forbidden, setForbidden] = useState(false);
   const [tabsBusy, setTabsBusy] = useState(false);
 
@@ -62,6 +73,12 @@ export function AdminPage(): JSX.Element {
   /** Header "Atualizar": every mounted tab reloads and keeps its own state. */
   const retry = useCallback((): void => {
     setReloadKey((key) => key + 1);
+    setOverviewKey((key) => key + 1);
+  }, []);
+
+  /** A tab wrote something that changes a counter: re-read the overview. */
+  const bumpOverview = useCallback((): void => {
+    setOverviewKey((key) => key + 1);
   }, []);
 
   if (currentAgent === null) {
@@ -131,6 +148,8 @@ export function AdminPage(): JSX.Element {
         }
       />
 
+      <AdminOverview refreshKey={overviewKey} onForbidden={handleForbidden} />
+
       <Tabs
         label="Seções da administração"
         value={tab}
@@ -145,6 +164,7 @@ export function AdminPage(): JSX.Element {
                 refreshKey={reloadKey}
                 onBusyChange={setTabsBusy}
                 onForbidden={handleForbidden}
+                onMutated={bumpOverview}
               />
             ),
           },
@@ -152,7 +172,11 @@ export function AdminPage(): JSX.Element {
             value: 'invitations',
             label: 'Convites',
             content: (
-              <AdminInvitationsTab onForbidden={handleForbidden} refreshKey={reloadKey} />
+              <AdminInvitationsTab
+                onForbidden={handleForbidden}
+                refreshKey={reloadKey}
+                onMutated={bumpOverview}
+              />
             ),
           },
           {
@@ -163,6 +187,7 @@ export function AdminPage(): JSX.Element {
                 onForbidden={handleForbidden}
                 refreshKey={reloadKey}
                 onBusyChange={setTabsBusy}
+                onMutated={bumpOverview}
               />
             ),
           },

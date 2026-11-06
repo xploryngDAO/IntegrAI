@@ -1,5 +1,7 @@
 import type { Agent, Prisma, PrismaClient } from '@prisma/client';
+import { isMarketplace, TERMINAL_TICKET_STATUSES } from '@sac/shared';
 import type {
+  AdminOverview,
   AdminSessionListFilter,
   AdminSessionRecord,
   AdminUserListFilter,
@@ -7,9 +9,13 @@ import type {
   AgentRecord,
   AgentRole,
   IAdminUserRepository,
+  Marketplace,
 } from '@sac/shared';
 
 import { mapAgent, mapSession } from './mappers';
+
+/** One day in milliseconds: the `audit.last24h` rolling window. */
+const OVERVIEW_AUDIT_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
 const ADMIN_USER_ORDER: Prisma.AgentOrderByWithRelationInput[] = [
   { createdAt: 'asc' },
@@ -56,6 +62,121 @@ function adminUserSearchWhere(search: string | undefined): Prisma.AgentWhereInpu
  */
 export class PrismaAdminUserRepository implements IAdminUserRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  /* ==================================================================== */
+  /* Workspace overview (`GET /admin/overview`)                           */
+  /* ==================================================================== */
+
+  /**
+   * Tenant-scoped overview counters.
+   *
+   * Seven aggregate reads in ONE `Promise.all` (no N+1, no business row loaded
+   * into memory):
+   *
+   *  - `agents`   grouped by `(role, isActive)` -> total/active/admins;
+   *  - `sessions` count of live refresh sessions -> sessions.active;
+   *  - `invitations` count of pending invites -> invitations.pending;
+   *  - `marketplaceAccounts` grouped by `(marketplace, status)` -> total,
+   *    connected (ACTIVE only) and the per-marketplace partition;
+   *  - `supportTickets` grouped by `status` -> total/unread;
+   *  - `supportTickets` count of unassigned non-terminal -> tickets.unassigned;
+   *  - `auditEvents` count inside the rolling 24h window.
+   *
+   * The schema has no `CLOSED` ticket status: "closed" is represented by the
+   * domain's terminal statuses (`NO_RESPONSE_NEEDED`, `RESOLVED`), which are
+   * exactly the ones excluded from `unassigned`.
+   */
+  async overview(tenantId: string, at: Date): Promise<AdminOverview> {
+    const auditSince = new Date(at.getTime() - OVERVIEW_AUDIT_WINDOW_MS);
+
+    const [
+      agentGroups,
+      activeSessions,
+      pendingInvitations,
+      accountGroups,
+      ticketGroups,
+      unassignedTickets,
+      auditLast24h,
+    ] = await Promise.all([
+      this.prisma.agent.groupBy({
+        by: ['role', 'isActive'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.session.count({
+        where: { tenantId, revokedAt: null, expiresAt: { gt: at } },
+      }),
+      this.prisma.invitation.count({
+        where: { tenantId, acceptedAt: null, expiresAt: { gt: at } },
+      }),
+      this.prisma.marketplaceAccount.groupBy({
+        by: ['marketplace', 'status'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.supportTicket.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.supportTicket.count({
+        where: {
+          tenantId,
+          assignedAgentId: null,
+          status: { notIn: [...TERMINAL_TICKET_STATUSES] },
+        },
+      }),
+      this.prisma.auditEvent.count({
+        where: { tenantId, createdAt: { gte: auditSince } },
+      }),
+    ]);
+
+    let usersTotal = 0;
+    let usersActive = 0;
+    let admins = 0;
+    for (const row of agentGroups) {
+      const count = row._count._all;
+      usersTotal += count;
+      if (row.isActive) usersActive += count;
+      if (row.role === 'ADMIN' && row.isActive) admins += count;
+    }
+
+    // The three real marketplaces are ALWAYS present (zero-filled): the UI
+    // renders a fixed card per channel and must not special-case a missing key.
+    const byMarketplace: Record<Marketplace, number> = {
+      AMAZON: 0,
+      MERCADO_LIVRE: 0,
+      SHOPEE: 0,
+    };
+    let accountsTotal = 0;
+    let connected = 0;
+    for (const row of accountGroups) {
+      const count = row._count._all;
+      accountsTotal += count;
+      if (row.status === 'ACTIVE') connected += count;
+      // `BILLING` is a `marketplace_accounts` enum member used only by
+      // `webhook_events`; defensive guard keeps the by-marketplace partition
+      // aligned with `MARKETPLACES` without inventing a fourth card.
+      if (isMarketplace(row.marketplace)) byMarketplace[row.marketplace] += count;
+    }
+
+    let ticketsTotal = 0;
+    let unread = 0;
+    for (const row of ticketGroups) {
+      const count = row._count._all;
+      ticketsTotal += count;
+      if (row.status === 'UNREAD') unread += count;
+    }
+
+    return {
+      users: { total: usersTotal, active: usersActive, admins },
+      sessions: { active: activeSessions },
+      invitations: { pending: pendingInvitations },
+      accounts: { total: accountsTotal, connected, byMarketplace },
+      tickets: { total: ticketsTotal, unread, unassigned: unassignedTickets },
+      audit: { last24h: auditLast24h },
+    };
+  }
 
   async listByTenant(tenantId: string, at: Date): Promise<AdminUserRecord[]> {
     const records = await this.prisma.agent.findMany({

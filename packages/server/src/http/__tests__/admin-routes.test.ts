@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, AuthenticationError, NotFoundError } from '@sac/shared';
 import type {
   AdminInvitationListResult,
+  AdminOverview,
   AdminSessionListResult,
   AdminUserView,
   AuditEventView,
@@ -64,6 +65,19 @@ const PRINCIPALS: Record<string, Record<string, unknown>> = {
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const INVITATION_ID = '33333333-3333-4333-8333-333333333333';
 const SESSION_ID = '55555555-5555-4555-8555-555555555555';
+
+const OVERVIEW: AdminOverview = {
+  users: { total: 3, active: 2, admins: 1 },
+  sessions: { active: 4 },
+  invitations: { pending: 2 },
+  accounts: {
+    total: 5,
+    connected: 4,
+    byMarketplace: { AMAZON: 2, MERCADO_LIVRE: 2, SHOPEE: 1 },
+  },
+  tickets: { total: 12, unread: 3, unassigned: 5 },
+  audit: { last24h: 8 },
+};
 
 const SESSIONS: AdminSessionListResult = {
   items: [
@@ -160,6 +174,7 @@ describe('admin HTTP routes', () => {
     page: 1,
     perPage: 25,
   }));
+  const overview = vi.fn(async () => OVERVIEW);
   const exportUsers = vi.fn(async () => [USER]);
   const updateUser = vi.fn(async () => USER);
   const revokeSessions = vi.fn(async () => ({ revoked: 3 }));
@@ -182,6 +197,7 @@ describe('admin HTTP routes', () => {
       services: {
         agents: { verifyToken },
         adminUsers: {
+          overview,
           list: listUsers,
           exportRows: exportUsers,
           update: updateUser,
@@ -210,6 +226,7 @@ describe('admin HTTP routes', () => {
 
   beforeEach(() => {
     verifyToken.mockClear();
+    overview.mockClear();
     listUsers.mockClear();
     exportUsers.mockClear();
     updateUser.mockClear();
@@ -222,6 +239,7 @@ describe('admin HTTP routes', () => {
     listAuditLogs.mockClear();
     exportAuditRows.mockClear();
     updateUser.mockImplementation(async () => USER);
+    overview.mockImplementation(async () => OVERVIEW);
     listUsers.mockImplementation(async () => ({
       items: [USER],
       total: 1,
@@ -251,6 +269,7 @@ describe('admin HTTP routes', () => {
 
   it('answers 401 without a bearer token on every admin route', async () => {
     const requests = [
+      { method: 'GET' as const, url: '/api/v1/admin/overview' },
       { method: 'GET' as const, url: '/api/v1/admin/users' },
       { method: 'GET' as const, url: '/api/v1/admin/users/export.csv' },
       { method: 'PATCH' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222' },
@@ -277,6 +296,11 @@ describe('admin HTTP routes', () => {
   it('answers 403 for AGENT and SUPERVISOR on every admin route', async () => {
     for (const token of [AGENT_TOKEN, SUPERVISOR_TOKEN]) {
       const responses = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/api/v1/admin/overview',
+          headers: auth(token),
+        }),
         app.inject({ method: 'GET', url: '/api/v1/admin/users', headers: auth(token) }),
         app.inject({
           method: 'GET',
@@ -357,6 +381,30 @@ describe('admin HTTP routes', () => {
       error: { code: 'AUTHORIZATION_ERROR' },
     });
     expect(listSessions).not.toHaveBeenCalled();
+
+    const overviewResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/overview',
+      headers: auth(TENANTLESS_ADMIN_TOKEN),
+    });
+    expect(overviewResponse.statusCode).toBe(403);
+    expect(overviewResponse.json()).toMatchObject({
+      error: { code: 'AUTHORIZATION_ERROR' },
+    });
+    expect(overview).not.toHaveBeenCalled();
+  });
+
+  it('GET /admin/overview returns the tenant snapshot inside the data envelope', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/overview',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: OVERVIEW });
+    // Tenant comes from the JWT, never from the request.
+    expect(overview).toHaveBeenCalledWith('tenant-1');
   });
 
   it('GET /admin/users returns the tenant team inside the data envelope', async () => {

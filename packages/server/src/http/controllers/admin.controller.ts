@@ -32,6 +32,7 @@ import {
  * the service, never 403.
  */
 export interface AdminControllers {
+  overview: RouteHandler;
   listUsers: RouteHandler;
   exportUsersCsv: RouteHandler;
   updateUser: RouteHandler;
@@ -62,6 +63,18 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
   const { services } = ctx;
 
   return {
+    /**
+     * `GET /admin/overview` - aggregated counters of the caller workspace.
+     *
+     * The tenant always comes from the JWT; every number is tenant-scoped and
+     * computed with aggregate queries by the service/repository. The route is
+     * ADMIN-only and a tenantless principal gets 403 (no workspace to describe).
+     */
+    async overview(request) {
+      const tenantId = requireTenantId(request);
+      return ok(await services.adminUsers.overview(tenantId));
+    },
+
     /**
      * `GET /admin/users` - tenant-scoped team list, ordered by `createdAt`.
      *

@@ -2163,6 +2163,18 @@ body {
 }
 
 /* --------------------------------------------------------------- admin ----- */
+/* `StatCard` is itself a `.cv-card`. In the overview it is only the head of a
+   card that also lists the secondary counters, so the nested panel is flattened
+   into the surface that already wraps it — the product rule of not stacking
+   cards inside cards (see components/ui/Card.tsx). Geometry only: the card
+   still owns the color, radius and shadow. */
+.sac-admin-overview .cv-stat {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .sac-admin-toolbar {
   display: flex;
   flex-wrap: wrap;
