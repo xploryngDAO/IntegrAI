@@ -43,6 +43,8 @@ primeiro admin: `DATABASE_URL=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:
 
 ## 4. Saúde e monitoramento
 
+Stack de monitoramento opcional: docker compose --env-file .env.prod -f docker-compose.prod.yml --profile observability up -d (Prometheus + Grafana provisionados; requer deploy/observability/METRICS_TOKEN com o mesmo valor de METRICS_TOKEN). Validado: scrape up, dashboard `IntegrAI — API` com 9 painéis.
+
 - Liveness: `GET /health` · Readiness: `GET /health/ready` (DB/Redis/S3, 503 quando degradado)
 - Métricas: `GET /api/v1/metrics` com `Authorization: Bearer $METRICS_TOKEN` (Prometheus)
 - Correlação: todo request leva `x-request-id` (aceita do cliente; ecoado em logs e erros)
