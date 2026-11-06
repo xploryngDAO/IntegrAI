@@ -51,3 +51,4 @@ artifacts/
 backups/
 gitleaks-report.json
 deploy/observability/METRICS_TOKEN
+.entra-app.json

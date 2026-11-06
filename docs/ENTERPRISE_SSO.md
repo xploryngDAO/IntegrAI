@@ -374,3 +374,13 @@ node scripts/sso-doctor.mjs --issuer=https://login.microsoftonline.com/<tid>/v2.
 ` 
 
 Ele valida discovery, issuer canonico, endpoints, PKCE S256, RS256, JWKS e o formato do redirect/issuer do Entra, e imprime o proximo passo. Tambem funciona contra o provedor local (scripts/oidc-stub.mjs).
+
+## Provisionar o App registration (device code, opcional)
+
+Se voce prefere nao criar o app no portal Azure, rode:
+
+`ash
+node scripts/entra-provision.mjs --redirect=<api>/api/v1/auth/sso/callback
+` 
+
+Um codigo de dispositivo e exibido; autentique com um usuario que possa criar aplicacoes no tenant (15 min). O script cria o application, o service principal e um client secret, e grava .entra-app.json (gitignored) com issuer/client id/secret/redirect. Depois use esses valores em /settings e clique em **Testar conexao**. Nenhuma senha passa pelo script.
