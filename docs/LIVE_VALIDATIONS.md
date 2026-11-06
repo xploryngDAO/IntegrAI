@@ -423,3 +423,13 @@ agents[].fields = id,email,name,role,presence,isActive,isPlatformAdmin,emailVeri
 meta.notes declara explicitamente que password_hash, *_token_enc e recovery codes ficam fora
 tenant fields sem segredos; 2 agentes exportados no workspace de teste
 ```
+
+### 40. Empty state da fila e plural de lojas (UX)
+```
+Workspace autenticado (build de producao local):
+- fila vazia sem filtros -> "Nenhum atendimento na fila" + CTA "Conectar canal" (antes dizia
+  "com esses filtros" mesmo sem filtro)
+- com filtro ativo -> mantem "Nenhum atendimento com esses filtros" + "Limpar filtros"
+- topbar: "1 loja conectada" (plural corrigido de "1 lojas conectadas")
+- sem overflow; a11y 10 telas com 0 violacoes
+```

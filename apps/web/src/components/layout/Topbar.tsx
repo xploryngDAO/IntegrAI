@@ -87,9 +87,11 @@ export function Topbar(): JSX.Element {
               ? 'Conta, sessões ativas e segurança do operador'
               : onAdmin
                 ? 'Equipe do workspace e trilha de auditoria'
-                : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
-                    totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
-                  }`;
+                : `${
+                    accounts.length > 0
+                      ? `${accounts.length} ${accounts.length === 1 ? 'loja conectada' : 'lojas conectadas'}`
+                      : 'Nenhuma loja conectada'
+                  }${totalTickets > 0 ? ` · ${totalTickets} na fila` : ''}`;
 
   const platformAdmin = isPlatformAdmin(currentAgent);
   const tenantAdmin = isTenantAdmin(currentAgent);

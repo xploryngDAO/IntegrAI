@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../../lib/store';
 import type { QueueKey } from '../../lib/types';
 import { Button, EmptyState, Kbd, SearchField, Skeleton } from '../ui';
@@ -102,6 +103,7 @@ function QueueStats() {
  * live SLA ticket list with j/k// keyboard navigation.
  */
 export function QueueColumn() {
+  const navigate = useNavigate();
   const tickets = useWorkspace((state) => state.tickets);
   const totalTickets = useWorkspace((state) => state.totalTickets);
   const filters = useWorkspace((state) => state.filters);
@@ -220,6 +222,13 @@ export function QueueColumn() {
 
   const showSkeleton = loadingQueue && tickets.length === 0;
   const showEmpty = !loadingQueue && tickets.length === 0;
+  // Distinguish "no tickets at all" (first run / quiet queue) from "nothing
+  // matches the current search/filters" — the CTA and copy are different.
+  const filtering =
+    query.trim().length > 0 ||
+    filters.queueKey !== 'ALL' ||
+    filters.marketplaces.length > 0 ||
+    filters.accountId !== null;
 
   return (
     <section className="sac-panel sac-queue-panel" aria-label="Fila unificada de atendimentos">
@@ -252,16 +261,29 @@ export function QueueColumn() {
 
         {showEmpty ? (
           <div className="sac-pad">
-            <EmptyState
-              icon="list"
-              title="Nenhum atendimento com esses filtros"
-              description="Ajuste a busca ou limpe os filtros para ver toda a fila unificada."
-              action={
-                <Button variant="secondary" size="sm" onClick={clearFilters}>
-                  Limpar filtros
-                </Button>
-              }
-            />
+            {filtering ? (
+              <EmptyState
+                icon="list"
+                title="Nenhum atendimento com esses filtros"
+                description="Ajuste a busca ou limpe os filtros para ver toda a fila unificada."
+                action={
+                  <Button variant="secondary" size="sm" onClick={clearFilters}>
+                    Limpar filtros
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon="chat"
+                title="Nenhum atendimento na fila"
+                description="Quando um cliente escrever em um canal conectado, a conversa aparece aqui. Se ainda não conectou uma loja, comece em Canais."
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => navigate('/accounts')}>
+                    Conectar canal
+                  </Button>
+                }
+              />
+            )}
           </div>
         ) : null}
 
