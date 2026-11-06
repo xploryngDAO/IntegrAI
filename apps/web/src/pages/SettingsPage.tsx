@@ -12,6 +12,7 @@ import { DeleteWorkspaceDialog } from '../components/settings/DeleteWorkspaceDia
 import { CorporateAuthCard } from '../components/settings/CorporateAuthCard';
 import { RecoveryCodesCard } from '../components/settings/RecoveryCodesCard';
 import { TwoFactorCard } from '../components/settings/TwoFactorCard';
+import { TwoFactorPolicyCard } from '../components/settings/TwoFactorPolicyCard';
 
 function settingsErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -242,6 +243,25 @@ export function SettingsPage(): JSX.Element {
           </div>
         ) : null}
       </Card>
+
+      <section className="flex flex-col gap-3" aria-labelledby="workspace-security-heading">
+        <div>
+          <h2
+            id="workspace-security-heading"
+            className="m-0 text-[var(--cv-font-section)] font-semibold leading-[var(--cv-font-line-heading)]"
+          >
+            Segurança do workspace
+          </h2>
+          <p className="m-0 mt-1 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            Política aplicada pela API a todos os operadores deste tenant. Só um ADMIN do workspace
+            pode ler ou alterar; o login corporativo (SSO) fica isento.
+          </p>
+        </div>
+
+        {/* The whole page is ADMIN-only (early return above); the API re-checks
+            the role on GET/PATCH /tenants/me. */}
+        <TwoFactorPolicyCard />
+      </section>
 
       <section className="flex flex-col gap-3" aria-labelledby="security-heading">
         <div>

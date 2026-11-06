@@ -48,6 +48,10 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/2fa/disable', controllers.twoFactorDisable);
   app.get('/2fa/status', controllers.twoFactorStatus);
   app.post('/2fa/challenge', controllers.twoFactorChallenge);
+  // Enforced enrollment (workspace `require_2fa`): public routes authenticated by
+  // the short-lived `setupToken` in `Authorization: Bearer` (no access token yet).
+  app.post('/2fa/enroll/setup', controllers.twoFactorEnrollSetup);
+  app.post('/2fa/enroll/verify', controllers.twoFactorEnrollVerify);
   // Recovery codes: regenerate returns the new plaintext set exactly once;
   // count feeds the "running low" warning in the security settings.
   app.post('/2fa/recovery-codes/regenerate', controllers.twoFactorRegenerateRecoveryCodes);

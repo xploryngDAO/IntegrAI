@@ -7,6 +7,7 @@ import type {
   AgentRecord,
   CreateAgentInput,
   IAgentRepository,
+  IAuditService,
   ICache,
   IClock,
   ILogger,
@@ -16,6 +17,7 @@ import type {
   LoginResult,
   TwoFactorRecoveryCodeRecord,
 } from '@sac/shared';
+import { AUDIT_ACTIONS } from '@sac/shared';
 
 import { SecretCipher } from '../../infrastructure/crypto/cipher';
 import { AgentService } from '../AgentService';
@@ -23,7 +25,9 @@ import { AuthSessionService } from '../AuthSessionService';
 import { TwoFactorService } from '../TwoFactorService';
 import { totp } from '../auth/totp';
 import { hashRecoveryCode } from '../auth/recovery-codes';
+import { TWO_FACTOR_SETUP_AUDIENCE, TWO_FACTOR_SETUP_TTL_SECONDS } from '../auth/two-factor-setup-token';
 import { InMemorySessionRepository } from './authFakes';
+import { InMemoryTenantRepository, makeTenant } from './platformFakes';
 
 /* ==========================================================================
  * Test doubles
@@ -336,19 +340,26 @@ interface Harness {
   clock: FakeClock;
   agents: InMemoryAgentRepository;
   sessions: InMemorySessionRepository;
+  tenants: InMemoryTenantRepository;
+  tenant: ReturnType<InMemoryTenantRepository['seed']>;
   twoFactorRepo: InMemoryTwoFactorRepository;
   cache: FakeCache;
   cipher: SecretCipher;
   agent: AgentRecord;
   agentService: AgentService;
   service: TwoFactorService;
+  auditEvents: Array<Record<string, unknown>>;
   enroll(): Promise<{ secret: string; recoveryCodes: string[] }>;
 }
 
-function buildHarness(): Harness {
+function buildHarness(options: { require2fa?: boolean } = {}): Harness {
   const clock = new FakeClock(new Date('2026-03-01T09:00:00.000Z'));
   const agents = new InMemoryAgentRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
+  const tenants = new InMemoryTenantRepository(() => clock.now());
+  const tenant = tenants.seed(
+    makeTenant({ id: 'tenant-1', slug: 'acme', require2fa: options.require2fa ?? false }),
+  );
   const twoFactorRepo = new InMemoryTwoFactorRepository(agents, clock);
   const cache = new FakeCache(clock);
   const cipher = new SecretCipher({ masterKey: MASTER_KEY, keyId: 'test-v1' });
@@ -371,6 +382,20 @@ function buildHarness(): Harness {
     repos: { agents, sessions },
   });
 
+  const auditEvents: Array<Record<string, unknown>> = [];
+  const audit: IAuditService = {
+    record(input): void {
+      auditEvents.push(input as unknown as Record<string, unknown>);
+    },
+    async list() {
+      return { items: [], page: 1, perPage: 25, total: 0 };
+    },
+    async exportRows() {
+      return [];
+    },
+    async flush(): Promise<void> {},
+  };
+
   const agentService = new AgentService({
     logger,
     clock,
@@ -380,6 +405,8 @@ function buildHarness(): Harness {
     jwtExpiresIn: '15m',
     presenceTtlSeconds: 120,
     sessions: authSessions,
+    tenants,
+    audit,
     repos: { agents, tickets },
   });
 
@@ -390,6 +417,7 @@ function buildHarness(): Harness {
     cipher,
     jwtSecret: JWT_SECRET,
     agentsService: agentService,
+    audit,
     repos: { agents, twoFactor: twoFactorRepo },
   });
 
@@ -399,7 +427,21 @@ function buildHarness(): Harness {
     return { secret: setup.secret, recoveryCodes: verified.recoveryCodes };
   };
 
-  return { clock, agents, sessions, twoFactorRepo, cache, cipher, agent, agentService, service, enroll };
+  return {
+    clock,
+    agents,
+    sessions,
+    tenants,
+    tenant,
+    twoFactorRepo,
+    cache,
+    cipher,
+    agent,
+    agentService,
+    service,
+    auditEvents,
+    enroll,
+  };
 }
 
 function challengeTokenFrom(result: LoginResult): string {
@@ -407,6 +449,37 @@ function challengeTokenFrom(result: LoginResult): string {
     throw new Error('Expected a TWO_FACTOR_REQUIRED login result');
   }
   return result.challengeToken;
+}
+
+/** Extracts `details.setupToken` from the 403 thrown by the login policy. */
+function setupTokenFromFailure(failure: unknown): string {
+  const details = (failure as { details?: { setupToken?: unknown } }).details;
+  if (typeof details?.setupToken !== 'string') {
+    throw new Error('Expected a TWO_FACTOR_SETUP_REQUIRED error with details.setupToken');
+  }
+  return details.setupToken;
+}
+
+async function blockedLogin(h: Harness): Promise<{ failure: unknown; setupToken: string }> {
+  const failure = await h.agentService
+    .login('ana@acme.test', TEST_PASSWORD)
+    .then(() => null, (error: unknown) => error);
+  return { failure, setupToken: setupTokenFromFailure(failure) };
+}
+
+/** An otherwise valid setup token with an already elapsed `exp`. */
+function expiredSetupToken(agentId: string, tenantId: string | null): string {
+  return jwt.sign(
+    { scope: '2fa-setup', agentId, tenantId, jti: 'expired-setup-jti' },
+    JWT_SECRET,
+    {
+      algorithm: 'HS256',
+      expiresIn: -10,
+      issuer: 'sac-hub',
+      audience: TWO_FACTOR_SETUP_AUDIENCE,
+      subject: agentId,
+    },
+  );
 }
 
 /* ==========================================================================
@@ -1035,5 +1108,255 @@ describe('TwoFactorService.challenge', () => {
     await expect(
       h.service.challenge(challengeToken, totp(secret, h.clock.now())),
     ).rejects.toMatchObject({ code: 'INVALID_CHALLENGE_TOKEN', httpStatus: 401 });
+  });
+});
+
+/* ==========================================================================
+ * Workspace 2FA policy (`require_2fa`): login gate
+ * ========================================================================== */
+
+describe('AgentService.login + tenant require_2fa policy', () => {
+  it('blocks a password login without TOTP with 403 + setupToken and emits no session', async () => {
+    const h = buildHarness({ require2fa: true });
+
+    const { failure, setupToken } = await blockedLogin(h);
+
+    expect(failure).toMatchObject({
+      code: 'TWO_FACTOR_SETUP_REQUIRED',
+      httpStatus: 403,
+    });
+    expect(h.sessions.rows).toHaveLength(0);
+    expect(h.agent.presence).toBe('OFFLINE');
+
+    const claims = jwt.verify(setupToken, JWT_SECRET, {
+      algorithms: ['HS256'],
+      issuer: 'sac-hub',
+      audience: TWO_FACTOR_SETUP_AUDIENCE,
+    }) as jwt.JwtPayload;
+    expect(claims.sub).toBe(h.agent.id);
+    expect(claims.agentId).toBe(h.agent.id);
+    expect(claims.tenantId).toBe('tenant-1');
+    expect(claims.scope).toBe('2fa-setup');
+    expect(typeof claims.jti).toBe('string');
+    expect((claims.exp ?? 0) - (claims.iat ?? 0)).toBe(TWO_FACTOR_SETUP_TTL_SECONDS);
+
+    // The setup token must never be accepted as an access token.
+    await expect(h.agentService.verifyToken(setupToken)).rejects.toMatchObject({
+      code: 'AUTHENTICATION_ERROR',
+      httpStatus: 401,
+    });
+  });
+
+  it('does not block when the workspace policy is off', async () => {
+    const h = buildHarness({ require2fa: false });
+
+    const result = await h.agentService.login('ana@acme.test', TEST_PASSWORD);
+
+    expect('token' in result).toBe(true);
+    expect(h.sessions.rows).toHaveLength(1);
+  });
+
+  it('does not block when the operator already has an active TOTP factor', async () => {
+    const h = buildHarness({ require2fa: true });
+    await h.enroll();
+
+    const result = await h.agentService.login('ana@acme.test', TEST_PASSWORD);
+
+    expect(result).toMatchObject({ twoFactorRequired: true });
+    expect(h.sessions.rows).toHaveLength(0);
+  });
+
+  it('exempts the SSO session path (MFA delegated to the IdP)', async () => {
+    const h = buildHarness({ require2fa: true });
+
+    // `SsoAuthService` proves the identity at the IdP and calls `issueSession`
+    // directly, never `login`; the workspace policy must not block it.
+    const session = await h.agentService.issueSession(h.agent.id, {
+      userAgent: 'Mozilla/5.0 (SSO)',
+      ip: '203.0.113.11',
+    });
+
+    expect(session.token.length).toBeGreaterThan(0);
+    expect(h.sessions.rows).toHaveLength(1);
+  });
+
+  it('still answers 401 for a wrong password before the policy gate', async () => {
+    const h = buildHarness({ require2fa: true });
+
+    await expect(
+      h.agentService.login('ana@acme.test', 'wrong-password'),
+    ).rejects.toMatchObject({ code: 'AUTHENTICATION_ERROR', httpStatus: 401 });
+    expect(h.sessions.rows).toHaveLength(0);
+  });
+});
+
+/* ==========================================================================
+ * Enforced enrollment (`/auth/2fa/enroll/setup` + `/verify`)
+ * ========================================================================== */
+
+describe('TwoFactorService.enrollSetup', () => {
+  it('returns the secret + otpauthUri for a valid setup token', async () => {
+    const h = buildHarness({ require2fa: true });
+    const { setupToken } = await blockedLogin(h);
+
+    const result = await h.service.enrollSetup(setupToken, {
+      userAgent: 'Mozilla/5.0 (test)',
+      ip: '203.0.113.7',
+    });
+
+    expect(result.secret).toMatch(/^[A-Z2-7]{32}$/);
+    expect(result.otpauthUri.startsWith('otpauth://totp/')).toBe(true);
+    const url = new URL(result.otpauthUri);
+    expect(url.searchParams.get('secret')).toBe(result.secret);
+    expect(url.searchParams.get('issuer')).toBe('SAC Hub');
+    expect(h.agent.twoFactorEnabled).toBe(false);
+    expect(h.cipher.decrypt(h.agent.twoFactorSecretEnc ?? '')).toBe(result.secret);
+  });
+
+  it('rejects an invalid, expired or foreign setup token with a stable 401', async () => {
+    const h = buildHarness({ require2fa: true });
+
+    await expect(h.service.enrollSetup('not-a-jwt')).rejects.toMatchObject({
+      code: 'SETUP_TOKEN_INVALID',
+      httpStatus: 401,
+    });
+    await expect(
+      h.service.enrollSetup(expiredSetupToken(h.agent.id, 'tenant-1')),
+    ).rejects.toMatchObject({ code: 'SETUP_TOKEN_EXPIRED', httpStatus: 401 });
+    await expect(
+      h.service.enrollSetup(expiredSetupToken(h.agent.id, 'tenant-2')),
+    ).rejects.toMatchObject({ code: 'SETUP_TOKEN_EXPIRED', httpStatus: 401 });
+    expect(h.agent.twoFactorSecretEnc).toBeNull();
+  });
+});
+
+describe('TwoFactorService.enrollVerify', () => {
+  it('enables TOTP, emits the AuthResponse + recoveryCodes and audits the enrollment', async () => {
+    const h = buildHarness({ require2fa: true });
+    const { setupToken } = await blockedLogin(h);
+    const setup = await h.service.enrollSetup(setupToken, { ip: '203.0.113.7' });
+    const code = totp(setup.secret, h.clock.now());
+
+    const result = await h.service.enrollVerify(setupToken, code, {
+      userAgent: 'Mozilla/5.0 (test)',
+      ip: '203.0.113.7',
+    });
+
+    expect(h.agent.twoFactorEnabled).toBe(true);
+    expect(h.twoFactorRepo.codes).toHaveLength(8);
+    expect(result.recoveryCodes).toHaveLength(8);
+    expect(new Set(result.recoveryCodes).size).toBe(8);
+    expect(result.session.token.length).toBeGreaterThan(0);
+    expect(result.session.refreshToken).toMatch(/^[0-9a-f]{96}$/);
+    expect(result.session.agent).toMatchObject({
+      id: h.agent.id,
+      email: 'ana@acme.test',
+      role: 'ADMIN',
+      presence: 'ONLINE',
+      tenantId: 'tenant-1',
+    });
+    expect(h.sessions.rows).toHaveLength(1);
+    expect(
+      await h.agentService.verifyToken(result.session.token),
+    ).toMatchObject({ agentId: h.agent.id, tenantId: 'tenant-1' });
+
+    expect(h.auditEvents).toContainEqual(
+      expect.objectContaining({
+        action: AUDIT_ACTIONS.twoFactorEnrolled,
+        actorId: h.agent.id,
+        tenantId: 'tenant-1',
+        resourceType: 'user',
+        resourceId: h.agent.id,
+        metadata: expect.objectContaining({ method: 'enforced_login' }),
+      }),
+    );
+  });
+
+  it('answers 401 INVALID_CODE for a wrong TOTP and keeps 2FA disabled', async () => {
+    const h = buildHarness({ require2fa: true });
+    const { setupToken } = await blockedLogin(h);
+    await h.service.enrollSetup(setupToken, { ip: '203.0.113.7' });
+
+    await expect(h.service.enrollVerify(setupToken, '000000')).rejects.toMatchObject({
+      code: 'INVALID_CODE',
+      httpStatus: 401,
+    });
+    expect(h.agent.twoFactorEnabled).toBe(false);
+    expect(h.sessions.rows).toHaveLength(0);
+  });
+
+  it('burns the setup token: replaying it is 401 SETUP_TOKEN_INVALID', async () => {
+    const h = buildHarness({ require2fa: true });
+    const { setupToken } = await blockedLogin(h);
+    const setup = await h.service.enrollSetup(setupToken, { ip: '203.0.113.7' });
+    const code = totp(setup.secret, h.clock.now());
+
+    await h.service.enrollVerify(setupToken, code, { ip: '203.0.113.7' });
+
+    await expect(
+      h.service.enrollVerify(setupToken, code, { ip: '203.0.113.8' }),
+    ).rejects.toMatchObject({
+      code: 'SETUP_TOKEN_INVALID',
+      httpStatus: 401,
+    });
+    expect(h.sessions.rows).toHaveLength(1);
+  });
+
+  it('rejects an expired setup token with SETUP_TOKEN_EXPIRED', async () => {
+    const h = buildHarness({ require2fa: true });
+    await blockedLogin(h);
+
+    await expect(
+      h.service.enrollVerify(expiredSetupToken(h.agent.id, 'tenant-1'), '123456'),
+    ).rejects.toMatchObject({ code: 'SETUP_TOKEN_EXPIRED', httpStatus: 401 });
+    expect(h.agent.twoFactorEnabled).toBe(false);
+    expect(h.sessions.rows).toHaveLength(0);
+  });
+
+  it('rejects a setup token for another workspace as invalid', async () => {
+    const h = buildHarness({ require2fa: true });
+    await blockedLogin(h);
+
+    const foreign = jwt.sign(
+      { scope: '2fa-setup', agentId: h.agent.id, tenantId: 'tenant-2', jti: 'foreign-jti' },
+      JWT_SECRET,
+      {
+        algorithm: 'HS256',
+        expiresIn: '15m',
+        issuer: 'sac-hub',
+        audience: TWO_FACTOR_SETUP_AUDIENCE,
+        subject: h.agent.id,
+      },
+    );
+
+    await expect(h.service.enrollVerify(foreign, '123456')).rejects.toMatchObject({
+      code: 'SETUP_TOKEN_INVALID',
+      httpStatus: 401,
+    });
+    expect(h.agent.twoFactorEnabled).toBe(false);
+  });
+
+  it('answers 429 RATE_LIMITED after 5 failed attempts on the same setup token', async () => {
+    const h = buildHarness({ require2fa: true });
+    const { setupToken } = await blockedLogin(h);
+    const setup = await h.service.enrollSetup(setupToken, { ip: '203.0.113.7' });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await expect(
+        h.service.enrollVerify(setupToken, '000000', { ip: '203.0.113.7' }),
+      ).rejects.toMatchObject({ code: 'INVALID_CODE', httpStatus: 401 });
+    }
+
+    await expect(
+      h.service.enrollVerify(setupToken, totp(setup.secret, h.clock.now()), {
+        ip: '203.0.113.7',
+      }),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      httpStatus: 429,
+      details: { bucket: 'auth.2fa.enroll.verify' },
+    });
+    expect(h.agent.twoFactorEnabled).toBe(false);
+    expect(h.sessions.rows).toHaveLength(0);
   });
 });

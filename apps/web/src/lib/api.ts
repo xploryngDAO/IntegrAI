@@ -74,10 +74,13 @@ import type {
   SignupBody,
   SsoDiscovery,
   TenantProfile,
+  TenantSettingsUpdate,
   TenantSsoConfig,
   TenantSsoUpdate,
   TwoFactorDisableBody,
   TwoFactorDisableResult,
+  TwoFactorEnrollResult,
+  TwoFactorEnrollSetupResult,
   TwoFactorSetupResult,
   TwoFactorStatusResult,
   TwoFactorVerifyResult,
@@ -173,6 +176,61 @@ function challengeTokenOf(error: ApiClientError): string | null {
   return typeof token === 'string' && token.trim().length > 0 ? token.trim() : null;
 }
 
+/**
+ * Password accepted but the workspace policy requires TOTP and this operator
+ * has none: the API answers 403 `TWO_FACTOR_SETUP_REQUIRED` (no session) with a
+ * short-lived `setupToken` in `details`. The login screen redeems it on
+ * `POST /auth/2fa/enroll/setup|verify`, then receives a real session.
+ *
+ * It extends `ApiClientError` so any generic handler still sees a 403, while
+ * the gate can open the forced-enrollment step instead of showing a dead end.
+ */
+export class TwoFactorSetupRequiredError extends ApiClientError {
+  readonly setupToken: string;
+
+  constructor(setupToken: string, status = 403) {
+    super(
+      status,
+      'TWO_FACTOR_SETUP_REQUIRED',
+      'O workspace exige verificação em duas etapas: ative o app autenticador para entrar.',
+      { setupToken },
+    );
+    this.name = 'TwoFactorSetupRequiredError';
+    this.setupToken = setupToken;
+  }
+}
+
+/**
+ * Reads the enrollment `setupToken` from whatever shape the API answered.
+ *
+ * The documented contract is `{ error: { code, details: { setupToken } } }`,
+ * which `apiErrorFrom` already flattens to `details.setupToken`. A deployment
+ * may still answer the token at the top level, inside a second `details`
+ * envelope or with the `setup_token` spelling; all are accepted, and anything
+ * that is not a non-empty string is ignored (never a guessed token).
+ */
+function setupTokenOf(error: ApiClientError): string | null {
+  const details = error.details;
+  if (!isRecord(details)) return null;
+
+  const nested = isRecord(details.details) ? details.details : null;
+  const body = isRecord(details.body) ? details.body : null;
+  const candidates: unknown[] = [
+    details.setupToken,
+    details.setup_token,
+    nested?.setupToken,
+    nested?.setup_token,
+    body?.setupToken,
+    body?.setup_token,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const token = candidate.trim();
+    if (token.length > 0) return token;
+  }
+  return null;
+}
+
 interface RawErrorPayload {
   error?: { code?: string; message?: string; details?: unknown };
   /** Some flows answer at the top level (login with 2FA) instead of `{ error }`. */
@@ -229,10 +287,13 @@ function setRefreshToken(token: string | null): void {
 
 /**
  * Persists the whole session returned by login / invitation / SSO exchange /
- * 2FA challenge. Always use this instead of `setAuthToken` on success so the
- * single-device logout can name the refresh token.
+ * 2FA challenge / forced enrollment. Always use this instead of `setAuthToken`
+ * on success so the single-device logout can name the refresh token.
+ *
+ * Only the two credential fields are read, so a response that carries extra
+ * fields (the enroll route adds `recoveryCodes`) is accepted structurally.
  */
-function persistSession(auth: AuthResponse): void {
+function persistSession(auth: { token: string; refreshToken?: string | null }): void {
   setAuthToken(auth.token);
   setRefreshToken(auth.refreshToken ?? null);
 }
@@ -286,6 +347,15 @@ interface RequestOptions {
   body?: unknown;
   formData?: FormData;
   headers?: Record<string, string>;
+  /**
+   * Explicit bearer for the few public-but-tokenised routes (2FA enrollment).
+   *
+   * `undefined` keeps the stored session token; `null` sends no Authorization
+   * header at all. The forced-enrollment calls happen before any session
+   * exists, and a stale token from a previous login in the same browser must
+   * never replace the short-lived `setupToken`.
+   */
+  bearerToken?: string | null;
   timeoutMs?: number;
   /**
    * Fetch cache mode. The public status page asks for `no-store` so the manual
@@ -405,7 +475,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const headers: Record<string, string> = { Accept: 'application/json', ...(options.headers ?? {}) };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const bearer = options.bearerToken === undefined ? authToken : options.bearerToken;
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
 
   let body: BodyInit | undefined;
   if (options.formData) {
@@ -641,6 +712,18 @@ export interface ApiClient {
    * Persists the JWT in the client (like `login()` does).
    */
   twoFactorChallenge(challengeToken: string, code: string): Promise<AuthResponse>;
+  /**
+   * `POST /auth/2fa/enroll/setup` — public route authorised by the short-lived
+   * `setupToken` of a `TWO_FACTOR_SETUP_REQUIRED` login (sent as the bearer).
+   * Returns the pending TOTP secret + `otpauth://` URI, both shown only once.
+   */
+  twoFactorEnrollSetup(setupToken: string): Promise<TwoFactorEnrollSetupResult>;
+  /**
+   * `POST /auth/2fa/enroll/verify` — public route authorised by `setupToken`;
+   * confirms the 6-digit code, **persists the issued session** (exactly like
+   * `login()`) and returns the recovery codes, shown once.
+   */
+  twoFactorEnrollVerify(setupToken: string, code: string): Promise<TwoFactorEnrollResult>;
   /** `GET /auth/2fa/recovery-codes/count` — unused codes left for this operator. */
   recoveryCodesCount(): Promise<RecoveryCodeCountResult>;
   /**
@@ -692,6 +775,12 @@ export interface ApiClient {
   completeOnboarding(): Promise<unknown>;
   /** Workspace profile of the authenticated tenant (`GET /tenants/me`). */
   tenantProfile(): Promise<TenantProfile>;
+  /**
+   * `PATCH /tenants/me` (ADMIN) — workspace security policy (`require2fa`).
+   * Resolves the value the API acknowledged, or `null` when it answered 204 /
+   * without the field (the caller then re-reads `tenantProfile()`).
+   */
+  updateTenantSettings(body: TenantSettingsUpdate): Promise<boolean | null>;
   /** Full LGPD export of the tenant (`GET /tenants/me/export`, ADMIN). */
   exportTenantData(): Promise<unknown>;
   /** LGPD workspace deletion (`DELETE /tenants/me`, ADMIN + password/slug). */
@@ -858,6 +947,29 @@ function asCounter(value: unknown): number {
     return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
   }
   return 0;
+}
+
+/**
+ * Boolean flag that may be absent on an older deployment.
+ *
+ * `null` is a real answer — "the API did not publish this field" — so it is
+ * kept apart from `false`. `true/false` are accepted as boolean, `0/1` and the
+ * `"true"/"false"` strings (a serialiser in the middle may change the type);
+ * anything else is treated as absent rather than guessed.
+ */
+function asOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+  }
+  return null;
 }
 
 /** Positive integer (>= 1) from a number or numeric string, else `fallback`. */
@@ -1112,6 +1224,48 @@ function normalizeAdminOverview(payload: unknown): AdminOverview {
 }
 
 /* ==========================================================================
+ * 2FA forced enrollment (public routes, Bearer setupToken)
+ * ========================================================================== */
+
+/**
+ * `POST /auth/2fa/enroll/setup` read model.
+ *
+ * The contract names the URI `otpauthUri`; `otpauthUrl` is accepted because the
+ * operator enrollment route uses that spelling. A missing secret is a real
+ * contract violation (there is nothing to show), while a missing URI only hides
+ * the link — the secret alone is enough to add the account manually.
+ */
+function normalizeEnrollSetup(payload: unknown): TwoFactorEnrollSetupResult {
+  const raw = isRecord(payload) ? payload : {};
+  return {
+    secret: asTextOrNull(raw.secret) ?? '',
+    otpauthUri: asTextOrNull(raw.otpauthUri) ?? asTextOrNull(raw.otpauthUrl) ?? '',
+  };
+}
+
+/**
+ * `POST /auth/2fa/enroll/verify` read model: session credentials + codes.
+ *
+ * The documented body is `AuthResponse` plus `recoveryCodes`. A deployment may
+ * wrap the session in `auth`/`session`; both are tolerated. The token is the
+ * only mandatory field — without it the client cannot enter the workspace, so
+ * the caller reports a real error instead of pretending the login worked.
+ */
+function normalizeEnrollVerify(payload: unknown): TwoFactorEnrollResult {
+  const raw = isRecord(payload) ? payload : {};
+  const session = isRecord(raw.auth)
+    ? raw.auth
+    : isRecord(raw.session)
+      ? raw.session
+      : raw;
+  return {
+    token: asTextOrNull(session.token) ?? '',
+    refreshToken: asTextOrNull(session.refreshToken) ?? undefined,
+    recoveryCodes: textList(raw.recoveryCodes),
+  };
+}
+
+/* ==========================================================================
  * Real API implementation
  * ========================================================================== */
 
@@ -1132,6 +1286,15 @@ export const api: ApiClient = {
         const challengeToken = challengeTokenOf(error);
         if (challengeToken !== null) {
           throw new TwoFactorRequiredError(challengeToken, error.status);
+        }
+      }
+      // Policy requires TOTP and this operator has none: 403
+      // `TWO_FACTOR_SETUP_REQUIRED` + `details.setupToken`, still no session.
+      // The gate redeems the token on `/auth/2fa/enroll/*`.
+      if (error instanceof ApiClientError && error.code === 'TWO_FACTOR_SETUP_REQUIRED') {
+        const setupToken = setupTokenOf(error);
+        if (setupToken !== null) {
+          throw new TwoFactorSetupRequiredError(setupToken, error.status);
         }
       }
       throw error;
@@ -1200,6 +1363,48 @@ export const api: ApiClient = {
     // The challenge issues a real session: persist it before boot runs.
     persistSession(auth);
     return auth;
+  },
+
+  async twoFactorEnrollSetup(setupToken) {
+    // No session exists at this point: the setup token itself is the bearer.
+    // `bearerToken` (instead of the stored session token) keeps a stale login
+    // from another tab from overriding the token the API just issued.
+    const payload = await request<unknown>('/auth/2fa/enroll/setup', {
+      method: 'POST',
+      bearerToken: setupToken,
+      // The API derives the TOTP secret and URI; no network calls expected.
+      timeoutMs: 10_000,
+    });
+    const result = normalizeEnrollSetup(payload);
+    if (result.secret.length === 0) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API respondeu a ativação sem a chave secreta. Volte ao login e tente novamente.',
+      );
+    }
+    return result;
+  },
+
+  async twoFactorEnrollVerify(setupToken, code) {
+    const payload = await request<unknown>('/auth/2fa/enroll/verify', {
+      method: 'POST',
+      body: { code },
+      bearerToken: setupToken,
+      // bcrypt/TOTP verification plus session issuance run inside this request.
+      timeoutMs: 20_000,
+    });
+    const result = normalizeEnrollVerify(payload);
+    if (result.token.length === 0) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API confirmou a ativação, mas não emitiu a sessão. Entre novamente com a senha e o código do app.',
+      );
+    }
+    // Real session: persist it before the workspace boot runs (same as login).
+    persistSession(result);
+    return result;
   },
 
   async recoveryCodesCount() {
@@ -1552,8 +1757,38 @@ export const api: ApiClient = {
     });
   },
 
-  tenantProfile() {
-    return request<TenantProfile>('/tenants/me', { timeoutMs: 8_000 });
+  async tenantProfile() {
+    // `no-store`: the security policy and the onboarding flag are worth reading
+    // fresh whenever `/settings` opens. The payload is normalised so an older
+    // API (without `require2fa`) yields `null` — "not published", never `false`.
+    const payload = await request<unknown>('/tenants/me', {
+      cache: 'no-store',
+      timeoutMs: 8_000,
+    });
+    const raw = isRecord(payload) && isRecord(payload.tenant) ? payload.tenant : payload;
+    const source = isRecord(raw) ? raw : {};
+    return {
+      id: asTextOrNull(source.id) ?? '',
+      slug: asTextOrNull(source.slug) ?? '',
+      name: asTextOrNull(source.name) ?? '',
+      onboardingCompletedAt: asIsoOrNull(source.onboardingCompletedAt),
+      require2fa: asOptionalBoolean(source.require2fa),
+    };
+  },
+
+  async updateTenantSettings(body) {
+    // ADMIN-only on the API. `allowEmpty` because a deployment may answer 204
+    // after persisting the policy; `null` then means "confirmed, no echo" and
+    // the caller re-reads `GET /tenants/me` for the authoritative value.
+    const payload = await request<unknown>('/tenants/me', {
+      method: 'PATCH',
+      body,
+      allowEmpty: true,
+      timeoutMs: 12_000,
+    });
+    if (payload === null || payload === undefined) return null;
+    const raw = isRecord(payload) && isRecord(payload.tenant) ? payload.tenant : payload;
+    return isRecord(raw) ? asOptionalBoolean(raw.require2fa) : null;
   },
 
   exportTenantData() {
@@ -2098,6 +2333,8 @@ export type {
   SystemStatusLevel,
   SystemStatusService,
   SystemStatusSnapshot,
+  TenantProfile,
+  TenantSettingsUpdate,
   TenantSsoConfig,
   TenantSsoUpdate,
   TicketDetail,
@@ -2105,6 +2342,8 @@ export type {
   TicketStats,
   TwoFactorDisableBody,
   TwoFactorDisableResult,
+  TwoFactorEnrollResult,
+  TwoFactorEnrollSetupResult,
   TwoFactorSetupResult,
   TwoFactorStatusResult,
   TwoFactorVerifyResult,

@@ -5,6 +5,11 @@
  * The API answers stable error codes (`INVALID_TOTP`, `INVALID_PASSWORD`,
  * `TWO_FACTOR_SETUP_REQUIRED`, …), so the UI maps them to recovery-oriented
  * messages instead of leaking "Invalid two-factor code" to the operator.
+ *
+ * Two adjacent flows live here as well:
+ *   - forced enrollment after a `TWO_FACTOR_SETUP_REQUIRED` login
+ *     (`/auth/2fa/enroll/*`, authorised by the short-lived `setupToken`);
+ *   - the workspace policy `require2fa` read/updated on `GET|PATCH /tenants/me`.
  */
 import { ApiClientError } from './api';
 
@@ -167,6 +172,160 @@ export function twoFactorErrorMessage(error: unknown, operation: TwoFactorOperat
   }
   if (error.status === 403) {
     return 'Sua conta não tem permissão para alterar a verificação em duas etapas.';
+  }
+  if (error.status === 0) return error.message;
+
+  return `${error.message} (HTTP ${error.status})`;
+}
+
+/* ==========================================================================
+ * Forced enrollment
+ *
+ *   POST /auth/2fa/enroll/setup   (Bearer setupToken) -> { secret, otpauthUri }
+ *   POST /auth/2fa/enroll/verify  (Bearer setupToken) -> AuthResponse + codes
+ *
+ * A `TWO_FACTOR_SETUP_REQUIRED` login issues no session: only a short-lived
+ * `setupToken`. The helpers below explain the real failures of that narrow
+ * window and tell the operator when the only way forward is restarting the
+ * login (expired token), instead of offering a retry that cannot work.
+ * ========================================================================== */
+
+/** The enrollment request being executed — only changes how a code is explained. */
+export type TwoFactorEnrollOperation = 'setup' | 'verify';
+
+/** Server codes that mean the setup token can no longer be redeemed. */
+const SETUP_TOKEN_ERROR_CODES: ReadonlySet<string> = new Set([
+  // Stable codes of the enforced-enrollment routes.
+  'SETUP_TOKEN_INVALID',
+  'SETUP_TOKEN_EXPIRED',
+  // Tolerant variants (older/newer deployments and the self-service flow).
+  'INVALID_SETUP_TOKEN',
+  'EXPIRED_SETUP_TOKEN',
+  'INVALID_TOKEN',
+  'TOKEN_EXPIRED',
+  'TWO_FACTOR_SETUP_REQUIRED',
+]);
+
+/**
+ * Whether the failure is "this enrollment window is over, start again".
+ *
+ * Only the stable token codes count: `INVALID_CODE` is also a 401, and treating
+ * a wrong 6-digit code as an expired token would send the operator back to the
+ * login when simply retyping the code would work.
+ */
+export function isSetupTokenExpiredError(error: unknown): boolean {
+  return error instanceof ApiClientError && SETUP_TOKEN_ERROR_CODES.has(error.code);
+}
+
+/**
+ * Operator-facing message for a real failure of the forced enrollment.
+ *
+ * The server text is preserved when no specific guidance exists; a 404/405/501
+ * means the deployment predates the enroll routes and is reported as such.
+ */
+export function twoFactorEnrollErrorMessage(
+  error: unknown,
+  operation: TwoFactorEnrollOperation,
+): string {
+  if (!(error instanceof ApiClientError)) {
+    return error instanceof Error && error.message
+      ? error.message
+      : 'Não foi possível falar com a API. Verifique a conexão e tente novamente.';
+  }
+
+  switch (error.code) {
+    case 'INVALID_TOTP':
+    case 'INVALID_CODE':
+      return 'Código inválido ou expirado. Gere um novo código no app autenticador e confirme de novo.';
+    case 'INVALID_RECOVERY_CODE':
+      return 'Durante a ativação use o código de 6 dígitos do app autenticador, não um código de recuperação.';
+    case 'TWO_FACTOR_ALREADY_ENABLED':
+      return 'Esta conta já tem a verificação em duas etapas ativa. Volte ao login e entre com o código do app autenticador.';
+    case 'SETUP_TOKEN_INVALID':
+    case 'SETUP_TOKEN_EXPIRED':
+    case 'INVALID_SETUP_TOKEN':
+    case 'EXPIRED_SETUP_TOKEN':
+    case 'INVALID_TOKEN':
+    case 'TOKEN_EXPIRED':
+    case 'TWO_FACTOR_SETUP_REQUIRED':
+      return 'A ativação expirou ou não pertence mais a este login. Volte ao login e entre novamente para gerar uma nova chave.';
+    case 'RATE_LIMITED':
+      return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+    case 'TWO_FACTOR_SECRET_UNREADABLE':
+      return 'A API não conseguiu ler a chave gerada. Volte ao login e recomece a ativação.';
+    default:
+      break;
+  }
+
+  if (error.status === 404 || error.status === 405 || error.status === 501) {
+    return 'A ativação obrigatória de 2FA não está publicada nesta API. Fale com o suporte do workspace.';
+  }
+  if (error.status === 401 || error.status === 410) {
+    return 'A ativação expirou. Volte ao login e entre novamente para gerar uma nova chave.';
+  }
+  if (error.status === 403) {
+    return operation === 'setup'
+      ? `A API recusou iniciar a ativação (HTTP 403): ${error.message} Volte ao login e entre novamente.`
+      : `A API recusou a confirmação (HTTP 403): ${error.message} Volte ao login e entre novamente.`;
+  }
+  if (error.status === 400 || error.status === 422) {
+    return `A API recusou o pedido de ativação (HTTP ${error.status}): ${error.message}`;
+  }
+  if (error.status === 409) {
+    return `${error.message} (HTTP 409). O estado da verificação mudou em outra sessão; recomece o login.`;
+  }
+  if (error.status === 429) {
+    return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+  }
+  if (error.status === 0) return error.message;
+
+  return `${error.message} (HTTP ${error.status})`;
+}
+
+/* ==========================================================================
+ * Workspace policy (`require2fa` on GET|PATCH /tenants/me, ADMIN)
+ * ========================================================================== */
+
+/**
+ * Operator-facing message for the workspace 2FA policy.
+ *
+ * `403` is the API re-checking that only an ADMIN may read/write the tenant;
+ * `404/405/501` means this deployment does not publish the route, which the
+ * page reports as "indisponível nesta API" rather than a generic error.
+ */
+export function twoFactorPolicyErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiClientError)) {
+    return error instanceof Error && error.message
+      ? error.message
+      : 'Não foi possível falar com a API. Verifique a conexão e tente novamente.';
+  }
+
+  switch (error.code) {
+    case 'RATE_LIMITED':
+      return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+    case 'TENANT_NOT_FOUND':
+      return 'O workspace desta sessão não foi encontrado pela API. Entre novamente.';
+    default:
+      break;
+  }
+
+  if (error.status === 403) {
+    return 'Somente um ADMIN do workspace pode ler ou alterar a política de verificação em duas etapas.';
+  }
+  if (error.status === 404 || error.status === 405 || error.status === 501) {
+    return 'A política de verificação em duas etapas obrigatória não está publicada nesta API.';
+  }
+  if (error.status === 400 || error.status === 422) {
+    return `A API recusou a alteração (HTTP ${error.status}): ${error.message}`;
+  }
+  if (error.status === 401) {
+    return 'Sessão expirada. Entre novamente para alterar a política do workspace.';
+  }
+  if (error.status === 409) {
+    return `${error.message} (HTTP 409). Recarregue o estado do workspace e tente novamente.`;
+  }
+  if (error.status === 429) {
+    return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
   }
   if (error.status === 0) return error.message;
 

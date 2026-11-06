@@ -43,6 +43,7 @@ import {
 } from './auth/access-token-revocation';
 import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { signTwoFactorChallengeToken } from './auth/two-factor-token';
+import { signTwoFactorSetupToken } from './auth/two-factor-setup-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
 
 /**
@@ -264,7 +265,7 @@ export class AgentService implements IAgentService {
     // Fase 4: a suspended/soft-deleted workspace can never open a session. The
     // check runs AFTER the password so a wrong password still answers 401 and
     // the workspace status is not leaked to an unauthenticated caller.
-    await this.assertTenantActive(agent.tenantId, agent.id);
+    const tenant = await this.assertTenantActive(agent.tenantId, agent.id);
 
     // Enterprise SSO (`enforce_sso`): a member of a workspace that requires SSO
     // cannot authenticate with a password. Runs AFTER the password was validated
@@ -286,6 +287,31 @@ export class AgentService implements IAgentService {
           secret: this.jwtSecret,
         }),
       };
+    }
+
+    // Workspace policy (`require_2fa`): a member WITHOUT an active TOTP factor
+    // must enroll before receiving a session. The password was already validated
+    // and the workspace lifecycle/SSO gates already ran, so this answers 403 with
+    // a stable code and a 15 min `setupToken` (never an access token). SSO is
+    // intentionally exempt: its second factor is delegated to the IdP, and the
+    // SSO flow calls `issueSession` directly instead of this password path.
+    if (tenant?.require2fa === true) {
+      this.logger.info('agent.login.two_factor_setup_required', {
+        agentId: agent.id,
+        tenantId: tenant.id,
+      });
+      throw new AppError(
+        'TWO_FACTOR_SETUP_REQUIRED',
+        'Two-factor authentication is required for this workspace. Enroll a TOTP factor before signing in.',
+        403,
+        {
+          setupToken: signTwoFactorSetupToken({
+            agentId: agent.id,
+            tenantId: agent.tenantId ?? null,
+            secret: this.jwtSecret,
+          }),
+        },
+      );
     }
 
     const session = await this.issueSessionFor(agent, device);
@@ -454,9 +480,16 @@ export class AgentService implements IAgentService {
    * Rejects a tenant that is not ACTIVE (suspended or soft-deleted). A token
    * that references an unknown tenant is treated the same way: the workspace
    * no longer exists, so the session must not be usable.
+   *
+   * Returns the tenant row (or `null` when the caller has no tenant / the
+   * repository is not wired) so login can evaluate other workspace policies
+   * (`require_2fa`) without a second lookup.
    */
-  private async assertTenantActive(tenantId: string | null, agentId: string): Promise<void> {
-    if (tenantId === null || this.tenants === undefined) return;
+  private async assertTenantActive(
+    tenantId: string | null,
+    agentId: string,
+  ): Promise<TenantRecord | null> {
+    if (tenantId === null || this.tenants === undefined) return null;
 
     const tenant: TenantRecord | null = await this.tenants.findById(tenantId);
     if (tenant === null) {
@@ -471,6 +504,7 @@ export class AgentService implements IAgentService {
       });
       throw new TenantInactiveError(tenant.status, tenantId);
     }
+    return tenant;
   }
 
   private signToken(agent: AgentRecord, sessionId?: string): string {

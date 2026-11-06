@@ -467,6 +467,8 @@ export interface UpdateTenantInput {
   name?: string;
   /** `null` clears the completion marker; a `Date` stamps it. */
   onboardingCompletedAt?: Date | null;
+  /** Workspace 2FA policy (`tenants.require_2fa`). */
+  require2fa?: boolean;
 }
 
 export interface ITenantRepository {

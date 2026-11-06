@@ -1,4 +1,4 @@
-import { AUDIT_ACTIONS, NotFoundError } from '@sac/shared';
+import { AUDIT_ACTIONS, AppError, NotFoundError } from '@sac/shared';
 import type {
   AuthResponse,
   IAgentSummary,
@@ -20,6 +20,7 @@ import {
   signupBodySchema,
   twoFactorChallengeBodySchema,
   twoFactorDisableBodySchema,
+  twoFactorEnrollVerifyBodySchema,
   twoFactorRecoveryRegenerateBodySchema,
   twoFactorVerifyBodySchema,
   updateProfileBodySchema,
@@ -27,7 +28,7 @@ import {
 } from '../schemas';
 import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
-import { requireAgent } from '../middleware/auth';
+import { extractBearerToken, requireAgent } from '../middleware/auth';
 import { toAgentRole } from '../mappers';
 import {
   denyAccessToken,
@@ -55,6 +56,8 @@ export interface AuthControllers {
   twoFactorDisable: RouteHandler;
   twoFactorStatus: RouteHandler;
   twoFactorChallenge: RouteHandler;
+  twoFactorEnrollSetup: RouteHandler;
+  twoFactorEnrollVerify: RouteHandler;
   twoFactorRegenerateRecoveryCodes: RouteHandler;
   twoFactorRecoveryCodeCount: RouteHandler;
 }
@@ -90,6 +93,19 @@ function deviceInfo(request: FastifyRequest, deviceName?: string): SessionDevice
 function userAgentOf(request: FastifyRequest): string | null {
   const header = request.headers['user-agent'];
   return typeof header === 'string' ? header : null;
+}
+
+/**
+ * The enforced enrollment routes are public, so the global guard does not parse
+ * the header for them. The Bearer value is the setup token (never an access
+ * token); a missing header answers the same stable 401 as an invalid one.
+ */
+function setupTokenOf(request: FastifyRequest): string {
+  const token = extractBearerToken(request.headers.authorization);
+  if (token === null) {
+    throw new AppError('SETUP_TOKEN_INVALID', 'Two-factor setup token is missing', 401);
+  }
+  return token;
 }
 
 export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
@@ -512,6 +528,48 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
       });
 
       return ok(toAuthResponse(result));
+    },
+
+    /**
+     * `POST /auth/2fa/enroll/setup` - public, `Authorization: Bearer setupToken`.
+     *
+     * First step of the enforced enrollment: validates the 15 min setup token
+     * issued by a login blocked by the workspace `require_2fa` policy and returns
+     * `{ secret, otpauthUri }` (no session, no presence change).
+     */
+    async twoFactorEnrollSetup(request) {
+      const result = await services.twoFactor.enrollSetup(setupTokenOf(request), {
+        userAgent: userAgentOf(request),
+        ip: request.ip ?? null,
+      });
+      return ok(result);
+    },
+
+    /**
+     * `POST /auth/2fa/enroll/verify` - public, `Authorization: Bearer setupToken`.
+     *
+     * Second step: burns the setup token, enables TOTP, returns the normal
+     * `AuthResponse` PLUS `recoveryCodes`, and publishes the operator presence
+     * exactly like login/2FA challenge.
+     */
+    async twoFactorEnrollVerify(request) {
+      const body = parseInput(twoFactorEnrollVerifyBodySchema, request.body, 'body');
+      const result = await services.twoFactor.enrollVerify(
+        setupTokenOf(request),
+        body.code,
+        deviceInfo(request, body.deviceName),
+      );
+
+      publishPresence({
+        id: result.session.agent.id,
+        name: result.session.agent.name,
+        presence: result.session.agent.presence,
+      });
+
+      return ok({
+        ...toAuthResponse(result.session),
+        recoveryCodes: result.recoveryCodes,
+      });
     },
   };
 }

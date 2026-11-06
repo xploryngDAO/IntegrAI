@@ -158,7 +158,7 @@ export interface UploadedFile {
 }
 
 /**
- * Client projection of `GET /tenants/me` (Fase 2).
+ * Client projection of `GET /tenants/me` (Fase 2 + workspace security policy).
  *
  * The API serialises the timestamp, so the browser sees an ISO string (or null
  * when the guided onboarding was never completed).
@@ -168,6 +168,19 @@ export interface TenantProfile {
   slug: string;
   name: string;
   onboardingCompletedAt: string | null;
+  /**
+   * Workspace policy: every operator must have TOTP enrolled to sign in.
+   *
+   * `null` means the deployment did **not** publish the field — an older API,
+   * not "policy off". The settings screen renders that as "indisponível nesta
+   * API" instead of inventing a disabled policy.
+   */
+  require2fa: boolean | null;
+}
+
+/** Body of `PATCH /tenants/me` for the workspace security policy (ADMIN). */
+export interface TenantSettingsUpdate {
+  require2fa: boolean;
 }
 
 /* ==========================================================================
@@ -180,6 +193,8 @@ export interface TenantProfile {
  *   POST /auth/2fa/verify          -> TwoFactorVerifyResult (8 recovery codes, once)
  *   POST /auth/2fa/disable         -> { enabled: false }
  *   POST /auth/2fa/challenge       -> AuthResponse (same session as login)
+ *   POST /auth/2fa/enroll/setup    -> TwoFactorEnrollSetupResult (Bearer setupToken)
+ *   POST /auth/2fa/enroll/verify   -> TwoFactorEnrollResult  (Bearer setupToken)
  *
  * The secret and the recovery codes are returned exactly once by the API, so
  * the UI keeps them in component state only (never in storage).
@@ -199,6 +214,31 @@ export interface TwoFactorSetupResult {
 export interface TwoFactorVerifyResult {
   enabled: boolean;
   /** 8 one-time recovery codes — shown only in this response. */
+  recoveryCodes: string[];
+}
+
+/**
+ * `POST /auth/2fa/enroll/setup` (public, `Authorization: Bearer <setupToken>`).
+ *
+ * Forced enrollment started by a `TWO_FACTOR_SETUP_REQUIRED` login: the
+ * short-lived setup token is exchanged for the pending TOTP secret. The API
+ * calls the URL `otpauthUri`; `otpauthUrl` is tolerated by the client too.
+ */
+export interface TwoFactorEnrollSetupResult {
+  /** Base32 secret, shown once so the operator can type it in the authenticator. */
+  secret: string;
+  /** `otpauth://totp/...` URI (empty when the deployment did not send one). */
+  otpauthUri: string;
+}
+
+/**
+ * `POST /auth/2fa/enroll/verify` — confirms the pending secret, issues a real
+ * session (`token`/`refreshToken`, persisted by the client like `login()`) and
+ * returns the recovery codes exactly once.
+ */
+export interface TwoFactorEnrollResult {
+  token: string;
+  refreshToken?: string;
   recoveryCodes: string[];
 }
 

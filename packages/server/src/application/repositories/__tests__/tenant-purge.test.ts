@@ -53,6 +53,7 @@ function makeTenantRow(overrides: Partial<Tenant> = {}): Tenant {
     trialEndsAt: overrides.trialEndsAt ?? null,
     billingEmail: overrides.billingEmail ?? null,
     onboardingCompletedAt: overrides.onboardingCompletedAt ?? null,
+    require2fa: overrides.require2fa ?? false,
     deletedAt: overrides.deletedAt ?? at,
     createdAt: overrides.createdAt ?? at,
     updatedAt: overrides.updatedAt ?? at,

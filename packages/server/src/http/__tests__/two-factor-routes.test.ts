@@ -24,10 +24,11 @@ function fakeReply(): FastifyReply {
 function fakeRequest(
   body: unknown,
   agent?: { id: string; email: string; name: string; role: string; tenantId: string | null },
+  headers: Record<string, string> = {},
 ): FastifyRequest {
   return {
     body,
-    headers: { 'user-agent': 'Mozilla/5.0 (test)' },
+    headers: { 'user-agent': 'Mozilla/5.0 (test)', ...headers },
     ip: '203.0.113.7',
     ...(agent !== undefined ? { agent } : {}),
   } as unknown as FastifyRequest;
@@ -80,6 +81,13 @@ const SESSION = {
 describe('2FA route exposure (401 contract)', () => {
   it('keeps /auth/2fa/challenge public (the challenge JWT authenticates it)', () => {
     expect(isPublicRoute('POST', '/api/v1/auth/2fa/challenge')).toBe(true);
+  });
+
+  it('exposes exactly the two enforcement enrollment routes publicly', () => {
+    expect(isPublicRoute('POST', '/api/v1/auth/2fa/enroll/setup')).toBe(true);
+    expect(isPublicRoute('POST', '/api/v1/auth/2fa/enroll/verify')).toBe(true);
+    expect(isPublicRoute('POST', '/api/v1/auth/2fa/enroll/setup/extra')).toBe(false);
+    expect(isPublicRoute('POST', '/api/v1/auth/2fa/enroll')).toBe(false);
   });
 
   it.each([
@@ -298,6 +306,95 @@ describe('POST /auth/2fa/challenge', () => {
 
     await expect(
       h.controllers.twoFactorChallenge(fakeRequest({ challengeToken: 'x' }), fakeReply()),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', httpStatus: 422 });
+  });
+});
+
+describe('POST /auth/2fa/enroll/setup', () => {
+  it('forwards the Bearer setup token and returns the secret + otpauthUri', async () => {
+    const enrollSetup = vi.fn(async () => ({
+      secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+      otpauthUri: 'otpauth://totp/SAC%20Hub:ana%40acme.test?secret=GEZD',
+    }));
+    const h = buildHarness({ twoFactor: { enrollSetup } });
+
+    const result = await h.controllers.twoFactorEnrollSetup(
+      fakeRequest({}, undefined, { authorization: 'Bearer setup.jwt.token' }),
+      fakeReply(),
+    );
+
+    expect(enrollSetup).toHaveBeenCalledWith('setup.jwt.token', {
+      userAgent: 'Mozilla/5.0 (test)',
+      ip: '203.0.113.7',
+    });
+    expect(result).toEqual({
+      data: {
+        secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+        otpauthUri: 'otpauth://totp/SAC%20Hub:ana%40acme.test?secret=GEZD',
+      },
+    });
+  });
+
+  it('answers 401 SETUP_TOKEN_INVALID when the Authorization header is missing', async () => {
+    const h = buildHarness({ twoFactor: { enrollSetup: vi.fn() } });
+
+    await expect(
+      h.controllers.twoFactorEnrollSetup(fakeRequest({}), fakeReply()),
+    ).rejects.toMatchObject({ code: 'SETUP_TOKEN_INVALID', httpStatus: 401 });
+  });
+});
+
+describe('POST /auth/2fa/enroll/verify', () => {
+  it('returns the AuthResponse PLUS recoveryCodes and publishes presence', async () => {
+    const enrollVerify = vi.fn(async () => ({
+      session: SESSION,
+      recoveryCodes: ['ABCD-2345', 'EFGH-6789'],
+    }));
+    const h = buildHarness({ twoFactor: { enrollVerify } });
+    const reply = fakeReply();
+
+    const result = await h.controllers.twoFactorEnrollVerify(
+      fakeRequest(
+        { code: '123456', deviceName: 'Phone' },
+        undefined,
+        { authorization: 'Bearer setup.jwt.token' },
+      ),
+      reply,
+    );
+
+    expect(enrollVerify).toHaveBeenCalledWith('setup.jwt.token', '123456', {
+      userAgent: 'Phone',
+      ip: '203.0.113.7',
+    });
+    expect(reply.statusCode).toBe(200);
+    expect(result).toEqual({
+      data: {
+        token: SESSION.token,
+        refreshToken: SESSION.refreshToken,
+        agent: SESSION.agent,
+        recoveryCodes: ['ABCD-2345', 'EFGH-6789'],
+      },
+    });
+    expect(h.publishPresence).toHaveBeenCalledWith({
+      agentId: AGENT.id,
+      agentName: AGENT.name,
+      presence: 'ONLINE',
+      at: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('rejects a body that smuggles the setup token with 422', async () => {
+    const h = buildHarness({ twoFactor: { enrollVerify: vi.fn() } });
+
+    await expect(
+      h.controllers.twoFactorEnrollVerify(
+        fakeRequest(
+          { code: '123456', setupToken: 'smuggled' },
+          undefined,
+          { authorization: 'Bearer setup.jwt.token' },
+        ),
+        fakeReply(),
+      ),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', httpStatus: 422 });
   });
 });

@@ -117,6 +117,21 @@ export const twoFactorChallengeBodySchema = z.object({
   deviceName: z.string().trim().min(1).max(120).optional(),
 });
 
+/**
+ * `POST /auth/2fa/enroll/verify` - public second step of the ENFORCED enrollment.
+ *
+ * The setup token travels in `Authorization: Bearer` (never the body); only the
+ * TOTP code and the optional device label are accepted here. `.strict()` rejects
+ * a smuggled `setupToken`/`tenantId` field.
+ */
+export const twoFactorEnrollVerifyBodySchema = z
+  .object({
+    code: twoFactorCodeSchema,
+    /** Optional device label, see `loginBodySchema`. */
+    deviceName: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type PresenceBody = z.infer<typeof presenceBodySchema>;
 export type UpdateProfileBody = z.infer<typeof updateProfileBodySchema>;

@@ -241,6 +241,11 @@ model Tenant {
   billingEmail          String?       @map("billing_email") @db.VarChar(180)
   /// Fase 2: first completion of the guided onboarding wizard (null = pending).
   onboardingCompletedAt DateTime?     @map("onboarding_completed_at") @db.Timestamptz(6)
+  /// Workspace 2FA policy: when true, a password login of an operator without an
+  /// active TOTP factor is answered 403 TWO_FACTOR_SETUP_REQUIRED (setupToken)
+  /// and no session is emitted until enrollment completes. SSO logins are exempt
+  /// (the second factor is delegated to the IdP).
+  require2fa            Boolean       @default(false) @map("require_2fa")
   /// Fase 4/LGPD: soft delete marker. Data is preserved for audit; the physical
   /// purge is a future platform job (see docs/PHASE4_PLATFORM.md).
   deletedAt             DateTime?     @map("deleted_at") @db.Timestamptz(6)

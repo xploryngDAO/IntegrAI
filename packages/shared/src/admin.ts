@@ -47,6 +47,14 @@ export const AUDIT_ACTIONS = {
   passwordResetCompleted: 'auth.password.reset_completed',
   twoFactorEnabled: 'auth.2fa.enabled',
   twoFactorDisabled: 'auth.2fa.disabled',
+  /**
+   * Operator enrolled TOTP through the ENFORCED login flow (workspace policy
+   * `require_2fa`). Metadata carries `method: 'enforced_login'`; the regular
+   * self-service enrollment keeps emitting `auth.2fa.enabled`.
+   */
+  twoFactorEnrolled: 'auth.2fa.enrolled',
+  /** ADMIN changed the workspace `require_2fa` policy (before/after metadata). */
+  tenant2faPolicyChanged: 'tenant.2fa_policy_changed',
   profileUpdated: 'auth.profile.updated',
   invitationCreated: 'invitation.created',
   invitationAccepted: 'invitation.accepted',

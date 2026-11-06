@@ -53,6 +53,27 @@ export const AUTH_RATE_LIMITS = {
     windowSeconds: 15 * 60,
   },
   /*
+   * Enforced 2FA enrollment (`require_2fa` policy). `/auth/2fa/enroll/*` is
+   * public (the Bearer setupToken authenticates it), so both steps are throttled
+   * per client IP; verify additionally has a per-`jti` window so a single leaked
+   * token cannot be brute-forced from many addresses.
+   */
+  twoFactorEnrollSetup: {
+    bucket: 'auth.2fa.enroll.setup',
+    limit: 10,
+    windowSeconds: 15 * 60,
+  },
+  twoFactorEnrollVerify: {
+    bucket: 'auth.2fa.enroll.verify',
+    limit: 5,
+    windowSeconds: 15 * 60,
+  },
+  twoFactorEnrollVerifyIp: {
+    bucket: 'auth.2fa.enroll.verify.ip',
+    limit: 5,
+    windowSeconds: 15 * 60,
+  },
+  /*
    * Enterprise SSO public endpoints. They are unauthenticated (the browser has
    * no token yet), so each one is throttled per client IP:
    *  - discover is an e-mail-domain oracle (30/15min);

@@ -249,13 +249,25 @@ export interface UpdateTenantCommand {
   name?: string;
   /** `true` stamps `onboarding_completed_at`; `false` clears it (wizard rerun). */
   onboardingCompleted?: boolean;
+  /**
+   * Workspace 2FA policy. `PATCH /tenants/me` is ADMIN-only; flipping it emits
+   * `tenant.2fa_policy_changed` with the before/after values.
+   */
+  require2fa?: boolean;
 }
 
 export interface ITenantService {
   /** Workspace projection for `GET /tenants/me`; 404 when the id is unknown. */
   get(tenantId: string): Promise<TenantProfile>;
-  /** Updates only the caller tenant (id comes from the JWT, never the body). */
-  update(tenantId: string, command: UpdateTenantCommand): Promise<TenantProfile>;
+  /**
+   * Updates only the caller tenant (id comes from the JWT, never the body).
+   * `actor` is used exclusively by the audit trail (`tenant.2fa_policy_changed`).
+   */
+  update(
+    tenantId: string,
+    command: UpdateTenantCommand,
+    actor?: AuditActorContext,
+  ): Promise<TenantProfile>;
 }
 
 /* ==========================================================================
@@ -563,11 +575,52 @@ export interface TwoFactorRecoveryCodeCountResult {
   remaining: number;
 }
 
+/**
+ * `POST /auth/2fa/enroll/setup` - first step of the ENFORCED enrollment flow.
+ *
+ * The caller proves possession of the short-lived `setupToken` issued by a login
+ * blocked by the workspace `require_2fa` policy; no access token exists yet.
+ */
+export interface TwoFactorEnrollmentSetupResult {
+  /** Base32 TOTP secret, returned once (also embedded in `otpauthUri`). */
+  secret: string;
+  /** `otpauth://totp/...` URI the client renders as a QR code. */
+  otpauthUri: string;
+}
+
+/**
+ * `POST /auth/2fa/enroll/verify` - second step. Enables TOTP, emits the normal
+ * session (same shape as login) and returns the 8 one-time recovery codes.
+ */
+export interface TwoFactorEnrollmentVerifyResult {
+  session: LoginSuccess;
+  /** 8 one-time recovery codes, shown only in this response. */
+  recoveryCodes: string[];
+}
+
 export interface ITwoFactorService {
   /** Generates and encrypts a pending secret; 409 when 2FA is already enabled. */
   setup(userId: string): Promise<TwoFactorSetupResult>;
   /** Confirms the pending secret, enables 2FA and returns the recovery codes. */
   verify(userId: string, code: string): Promise<TwoFactorVerifyResult>;
+  /**
+   * Enforced enrollment, step 1: validates the short-lived `setupToken` issued
+   * by login and stores a fresh pending secret. Public route (Bearer setupToken).
+   */
+  enrollSetup(
+    setupToken: string,
+    device?: SessionDeviceInfo,
+  ): Promise<TwoFactorEnrollmentSetupResult>;
+  /**
+   * Enforced enrollment, step 2: validates the setup token AND a TOTP code,
+   * enables TOTP, audits `auth.2fa.enrolled` and issues the session. The token is
+   * single-use (its `jti` is burned before the session is minted).
+   */
+  enrollVerify(
+    setupToken: string,
+    code: string,
+    device?: SessionDeviceInfo,
+  ): Promise<TwoFactorEnrollmentVerifyResult>;
   /** Requires the account password AND a valid TOTP/recovery code. */
   disable(userId: string, password: string, code?: string): Promise<void>;
   /**

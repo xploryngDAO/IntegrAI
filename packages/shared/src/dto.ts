@@ -247,6 +247,15 @@ export interface TenantRecord {
   billingEmail: string | null;
   /** Fase 2: first time the guided onboarding wizard was completed. */
   onboardingCompletedAt: Date | null;
+  /**
+   * Workspace 2FA policy (`tenants.require_2fa`).
+   *
+   * When true, a password login of an operator WITHOUT an active TOTP factor is
+   * answered with `403 TWO_FACTOR_SETUP_REQUIRED` + a short-lived `setupToken`;
+   * the operator must enroll before a session is issued. SSO logins are exempt
+   * (the second factor is delegated to the IdP).
+   */
+  require2fa: boolean;
   /** Fase 4/LGPD: soft-delete marker (physical purge is a future job). */
   deletedAt: Date | null;
   createdAt: Date;
@@ -259,6 +268,8 @@ export interface TenantProfile {
   slug: string;
   name: string;
   onboardingCompletedAt: Date | null;
+  /** Workspace 2FA policy; readable by every member, writable by ADMIN only. */
+  require2fa: boolean;
 }
 
 /* ==========================================================================

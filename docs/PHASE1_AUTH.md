@@ -60,6 +60,29 @@ Decisões:
 | GET | `/auth/2fa/recovery-codes/count` | JWT | `{ remaining }` (códigos ainda não usados) |
 | GET | `/auth/2fa/status` | JWT | `{ enabled }` |
 | POST | `/auth/2fa/challenge` | pública | troca o `challengeToken` (login) + código por `AuthResponse` |
+| POST | `/auth/2fa/enroll/setup` | pública (Bearer `setupToken`) | política de workspace `require_2fa`: `{ secret, otpauthUri }` para operador sem TOTP |
+| POST | `/auth/2fa/enroll/verify` | pública (Bearer `setupToken`) | valida TOTP, habilita o fator, devolve `AuthResponse + recoveryCodes` e emite a sessão |
+| GET/PATCH | `/tenants/me` | JWT (PATCH ADMIN) | projeção do workspace inclui `require2fa`; a mudança é auditada |
+
+### Política de 2FA por workspace (`require_2fa`)
+
+`tenants.require_2fa` (default `false`) é exposto como `require2fa` em
+`GET /tenants/me` e alterável apenas por ADMIN em `PATCH /tenants/me`. Quando
+ligada, o login **por senha** de um operador sem TOTP ativo responde
+`403 TWO_FACTOR_SETUP_REQUIRED` com `details.setupToken` (JWT de 15 min,
+audience `sac-2fa-setup`, claims `sub`/`agentId`/`tenantId`/`jti`); **nenhuma
+sessão é emitida**. O operador conclui `POST /auth/2fa/enroll/setup` (segredo +
+`otpauthUri`) e `POST /auth/2fa/enroll/verify` (código TOTP), que habilita o
+fator, devolve os 8 recovery codes, audita `auth.2fa.enrolled`
+(`method: 'enforced_login'`) e só então emite o `AuthResponse`. O `setupToken`
+é de uso único (o `jti` é queimado no Redis) e responde
+`401 SETUP_TOKEN_INVALID` / `SETUP_TOKEN_EXPIRED` / `INVALID_CODE`.
+
+**SSO é isento**: o segundo fator é delegado ao IdP; o fluxo OIDC chama
+`AgentService.issueSession` diretamente (nunca o login por senha), então a
+política não bloqueia quem entra pelo provedor corporativo.
+A alteração da política emite `tenant.2fa_policy_changed` com
+`metadata: { field: 'require2fa', before, after }`.
 
 ## Fluxos
 
@@ -89,6 +112,8 @@ Decisões:
   |---|---|---|---|
   | `POST /auth/login` | 10 tentativas / 15 min | e-mail + IP | `429 RATE_LIMITED` |
   | `POST /auth/2fa/challenge` | 5 tentativas / 15 min | `jti` do challenge **e** IP | `429 RATE_LIMITED` |
+  | `POST /auth/2fa/enroll/setup` | 10 tentativas / 15 min | IP | `429 RATE_LIMITED` |
+  | `POST /auth/2fa/enroll/verify` | 5 tentativas / 15 min | `jti` do setup token **e** IP | `429 RATE_LIMITED` |
   | `POST /auth/2fa/recovery-codes/regenerate` | 5 tentativas / 15 min | usuário (JWT) | `429 RATE_LIMITED` |
   | `POST /auth/forgot-password` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
   | `POST /auth/resend-verification` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
@@ -103,8 +128,9 @@ Decisões:
 - **Trilha `audit_events`** (append-only): `AuditService.record` é *best effort*
   (nunca lança, grava em background) e `AuditService.list` é paginado/filtrado
   por tenant. Ações emitidas: `auth.login.success|failure`, `auth.logout`,
-  `auth.password.reset_completed`, `auth.2fa.enabled|disabled`,
-  `auth.profile.updated`, `invitation.created|accepted|revoked|resent`,
+  `auth.password.reset_completed`, `auth.2fa.enabled|disabled|enrolled`,
+  `tenant.2fa_policy_changed`, `auth.profile.updated`,
+  `invitation.created|accepted|revoked|resent`,
   `admin.user.role_changed|activated|deactivated|sessions_revoked`,
   `tenant.sso.updated|deleted` e `billing.webhook.processed`.
   `metadata` é higienizado antes do insert (chaves de senha/token/segredo e

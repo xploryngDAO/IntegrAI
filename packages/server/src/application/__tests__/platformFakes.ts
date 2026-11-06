@@ -51,6 +51,7 @@ export function makeTenant(overrides: Partial<TenantRecord> = {}): TenantRecord 
     trialEndsAt: overrides.trialEndsAt ?? null,
     billingEmail: overrides.billingEmail ?? null,
     onboardingCompletedAt: overrides.onboardingCompletedAt ?? null,
+    require2fa: overrides.require2fa ?? false,
     deletedAt: overrides.deletedAt ?? null,
     createdAt: overrides.createdAt ?? at,
     updatedAt: overrides.updatedAt ?? at,
@@ -128,6 +129,7 @@ export class InMemoryTenantRepository implements ITenantRepository {
     if (input.onboardingCompletedAt !== undefined) {
       row.onboardingCompletedAt = input.onboardingCompletedAt;
     }
+    if (input.require2fa !== undefined) row.require2fa = input.require2fa;
     row.updatedAt = this.now();
     return row;
   }

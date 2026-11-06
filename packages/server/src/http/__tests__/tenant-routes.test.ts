@@ -24,6 +24,7 @@ const PROFILE = {
   slug: 'acme',
   name: 'Acme',
   onboardingCompletedAt: new Date('2026-11-05T12:00:00.000Z'),
+  require2fa: false,
 };
 
 describe('tenant self-service routes', () => {
@@ -33,11 +34,12 @@ describe('tenant self-service routes', () => {
 
   beforeAll(async () => {
     get = vi.fn(async () => PROFILE);
-    update = vi.fn(async (_tenantId: string, command: { name?: string; onboardingCompleted?: boolean }) => ({
+    update = vi.fn(async (_tenantId: string, command: { name?: string; onboardingCompleted?: boolean; require2fa?: boolean }) => ({
       ...PROFILE,
       name: command.name ?? PROFILE.name,
       onboardingCompletedAt:
         command.onboardingCompleted === false ? null : PROFILE.onboardingCompletedAt,
+      require2fa: command.require2fa ?? PROFILE.require2fa,
     }));
 
     const ctx = {
@@ -94,6 +96,7 @@ describe('tenant self-service routes', () => {
         slug: 'acme',
         name: 'Acme',
         onboardingCompletedAt: '2026-11-05T12:00:00.000Z',
+        require2fa: false,
       },
     });
     expect(get).toHaveBeenCalledWith('tenant-1');
@@ -119,10 +122,36 @@ describe('tenant self-service routes', () => {
     expect(response.json()).toMatchObject({
       data: { onboardingCompletedAt: '2026-11-05T12:00:00.000Z', name: 'Acme Omnichannel' },
     });
-    expect(update).toHaveBeenCalledWith('tenant-1', {
-      onboardingCompleted: true,
-      name: 'Acme Omnichannel',
+    expect(update).toHaveBeenCalledWith(
+      'tenant-1',
+      {
+        onboardingCompleted: true,
+        name: 'Acme Omnichannel',
+      },
+      expect.objectContaining({
+        id: 'agent-1',
+        email: 'admin@acme.test',
+        tenantId: 'tenant-1',
+        ip: '127.0.0.1',
+      }),
+    );
+  });
+
+  it('PATCH /tenants/me flips require2fa for an ADMIN and returns the new policy', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/tenants/me',
+      headers: { 'x-test-tenant': 'tenant-1', 'x-test-role': 'ADMIN' },
+      payload: { require2fa: true },
     });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { require2fa: true } });
+    expect(update).toHaveBeenCalledWith(
+      'tenant-1',
+      { require2fa: true },
+      expect.objectContaining({ id: 'agent-1', tenantId: 'tenant-1' }),
+    );
   });
 
   it('PATCH /tenants/me ignores a tenantId smuggled into the body (ADMIN)', async () => {

@@ -36,6 +36,11 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   // The short-lived challenge JWT in the body authenticates the second factor;
   // a full access token does not exist yet at this point.
   '/api/v1/auth/2fa/challenge',
+  // Enforced 2FA enrollment (workspace `require_2fa`): the Bearer `setupToken`
+  // issued by the blocked login authenticates both steps. Exact paths only, so
+  // `/auth/2fa/enroll/anything-else` stays authenticated.
+  '/api/v1/auth/2fa/enroll/setup',
+  '/api/v1/auth/2fa/enroll/verify',
   // Fase 5 - enterprise SSO (OpenID Connect). Exact paths only: no prefix match
   // means `/auth/sso/anything-else` stays authenticated (404 instead of public).
   // `discover`/`start` are called before any session exists, `callback` is the
@@ -64,7 +69,13 @@ export function isPublicRoute(method: string, url: string): boolean {
   return isPublicPath(stripQuery(url));
 }
 
-function extractBearerToken(header: string | string[] | undefined): string | null {
+/**
+ * Extracts the raw token from `Authorization: Bearer <token>`.
+ *
+ * Exported because the ENFORCED 2FA enrollment routes are public (the setup token
+ * is not an access token) yet must still read their credential from the header.
+ */
+export function extractBearerToken(header: string | string[] | undefined): string | null {
   const raw = Array.isArray(header) ? header[0] : header;
   if (typeof raw !== 'string') return null;
   const match = /^Bearer\s+(.+)$/i.exec(raw.trim());

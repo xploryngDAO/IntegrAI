@@ -1,13 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   CreateTenantInput,
+  IAuditService,
   IClock,
   ITenantRepository,
   TenantRecord,
   UpdateTenantInput,
 } from '@sac/shared';
-import { NotFoundError, ValidationError } from '@sac/shared';
+import { AUDIT_ACTIONS, NotFoundError, ValidationError } from '@sac/shared';
 
 import { TenantService } from '../TenantService';
 import { FrozenClock, silentLogger } from './accountFakes';
@@ -32,6 +33,7 @@ class InMemoryTenantRepository implements ITenantRepository {
       trialEndsAt: null,
       billingEmail: null,
       onboardingCompletedAt: input.onboardingCompletedAt ?? null,
+      require2fa: false,
       deletedAt: null,
       createdAt: at,
       updatedAt: at,
@@ -59,6 +61,7 @@ class InMemoryTenantRepository implements ITenantRepository {
     if (input.onboardingCompletedAt !== undefined) {
       row.onboardingCompletedAt = input.onboardingCompletedAt;
     }
+    if (input.require2fa !== undefined) row.require2fa = input.require2fa;
     row.updatedAt = this.clock.now();
     return row;
   }
@@ -92,6 +95,7 @@ describe('TenantService.get', () => {
       slug: 'acme',
       name: 'Acme Ltda',
       onboardingCompletedAt: new Date('2026-11-05T10:00:00.000Z'),
+      require2fa: false,
     });
   });
 
@@ -184,5 +188,69 @@ describe('TenantService.update', () => {
     const { service } = createHarness();
 
     await expect(service.update('missing', { name: 'X' })).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('flips the 2FA policy and audits before/after with the acting ADMIN', async () => {
+    const { clock, tenants } = createHarness();
+    const row = tenants.seed({ slug: 'acme' });
+    const record = vi.fn();
+    const service = new TenantService({
+      logger: silentLogger,
+      clock,
+      audit: { record } as unknown as IAuditService,
+      repos: { tenants },
+    });
+
+    const updated = await service.update(
+      row.id,
+      { require2fa: true },
+      {
+        id: 'agent-1',
+        email: 'admin@acme.test',
+        tenantId: row.id,
+        ip: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 (test)',
+      },
+    );
+
+    expect(updated.require2fa).toBe(true);
+    expect(tenants.rows[0]?.require2fa).toBe(true);
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_ACTIONS.tenant2faPolicyChanged,
+        tenantId: row.id,
+        actorId: 'agent-1',
+        actorEmail: 'admin@acme.test',
+        resourceType: 'tenant',
+        resourceId: row.id,
+        ip: '203.0.113.7',
+        metadata: { field: 'require2fa', before: false, after: true },
+      }),
+    );
+  });
+
+  it('does not audit when the policy value is unchanged', async () => {
+    const { clock, tenants } = createHarness();
+    const row = tenants.seed({ slug: 'acme' });
+    const record = vi.fn();
+    const service = new TenantService({
+      logger: silentLogger,
+      clock,
+      audit: { record } as unknown as IAuditService,
+      repos: { tenants },
+    });
+
+    await service.update(row.id, { require2fa: false }, { id: 'agent-1' });
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('applies name + require2fa in the same request', async () => {
+    const { tenants, service } = createHarness();
+    const row = tenants.seed({ slug: 'acme', name: 'Old' });
+
+    const updated = await service.update(row.id, { name: 'New', require2fa: true });
+
+    expect(updated).toMatchObject({ name: 'New', require2fa: true });
   });
 });

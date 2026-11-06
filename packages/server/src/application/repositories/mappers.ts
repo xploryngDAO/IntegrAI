@@ -324,6 +324,7 @@ export function mapTenant(record: Tenant): TenantRecord {
     trialEndsAt: record.trialEndsAt,
     billingEmail: record.billingEmail,
     onboardingCompletedAt: record.onboardingCompletedAt,
+    require2fa: record.require2fa,
     deletedAt: record.deletedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,

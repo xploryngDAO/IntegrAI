@@ -235,6 +235,7 @@ class InMemoryTenantRepository implements ITenantRepository {
       trialEndsAt: null,
       billingEmail: null,
       onboardingCompletedAt: null,
+      require2fa: false,
       deletedAt: null,
       createdAt: at,
       updatedAt: at,

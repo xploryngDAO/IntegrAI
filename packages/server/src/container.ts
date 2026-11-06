@@ -222,6 +222,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
   const tenants = new TenantService({
     logger: infra.logger,
     clock: infra.clock,
+    audit,
     repos: { tenants: infra.tenants },
   });
 

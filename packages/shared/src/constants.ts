@@ -60,6 +60,21 @@ export const CACHE_KEYS = {
   /** Last accepted TOTP time-step per operator (replay protection). */
   twoFactorTotpStep: (userId: string): string => `sac:auth:2fa:totp-step:${userId}`,
   /**
+   * Single-use marker for the ENFORCED 2FA enrollment JWT (`jti`, TTL until the
+   * token's own `exp`). Written by `/auth/2fa/enroll/verify` before the session is
+   * minted, so a captured setup token cannot be replayed.
+   */
+  twoFactorSetupUsed: (jti: string): string => `sac:auth:2fa:setup-used:${jti}`,
+  /** Enforced enrollment setup calls per client IP (10/15min). */
+  authTwoFactorEnrollSetupAttempts: (ip: string): string =>
+    `sac:auth:2fa:enroll:setup-attempts:${ip}`,
+  /** Enforced enrollment verify attempts per setup-token `jti` (5/15min). */
+  authTwoFactorEnrollJtiAttempts: (jti: string): string =>
+    `sac:auth:2fa:enroll:jti-attempts:${jti}`,
+  /** Enforced enrollment verify attempts per client IP (5/15min). */
+  authTwoFactorEnrollIpAttempts: (ip: string): string =>
+    `sac:auth:2fa:enroll:ip-attempts:${ip}`,
+  /**
    * Access-token denylist (P0): set by `POST /auth/logout` with the remaining
    * lifetime of the token and checked by `AgentService.verifyToken`. The `jti`
    * claim is a UUID minted by `signAccessToken`.

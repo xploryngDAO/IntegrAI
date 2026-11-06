@@ -37,6 +37,7 @@ const TENANT_LIST_SELECT = {
   trialEndsAt: true,
   billingEmail: true,
   onboardingCompletedAt: true,
+  require2fa: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -104,11 +105,16 @@ export class PrismaTenantRepository implements ITenantRepository, IPlatformTenan
   }
 
   async update(id: string, input: UpdateTenantInput): Promise<TenantRecord> {
-    const data: { name?: string; onboardingCompletedAt?: Date | null } = {};
+    const data: {
+      name?: string;
+      onboardingCompletedAt?: Date | null;
+      require2fa?: boolean;
+    } = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.onboardingCompletedAt !== undefined) {
       data.onboardingCompletedAt = input.onboardingCompletedAt;
     }
+    if (input.require2fa !== undefined) data.require2fa = input.require2fa;
 
     const record = await this.prisma.tenant.update({ where: { id }, data });
     return mapTenant(record);

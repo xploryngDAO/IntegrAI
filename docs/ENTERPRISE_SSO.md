@@ -325,3 +325,20 @@ rede real:
 - HTTP: allowlist exata, RBAC ADMIN, envelope sem segredo, `422` para
   `tenantId` no corpo, `302` de start/callback, redirect de erro pós-state e
   `400` para state inválido.
+
+---
+
+## 10. Isenção da política `require_2fa`
+
+A política de 2FA por workspace (`tenants.require_2fa`, exposta como `require2fa`
+em `GET/PATCH /tenants/me`) bloqueia apenas o login **por senha** de operadores
+sem TOTP ativo. O fluxo SSO é **isento**: o segundo fator é delegado ao IdP
+(Microsoft Entra ID, Google, Okta ou OIDC genérico) e o `SsoAuthService` prova a
+identidade no provedor e chama `AgentService.issueSession` diretamente, nunca
+`AgentService.login`.
+
+Consequência operacional: um workspace pode exigir 2FA para senha e, ao mesmo
+tempo, manter SSO para os membros que entram pelo IdP — não há dupla exigência
+nem bloqueio do callback. Se o IdP não oferece MFA, a garantia de segundo fator
+é do IdP, não do IntegrAI; nesse caso o ADMIN deve manter `require_2fa` ligado
+apenas se todos os membros também tiverem TOTP local ou se o IdP aplicar MFA.

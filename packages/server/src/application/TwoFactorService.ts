@@ -14,6 +14,8 @@ import type {
   ITwoFactorService,
   LoginSuccess,
   SessionDeviceInfo,
+  TwoFactorEnrollmentSetupResult,
+  TwoFactorEnrollmentVerifyResult,
   TwoFactorRecoveryCodeCountResult,
   TwoFactorRecoveryCodesResult,
   TwoFactorSetupResult,
@@ -45,6 +47,11 @@ import {
   TWO_FACTOR_CHALLENGE_TTL_SECONDS,
   verifyTwoFactorChallengeToken,
 } from './auth/two-factor-token';
+import {
+  TWO_FACTOR_SETUP_TTL_SECONDS,
+  verifyTwoFactorSetupToken,
+  type TwoFactorSetupClaims,
+} from './auth/two-factor-setup-token';
 
 /**
  * ============================================================================
@@ -65,6 +72,11 @@ import {
  *  - `challenge` redeems the short-lived JWT issued by login with a TOTP code or
  *               a one-time recovery code, then issues the normal session through
  *               `AgentService.issueSession` (same AuthResponse as login).
+ *  - `enrollSetup` / `enrollVerify` implement the ENFORCED enrollment triggered by
+ *               the workspace `require_2fa` policy: a short-lived setup JWT (Bearer)
+ *               replaces the session until TOTP is active. The token is burned
+ *               atomically before the factor is enabled; success audits
+ *               `auth.2fa.enrolled` (`method: 'enforced_login'`).
  *
  * Replay protection:
  *  - the last accepted TOTP time-step is cached per operator for 3 periods, so
@@ -162,6 +174,63 @@ export class TwoFactorService implements ITwoFactorService {
 
   async setup(userId: string): Promise<TwoFactorSetupResult> {
     const agent = await this.loadActiveAgent(userId);
+    return this.beginSetup(agent);
+  }
+
+  /**
+   * Enforced enrollment, step 1 (`POST /auth/2fa/enroll/setup`, public).
+   *
+   * The Bearer `setupToken` issued by a blocked login is the only credential.
+   * It is rate limited per IP BEFORE any database work, and never accepted from a
+   * body: only the dedicated enrollment routes read it from the header.
+   */
+  async enrollSetup(
+    setupToken: string,
+    device?: SessionDeviceInfo,
+  ): Promise<TwoFactorEnrollmentSetupResult> {
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.twoFactorEnrollSetup,
+      CACHE_KEYS.authTwoFactorEnrollSetupAttempts(normalizeIp(device?.ip)),
+    );
+
+    const claims = verifyTwoFactorSetupToken(setupToken, this.jwtSecret);
+    if (await this.setupTokenAlreadyUsed(claims.jti)) {
+      throw this.invalidSetupTokenError();
+    }
+    const agent = await this.loadSetupTokenAgent(claims);
+    const setup = await this.beginSetup(agent);
+
+    this.logger.info('auth.2fa.enroll_setup_started', {
+      userId: agent.id,
+      tenantId: agent.tenantId,
+    });
+    return { secret: setup.secret, otpauthUri: setup.otpauthUrl };
+  }
+
+  /**
+   * Enforced enrollment, step 2 (`POST /auth/2fa/enroll/verify`, public).
+   *
+   * Validates the setup token AND the TOTP code, burns the token `jti`, enables
+   * TOTP (8 recovery codes) and only then mints the session through
+   * `AgentService.issueSession` (same AuthResponse as login). Every failure has a
+   * stable code: `SETUP_TOKEN_INVALID` / `SETUP_TOKEN_EXPIRED` / `INVALID_CODE`.
+   */
+  async enrollVerify(
+    setupToken: string,
+    code: string,
+    device?: SessionDeviceInfo,
+  ): Promise<TwoFactorEnrollmentVerifyResult> {
+    const claims = verifyTwoFactorSetupToken(setupToken, this.jwtSecret);
+
+    // Charge both buckets before the account lookup / code check; a burned token
+    // still consumes the IP window so replaying it is not free.
+    const attempts = await this.registerEnrollmentAttempt(claims.jti, device?.ip);
+
+    if (await this.setupTokenAlreadyUsed(claims.jti)) {
+      throw this.invalidSetupTokenError();
+    }
+
+    const agent = await this.loadSetupTokenAgent(claims);
     if (agent.twoFactorEnabled) {
       throw new AppError(
         'TWO_FACTOR_ALREADY_ENABLED',
@@ -170,19 +239,62 @@ export class TwoFactorService implements ITwoFactorService {
       );
     }
 
-    const secret = generateTotpSecret();
-    const secretEnc = this.cipher.encrypt(secret);
-    await this.twoFactor.setPendingSecret(agent.id, secretEnc);
+    let recoveryCodes: string[];
+    try {
+      await this.requireValidPendingCode(agent, code, () => {
+        this.logger.warn('auth.2fa.enroll_failed', {
+          userId: agent.id,
+          attemptsUsed: Math.max(...attempts.map((decision) => decision.used)),
+          attemptsLimit: Math.min(...attempts.map((decision) => decision.policy.limit)),
+        });
+        return new AppError('INVALID_CODE', 'Invalid two-factor code', 401);
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'INVALID_CODE') {
+        // Window spent: burn the setup token so a later correct code cannot
+        // redeem it from any address. A fresh login is required.
+        if (attempts.some((decision) => decision.remaining <= 0)) {
+          await this.burnSetupToken(claims.jti, claims.expiresAt);
+        }
+        this.audit?.record({
+          action: AUDIT_ACTIONS.loginFailure,
+          tenantId: agent.tenantId ?? null,
+          actorId: agent.id,
+          actorEmail: agent.email,
+          ip: device?.ip ?? null,
+          userAgent: device?.userAgent ?? null,
+          metadata: { reason: 'invalid_enrollment_code', twoFactor: true },
+        });
+      }
+      throw error;
+    }
 
-    this.logger.info('auth.2fa.setup_started', { userId: agent.id });
-    return {
-      secret,
-      otpauthUrl: buildOtpAuthUrl({
-        issuer: TWO_FACTOR_ISSUER,
-        accountName: agent.email,
-        secret,
-      }),
-    };
+    // Single-use: claim the jti BEFORE enabling the factor. Two concurrent
+    // requests carrying the same token cannot both enroll/session-mint.
+    const burned = await this.burnSetupToken(claims.jti, claims.expiresAt);
+    if (!burned) throw this.invalidSetupTokenError();
+
+    recoveryCodes = await this.enableTotp(agent);
+
+    this.logger.info('auth.2fa.enrolled', {
+      userId: agent.id,
+      tenantId: agent.tenantId,
+      method: 'enforced_login',
+    });
+    this.audit?.record({
+      action: AUDIT_ACTIONS.twoFactorEnrolled,
+      tenantId: agent.tenantId ?? null,
+      actorId: agent.id,
+      actorEmail: agent.email,
+      resourceType: 'user',
+      resourceId: agent.id,
+      ip: device?.ip ?? null,
+      userAgent: device?.userAgent ?? null,
+      metadata: { method: 'enforced_login', recoveryCodes: recoveryCodes.length },
+    });
+
+    const session = await this.agentsService.issueSession(agent.id, device);
+    return { session, recoveryCodes };
   }
 
   async verify(userId: string, code: string): Promise<TwoFactorVerifyResult> {
@@ -194,25 +306,11 @@ export class TwoFactorService implements ITwoFactorService {
         409,
       );
     }
-    if (agent.twoFactorSecretEnc === null) {
-      throw this.setupRequiredError();
-    }
 
-    const secret = this.decryptSecret(agent);
-    const matched = matchedTotpStep(secret, code, this.clock.now(), {
-      window: TOTP_WINDOW,
-    });
-    if (matched === null) {
+    const recoveryCodes = await this.enablePendingTotp(agent, code, () => {
       this.logger.warn('auth.2fa.verify_failed', { userId: agent.id });
-      throw new AppError('INVALID_TOTP', 'Invalid two-factor code', 400);
-    }
-
-    const recoveryCodes = generateRecoveryCodes();
-    await this.twoFactor.enable(
-      agent.id,
-      recoveryCodes.map((recoveryCode) => hashRecoveryCode(recoveryCode)),
-    );
-
+      return new AppError('INVALID_TOTP', 'Invalid two-factor code', 400);
+    });
     this.logger.info('auth.2fa.enabled', { userId: agent.id });
     this.audit?.record({
       action: AUDIT_ACTIONS.twoFactorEnabled,
@@ -440,6 +538,149 @@ export class TwoFactorService implements ITwoFactorService {
     return agent;
   }
 
+  /** Generates a fresh pending secret for an operator that has no TOTP yet. */
+  private async beginSetup(agent: AgentRecord): Promise<TwoFactorSetupResult> {
+    if (agent.twoFactorEnabled) {
+      throw new AppError(
+        'TWO_FACTOR_ALREADY_ENABLED',
+        'Two-factor authentication is already enabled',
+        409,
+      );
+    }
+
+    const secret = generateTotpSecret();
+    const secretEnc = this.cipher.encrypt(secret);
+    await this.twoFactor.setPendingSecret(agent.id, secretEnc);
+
+    this.logger.info('auth.2fa.setup_started', { userId: agent.id });
+    return {
+      secret,
+      otpauthUrl: buildOtpAuthUrl({
+        issuer: TWO_FACTOR_ISSUER,
+        accountName: agent.email,
+        secret,
+      }),
+    };
+  }
+
+  /**
+   * Shared by self-service `verify` and enforced `enrollVerify`: validates the
+   * pending secret against a TOTP code WITHOUT enabling the factor.
+   */
+  private async requireValidPendingCode(
+    agent: AgentRecord,
+    code: string,
+    invalidCodeError: () => AppError,
+  ): Promise<void> {
+    if (agent.twoFactorSecretEnc === null) {
+      throw this.setupRequiredError();
+    }
+
+    const secret = this.decryptSecret(agent);
+    const matched = matchedTotpStep(secret, (code ?? '').trim(), this.clock.now(), {
+      window: TOTP_WINDOW,
+    });
+    if (matched === null) throw invalidCodeError();
+  }
+
+  /** Enables TOTP and returns the 8 plaintext recovery codes exactly once. */
+  private async enableTotp(agent: AgentRecord): Promise<string[]> {
+    const recoveryCodes = generateRecoveryCodes();
+    await this.twoFactor.enable(
+      agent.id,
+      recoveryCodes.map((recoveryCode) => hashRecoveryCode(recoveryCode)),
+    );
+    return recoveryCodes;
+  }
+
+  /**
+   * Self-service enrollment: validate the pending secret and enable the factor.
+   * The enforced flow (`enrollVerify`) uses the two steps separately so the
+   * setup token is burned BEFORE the factor is enabled.
+   */
+  private async enablePendingTotp(
+    agent: AgentRecord,
+    code: string,
+    invalidCodeError: () => AppError,
+  ): Promise<string[]> {
+    await this.requireValidPendingCode(agent, code, invalidCodeError);
+    return this.enableTotp(agent);
+  }
+
+  /**
+   * Resolves the operator behind a setup token. The token tenant must still match
+   * the operator row (defence in depth against a token issued before a workspace
+   * move) and the account must be active; every mismatch is a stable 401 so the
+   * caller cannot probe account state.
+   */
+  private async loadSetupTokenAgent(claims: TwoFactorSetupClaims): Promise<AgentRecord> {
+    const agent = await this.agents.findById(claims.agentId);
+    if (
+      agent === null ||
+      !agent.isActive ||
+      (agent.tenantId ?? null) !== claims.tenantId
+    ) {
+      throw this.invalidSetupTokenError();
+    }
+    return agent;
+  }
+
+  /** Enrollment verify: one attempt on the jti bucket AND on the IP bucket. */
+  private async registerEnrollmentAttempt(
+    jti: string,
+    ip?: string | null,
+  ): Promise<AuthRateLimitDecision[]> {
+    const targets: AuthRateLimitTarget[] = [
+      {
+        policy: AUTH_RATE_LIMITS.twoFactorEnrollVerify,
+        key: CACHE_KEYS.authTwoFactorEnrollJtiAttempts(jti),
+      },
+    ];
+
+    const normalizedIp = (ip ?? '').trim();
+    if (normalizedIp.length > 0) {
+      targets.push({
+        policy: AUTH_RATE_LIMITS.twoFactorEnrollVerifyIp,
+        key: CACHE_KEYS.authTwoFactorEnrollIpAttempts(normalizedIp),
+      });
+    }
+
+    return this.rateLimiter.consumeAll(targets);
+  }
+
+  private async setupTokenAlreadyUsed(jti: string): Promise<boolean> {
+    try {
+      return await this.cache.exists(CACHE_KEYS.twoFactorSetupUsed(jti));
+    } catch (error) {
+      this.logger.warn('auth.2fa.setup_token_guard_unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Marks the setup token as spent. Best effort by contract (a Redis outage must
+   * not lock an operator out of enrollment), while the normal path is an atomic
+   * `SET NX` that makes concurrent redemption impossible.
+   */
+  private async burnSetupToken(jti: string, expiresAt: number): Promise<boolean> {
+    const nowSeconds = Math.floor(this.clock.now().getTime() / 1000);
+    const ttl = expiresAt > 0 ? expiresAt - nowSeconds : TWO_FACTOR_SETUP_TTL_SECONDS;
+    try {
+      return await this.cache.setNx(
+        CACHE_KEYS.twoFactorSetupUsed(jti),
+        '1',
+        Math.max(1, ttl),
+      );
+    } catch (error) {
+      this.logger.warn('auth.2fa.setup_token_burn_unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return true;
+    }
+  }
+
   private async safePasswordCompare(password: string, passwordHash: string): Promise<boolean> {
     try {
       // Always run bcrypt (even for an empty password) so the timing does not
@@ -579,4 +820,18 @@ export class TwoFactorService implements ITwoFactorService {
       401,
     );
   }
+
+  private invalidSetupTokenError(): AppError {
+    return new AppError(
+      'SETUP_TOKEN_INVALID',
+      'Two-factor setup token is invalid or has expired',
+      401,
+    );
+  }
+}
+
+/** Missing client address (unit harness / internal replay) gets its own bucket. */
+function normalizeIp(value?: string | null): string {
+  const ip = (value ?? '').trim();
+  return ip.length > 0 ? ip : 'unknown';
 }

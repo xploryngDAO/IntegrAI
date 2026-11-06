@@ -1,4 +1,5 @@
 import type { HttpRouteContext, RouteHandler } from '../types';
+import type { FastifyRequest } from 'fastify';
 import {
   deleteTenantBodySchema,
   parseInput,
@@ -12,6 +13,12 @@ export interface TenantControllers {
   update: RouteHandler;
   exportData: RouteHandler;
   remove: RouteHandler;
+}
+
+/** Raw `User-Agent` for the audit trail of the 2FA policy change. */
+function userAgentOf(request: FastifyRequest): string | null {
+  const header = request.headers['user-agent'];
+  return typeof header === 'string' ? header : null;
 }
 
 /** `Content-Disposition` filename must stay ASCII and quote-safe. */
@@ -33,17 +40,30 @@ export function createTenantControllers(ctx: HttpRouteContext): TenantController
   const { services } = ctx;
 
   return {
-    /** `GET /tenants/me` - id, slug, name, onboardingCompletedAt. */
+    /** `GET /tenants/me` - id, slug, name, onboardingCompletedAt, require2fa. */
     async get(request) {
       const tenantId = requireTenantId(request);
       return ok(await services.tenants.get(tenantId));
     },
 
-    /** `PATCH /tenants/me` (ADMIN) - rename and/or complete the onboarding. */
+    /**
+     * `PATCH /tenants/me` (ADMIN) - rename, complete the onboarding and/or flip
+     * the workspace 2FA policy. The actor is forwarded for the
+     * `tenant.2fa_policy_changed` audit row (before/after).
+     */
     async update(request) {
       const tenantId = requireTenantId(request);
+      const actor = requireAgent(request);
       const body = parseInput(updateTenantBodySchema, request.body, 'body');
-      return ok(await services.tenants.update(tenantId, body));
+      return ok(
+        await services.tenants.update(tenantId, body, {
+          id: actor.id,
+          email: actor.email,
+          tenantId,
+          ip: request.ip,
+          userAgent: userAgentOf(request),
+        }),
+      );
     },
 
     /**
