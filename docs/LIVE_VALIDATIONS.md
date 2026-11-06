@@ -404,3 +404,13 @@ API reiniciada com MAINTENANCE_MODE=true; login pela UI publicada (390px)
 -> erro inline mostra HTTP 503 com a mensagem de manutencao (sem tela branca)
 Screenshot: screenshots/production-maintenance.png; API restaurada normal depois (login 200)
 ```
+
+### 38. Convite de operador pela UI publicada
+```
+workspace temporario via API (signup+verify+login)
+/admin (UI publicada): "Convidar" -> dialogo -> "Enviar convite"
+e-mail real (Mailpit) -> https://integrai-dev.vercel.app/invite?token=...
+aceite pela pagina -> sessao criada -> /auth/me role=AGENT
+soft delete (202) + purge (200); 0 residuos; sem erros de runtime
+11/11 (npm run test:live-invite-ui)
+```
