@@ -478,6 +478,20 @@ function transportError(error: unknown): ApiClientError {
  */
 let refreshInFlight: Promise<boolean> | null = null;
 
+/** Unauthenticated auth flows: a 401 there must surface, never refresh. */
+const NO_REFRESH_PATHS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/2fa',
+  '/auth/sso',
+  '/auth/verify-email',
+  '/auth/accept-invitation',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/logout',
+  '/auth/invitations',
+] as const;
+
 async function rotateSession(): Promise<boolean> {
   if (refreshToken === null) return false;
   if (refreshInFlight !== null) return refreshInFlight;
@@ -552,13 +566,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
 
     // Access token expired mid-session: rotate the refresh token once and
-    // replay the request. Auth endpoints are excluded so a wrong password (401)
-    // never triggers a silent refresh loop.
+    // replay the request. Only the unauthenticated auth flows are excluded so a
+    // wrong password (401) never triggers a silent refresh loop; protected
+    // routes such as `/auth/me` DO refresh.
     if (
       response.status === 401 &&
       authToken !== null &&
       options.bearerToken === undefined &&
-      !path.startsWith('/auth/')
+      !NO_REFRESH_PATHS.some((prefix) => path.startsWith(prefix))
     ) {
       const rotated = await rotateSession();
       if (!rotated) {
