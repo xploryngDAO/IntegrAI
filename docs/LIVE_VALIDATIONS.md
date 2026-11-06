@@ -732,3 +732,10 @@ FAIL esperado: signup/convite/reset UI -> o link do e-mail usa WEB_ORIGIN (Verce
 Conclusao: o fallback Pages e funcional (login, 2FA, SSO, a11y, API); links de e-mail
 continuam apontando para a URL primaria, o que e o comportamento desejado.
 ```
+
+### 80. Bateria 15/15 apos correcoes do CodeQL (API reiniciada)
+```
+build:server -> API reiniciada com query/Bearer corrigidos
+live-all --reset-login-limit -> 15/15 etapas OK em 267s
+READY=ready; login/Bearer usados em todas as etapas (validacao indireta do parser)
+```
