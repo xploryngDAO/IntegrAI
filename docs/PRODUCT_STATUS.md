@@ -120,3 +120,7 @@ ode scripts/a11y-audit.mjs, também via dev server local). Corrigidos contraste,
 ## Go-live
 
 Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação e validação final): [GO_LIVE.md](GO_LIVE.md).
+
+## Operação
+
+[RUNBOOK.md](RUNBOOK.md) cobre o dia a dia do stack self-hosted: comandos, segredos/rotação, saúde/monitoramento, backup/restore, upgrade/rollback, incidentes LGPD e falhas comuns.
