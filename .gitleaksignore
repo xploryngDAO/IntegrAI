@@ -15,3 +15,6 @@ f71dc8e13011f6325a4b57df4530a690eb23bfa6:packages/server/src/application/__tests
 f80636b5b063087d51e7048db5cc9449359d5466:.env.example:generic-api-key:29
 f80636b5b063087d51e7048db5cc9449359d5466:packages/server/src/config/env.schema.ts:generic-api-key:13
 f80636b5b063087d51e7048db5cc9449359d5466:packages/server/src/http/controllers/message.controller.ts:generic-api-key:76
+
+6f025e4efa5f2d1584090c6d2ca630d019d1b7bd:docs/LIVE_VALIDATIONS.md:generic-api-key:593
+6f025e4efa5f2d1584090c6d2ca630d019d1b7bd:docs/LIVE_VALIDATIONS.md:generic-api-key:594
