@@ -272,3 +272,16 @@ a11y-audit http://127.0.0.1:4173 -> 0 violacoes (landing, login, admin, profile,
 verify-live http://127.0.0.1:4173 -> landing/login/sessao persistida/profile/admin/logout OK
 ```
 Feito enquanto a cota free da Vercel bloqueava o deploy (100/24h).
+
+### 24. Signup publico -> verificacao -> convite -> aceite (fluxo real)
+```
+POST /auth/signup (empresa nova) -> 201 + tenantId
+e-mail de verificacao (Mailpit) -> token -> POST /auth/verify-email -> 200
+login do novo ADMIN -> 200
+POST /invitations (AGENT) -> 201
+e-mail de convite (Mailpit) -> token -> POST /auth/accept-invitation -> 200
+login do convidado -> 200; /auth/me role=AGENT; /tenants/me mesmo slug
+DELETE /tenants/me (password+confirmSlug) -> 202
+POST /platform/tenants/:id/purge -> 200; 0 residuos no banco
+14/14 verificacoes passaram (npm run test:live-signup)
+```
