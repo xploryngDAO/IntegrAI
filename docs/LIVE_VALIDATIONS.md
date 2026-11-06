@@ -252,3 +252,14 @@ corromper access token + reload -> 401 /auth/me
 corromper access E refresh + reload
   -> refresh falha -> sessao local encerrada -> /login, tokens = null
 ```
+
+### 22. Request-id, readiness e metrics (API real)
+```
+GET /api/v1/health/ready -> 200 status=ready checks db/redis/storage = ok
+GET /api/v1/metrics (sem token) -> 401
+GET /api/v1/metrics (Bearer METRICS_TOKEN) -> 200 text/plain; version=0.0.4
+  sac_http_requests_total{...} / histogram / sac_process_uptime_seconds presentes
+GET /api/v1/tenants/me com x-request-id: probe-req_12345 (sem JWT)
+  -> 401, header x-request-id ecoado e error.requestId = probe-req_12345
+validate:live -> 11/11
+```
