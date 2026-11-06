@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@sac/shared": "1.0.0",
-    "@xploryng/convergencia": "https://github.com/xploryngDAO/convergencia-design-system/releases/download/v0.1.0/xploryng-convergencia-0.1.0.tgz",
+    "@xploryng/convergencia": "file:../../vendor/xploryng-convergencia-0.1.0.tgz",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.469.0",

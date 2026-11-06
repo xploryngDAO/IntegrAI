@@ -215,3 +215,9 @@ assinatura do webhook da Shopee.
 | `shopee.shop_info: error_sign` | `partner_key` errado ou base URL sandbox/prod trocada | confira `SHOPEE_PARTNER_KEY` e `SHOPEE_API_BASE` |
 | Webhook 401 Shopee | assinatura sobre URL/rawBody | use a URL pública exata do `APP_BASE_URL` e preserve o corpo bruto |
 | Webhook Meli desativado | resposta > 500 ms | o sistema responde imediato; verifique proxy/fila |
+
+## Design system vendorizado
+
+O pacote @xploryng/convergencia é consumido de endor/xploryng-convergencia-0.1.0.tgz (verificado por sha512 no package-lock.json). O asset do GitHub Release deixou de responder 404 em instalações limpas, o que quebrava 
+pm ci, o build Docker e deploys sem cache. Para atualizar: 
+pm pack --ignore-scripts node_modules/@xploryng/convergencia --pack-destination vendor e ajustar a versão em pps/web/package.json.
