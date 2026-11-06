@@ -94,6 +94,7 @@ Defina MAINTENANCE_MODE=true no ambiente da API e reinicie: todas as rotas /api/
 
 | Sintoma | Causa provável | Ação |
 |---|---|---|
+| login 429 em massa | rate limit de tentativas (por e-mail+IP) após testes/ataque | aguardar a janela ou limpar no Redis de dev: `redis-cli --scan --pattern 'sac:auth:login:attempts:*'` + `DEL`; em produção investigue a origem antes de limpar |
 | `api` unhealthy | DB/Redis indisponível ou segredo de produção inválido | `logs api`; validar `DATABASE_URL`, `REDIS_URL`, segredos |
 | web 502 | API não saudável | `ps`, `logs api`, `health/ready` |
 | porta em uso | conflito com outro serviço | ajustar `API_HOST_PORT`/`WEB_HOST_PORT`/`POSTGRES_HOST_PORT` |
