@@ -110,3 +110,14 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
 - `nodeVersion` fixado em **22.x** (LTS) via API, alinhado ao CI/local; antes
   estava em 26.x (não-LTS).
 - Runtime-config continua sendo a fonte da API em boot; o deploy só muda o bundle.
+
+## Auditoria de infraestrutura (2026-11-06)
+
+- Conta Hostinger: 1 plano **Premium compartilhado** (`personia.me`), **0 VPS**;
+  domínios ativos `personia.me`, `frequency.space`, `canvaslabs.studio`, `canvaslabs.com.br`.
+- O compartilhado não serve para a API: ela exige **PostgreSQL 16 + Redis 7**
+  (o plano oferece MySQL) — subdomínio só é útil depois de existir host/DB.
+- Caminhos para #2: (a) VPS 2 vCPU/4 GB + `deploy/` (API+Postgres+Redis+Caddy);
+  (b) gerenciados (Postgres/Redis + host Node) com `DATABASE_URL`/`REDIS_URL`;
+  (c) túnel atual como transitório.
+- Nenhuma compra/DNS foi alterada. Detalhes no comentário da issue #2.
