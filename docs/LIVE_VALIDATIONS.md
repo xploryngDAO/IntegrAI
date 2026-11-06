@@ -560,3 +560,12 @@ a11y (producao)   -> 10/10 telas, 0 violacoes
 Nota: a bateria dispara muitos logins do mesmo e-mail/IP; se aparecer 429, limpar
 sac:auth:login:attempts:* no Redis (RUNBOOK) e repetir. Nao e falha do produto.
 ```
+
+### 55. 2FA TOTP ativado pela UI e login com codigo
+```
+workspace temporario (signup+verify) -> /settings -> "Ativar 2FA" -> chave TOTP exibida
+codigo TOTP (calculado do secret) -> "Confirmar e ativar" -> 2FA ativo
+logout -> login pede codigo -> codigo TOTP -> sessao criada
+cleanup: soft delete 202 + purge 200; 0 residuos; sem erros de runtime
+9/9 (npm run test:live-2fa-ui)
+```
