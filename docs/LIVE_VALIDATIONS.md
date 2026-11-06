@@ -604,3 +604,12 @@ Alias:      https://integrai-dev.vercel.app (bundle assets/index-Bu0J8DDm.js)
 Lighthouse: Performance 100 · A11y 100 · Best-practices 100 · SEO 100
 errors-in-console: 0 itens (sem 401 anonimo); a11y axe: 10/10 telas; verify-live exit 0
 ```
+
+### 61. Bateria pos-deploy do bundle index-Bu0J8DDm
+```
+node scripts/live-all.mjs --reset-login-limit -> 13/13 etapas OK em 217s
+  (verify, validate 11, isolation 14, probe 18, 2FA policy 13, socket 5, 2FA API 13,
+   signup+convite API 26, signup UI 10, convite UI 11, reset UI 10, 2FA UI 9, a11y 10)
+a11y dark na producao (--dark) -> 10/10 telas, 0 violacoes
+Lighthouse (rodada anterior) -> 100/100/100/100
+```
