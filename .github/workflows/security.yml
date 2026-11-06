@@ -126,6 +126,9 @@ jobs:
       - name: Accessibility audit (WCAG AA)
         run: node scripts/a11y-audit.mjs http://127.0.0.1:4173 admin@integr-ai.local 'IntegrAI-CI-2026!'
 
+      - name: Accessibility audit (WCAG AA, dark theme)
+        run: node scripts/a11y-audit.mjs http://127.0.0.1:4173 admin@integr-ai.local 'IntegrAI-CI-2026!' --dark
+
       - name: Web log on failure
         if: failure()
         run: tail -n 100 web.log || true

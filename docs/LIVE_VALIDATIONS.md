@@ -498,3 +498,9 @@ Tema escuro (data-theme=dark) em landing/login/status: body rgb(24,32,57) e text
 (antes o body ficava no token claro; DS escopa dark em .cv-root)
 axe WCAG AA no dark: 0 violacoes; screenshot screenshots/dark-landing-1440.png
 ```
+
+#### 48.1 Dark mode automatizado no CI
+```
+node scripts/a11y-audit.mjs <url> --dark  -> 10/10 telas, 0 violacoes
+CI (security.yml) roda a auditoria no tema claro e no escuro a cada push
+```

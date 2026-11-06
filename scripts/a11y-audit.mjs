@@ -1,13 +1,18 @@
 /**
  * Auditoria de acessibilidade (WCAG 2.1 A/AA) com axe-core em navegador limpo.
- * Uso: node scripts/a11y-audit.mjs [url] [email] [password]
+ * Uso: node scripts/a11y-audit.mjs [url] [email] [password] [--dark]
+ *
+ * `--dark` fixa o tema escuro (`sac.hub.theme=dark`) antes do primeiro render,
+ * cobrindo o segundo tema nas mesmas telas.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
-const URL = (process.argv[2] ?? 'https://integrai-dev.vercel.app').replace(/\/$/, '');
-const EMAIL = process.argv[3] ?? 'admin@integr-ai.local';
-const PASSWORD = process.argv[4] ?? 'IntegrAI-Prod-2026!';
+const ARGS = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+const DARK = process.argv.includes('--dark');
+const URL = (ARGS[0] ?? 'https://integrai-dev.vercel.app').replace(/\/$/, '');
+const EMAIL = ARGS[1] ?? 'admin@integr-ai.local';
+const PASSWORD = ARGS[2] ?? 'IntegrAI-Prod-2026!';
 const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
 
 const BROWSERS = [
@@ -36,12 +41,21 @@ async function audit(page, name) {
     nodes: violation.nodes.slice(0, 4).map((node) => node.target.join(' ')),
     count: violation.nodes.length,
   }));
-  return { name, violations };
+  return { name: DARK ? `${name}-dark` : name, violations };
 }
 
 const browser = await puppeteer.launch({ executablePath, headless: 'new', args: ['--no-sandbox'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900 });
+if (DARK) {
+  await page.evaluateOnNewDocument(() => {
+    try {
+      window.localStorage.setItem('sac.hub.theme', 'dark');
+    } catch {
+      /* storage unavailable in private mode: audit runs in the default theme */
+    }
+  });
+}
 
 const reports = [];
 await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60_000 });
