@@ -297,3 +297,81 @@ conta inexistente.
 npm run doctor            # infra + todas as contas; exit 1 se algum check falhar
 npm run doctor -- --account=<uuid>
 ``
+---
+
+## 12. Superfícies corporativas (2026-11)
+
+### Cabeçalhos e correlação
+
+- `x-request-id` (opcional no request; `[A-Za-z0-9._-]{8,128}`): o servidor devolve o
+  mesmo valor em toda resposta; valores inválidos são substituídos por UUID.
+- Erros incluem `error.requestId` (campo aditivo) com o mesmo id do header.
+- Autenticação: `Authorization: Bearer <JWT>` exceto rotas públicas listadas abaixo.
+
+### Observabilidade
+
+- `GET /health` → liveness (`{status, services}`).
+- `GET /health/ready` (e `/api/v1/health/ready`) → `{status:'ready'|'degraded', checks:{database,redis,storage}, errors?, requestId}`; 503 quando degradado.
+- `GET /api/v1/metrics` → Prometheus `text/plain; version=0.0.4`; exige `METRICS_TOKEN`
+  (`Authorization: Bearer` ou `x-metrics-token`); 404 quando o token não está configurado, 401 caso contrário.
+- `GET /status` (público) → status agregado para a página pública.
+
+### Autenticação em duas etapas
+
+- `GET /auth/2fa/status` → `{enabled, recoveryCodesRemaining}`.
+- `POST /auth/2fa/setup` → `{secret, otpauthUri}`; `POST /auth/2fa/verify` `{code}` → `{recoveryCodes}`.
+- `POST /auth/2fa/disable` `{password, code}`; `POST /auth/2fa/recovery-codes/regenerate` `{password}` → novos códigos.
+- Política do workspace: `GET/PATCH /tenants/me` (`require2fa: boolean`, ADMIN). Com a política ativa,
+  login por senha sem TOTP responde **403 `TWO_FACTOR_SETUP_REQUIRED`** + `details.setupToken` (JWT 15 min).
+- `POST /auth/2fa/enroll/setup` e `POST /auth/2fa/enroll/verify` (Bearer setupToken) habilitam o TOTP
+  e devolvem `AuthResponse + recoveryCodes` (setup token single-use).
+- Login com TOTP ativo responde **401 `TWO_FACTOR_REQUIRED`** + `challengeToken`; concluir em
+  `POST /auth/2fa/challenge` `{challengeToken, code}` → `AuthResponse`.
+
+### Sessões do operador
+
+- `GET /auth/sessions` → `{items:[{id,createdAt,lastUsedAt,userAgent,ip,current}]}`.
+- `DELETE /auth/sessions/:id` → 204 (sessão atual = logout).
+- `POST /auth/sessions/revoke-others` → `{revoked}`.
+- `POST /auth/logout` `{refreshToken?}` → 204; sem refreshToken = encerra todas as sessões (watermark).
+- `PATCH /auth/me` `{name}` → agente atualizado.
+
+### Administração (ADMIN do workspace)
+
+- `GET /admin/overview` → métricas agregadas (usuários, sessões, convites, contas por canal, tickets, auditoria 24h).
+- `GET /admin/users?search=&role=&status=&page=&perPage=` → `{items,total,page,perPage}`;
+  `status` = `ACTIVE|INACTIVE`; `perPage` ≤ 100.
+- `GET /admin/users/export.csv` → CSV com os mesmos filtros (auditado).
+- `PATCH /admin/users/:id` `{role?, isActive?}` → 409 `CANNOT_MODIFY_SELF`, 409 `LAST_ADMIN_PROTECTED`.
+- `POST /admin/users/:id/revoke-sessions` → `{revoked}`; 409 `CANNOT_REVOKE_OWN_SESSIONS`.
+- `POST /admin/users/:id/reset-2fa` → `{id,twoFactorEnabled:false}`; 409 `CANNOT_RESET_OWN_2FA`/`TWO_FACTOR_NOT_ENABLED`.
+- `GET /admin/invitations` → `{items:[{id,email,role,createdAt,expiresAt,acceptedAt,status}],total}`.
+- `DELETE /admin/invitations/:id` → 204; 409 `INVITATION_ALREADY_ACCEPTED`.
+- `POST /admin/invitations/:id/resend` → `{id,email,role,expiresAt,status}`; 502 `EMAIL_SEND_FAILED`.
+- `GET /admin/sessions?page=&perPage=` → sessões ativas com `current`; `DELETE /admin/sessions/:id` → 204
+  (409 `CANNOT_REVOKE_CURRENT_SESSION`).
+- `GET /admin/audit-logs?action=&actorId=&from=&to=&page=&perPage=` → `{items,page,perPage,total}`.
+- `GET /admin/audit-logs/export.csv` → CSV auditado (`admin.audit.exported`).
+
+### SSO corporativo (OIDC)
+
+- `GET/PUT/DELETE /tenants/me/sso` (ADMIN): conexão por tenant sem retornar segredo
+  (`clientSecretConfigured`).
+- `GET /auth/sso/discover?email=`; `GET /auth/sso/start` (302 ao IdP);
+  `GET /auth/sso/callback` (302 ao SPA com `code` one-time); `POST /auth/sso/exchange` → `AuthResponse`.
+- Erros: `SSO_NOT_CONFIGURED`, `SSO_STATE_INVALID`, `SSO_TOKEN_INVALID`, `SSO_EMAIL_UNVERIFIED`,
+  `SSO_DOMAIN_NOT_ALLOWED`, `SSO_REQUIRED`, `INVALID_SSO_CODE`, etc.
+
+### Integrações e billing
+
+- `GET /platform/integration-setup?marketplace=` (platform admin) → guia de apps por canal
+  (valores copiáveis, `missing`, `webhookSecretEnv`, sem segredos).
+- `POST /api/v1/billing/webhook` (público, HMAC `x-billing-signature`) → processa eventos do gateway.
+- Rotas de plataforma (`/platform/*`), LGPD (`/tenants/me/export`, `DELETE /tenants/me`, purge/restore/backup)
+  exigem ADMIN/platform admin conforme o caso.
+
+### Rate limits e segurança
+
+- Login/2FA/SSO/enrollment têm buckets por IP/e-mail; `/health*`, `/status`, `/metrics` são isentos do limite global.
+- `401` = não autenticado/expirado (renove via `POST /auth/refresh`); `403` = autenticado sem permissão;
+  `429` = rate limit com `details.retryAfterMs` e header `Retry-After`.
