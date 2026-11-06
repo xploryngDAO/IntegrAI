@@ -4,24 +4,25 @@ import type { HttpRouteContext, RouteHandler } from '../types';
 import { parseInput, signedUrlQuerySchema } from '../schemas';
 import { ok } from '../responses';
 import {
-  ALLOWED_UPLOAD_MIME_TYPES,
   ATTACHMENTS_KEY_PREFIX,
   DEFAULT_MAX_UPLOAD_BYTES,
   SIGNED_URL_TTL_SECONDS,
 } from '../constants';
 import { isSafeAttachmentKey } from '../utils/storage-key';
 import { sanitizeFileName } from '../utils/text';
+import {
+  assertAllowedUploadMimeType,
+  isAllowedUploadMimeType,
+} from '../../application/files/upload-policy';
 
 export interface FileControllers {
   upload: RouteHandler;
   signed: RouteHandler;
 }
 
-/** Attachments: `image/*`, PDF and plain/XML text only (marketplace caps). */
+/** Attachments: raster images, documents and zip only (no SVG/HTML/JS). */
 export function isAllowedUploadMime(mimeType: string): boolean {
-  const normalized = mimeType.trim().toLowerCase();
-  if (normalized.startsWith('image/')) return true;
-  return ALLOWED_UPLOAD_MIME_TYPES.includes(normalized);
+  return isAllowedUploadMimeType(mimeType);
 }
 
 export function createFileControllers(ctx: HttpRouteContext): FileControllers {
@@ -50,13 +51,9 @@ export function createFileControllers(ctx: HttpRouteContext): FileControllers {
         });
       }
 
-      const mimeType = file.mimetype.trim().toLowerCase();
-      if (!isAllowedUploadMime(mimeType)) {
-        throw new ValidationError('Unsupported attachment mime type', {
-          mimeType,
-          allowed: ['image/*', ...ALLOWED_UPLOAD_MIME_TYPES],
-        });
-      }
+      // Single source of truth for the upload MIME policy: SVG/HTML/JS are
+      // rejected with 422 before the buffer is read, then again in FileService.
+      const mimeType = assertAllowedUploadMimeType(file.mimetype);
 
       const buffer = await file.toBuffer();
       if (buffer.length === 0) {

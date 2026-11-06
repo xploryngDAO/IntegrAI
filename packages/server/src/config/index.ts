@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ChannelRuntimeConfig } from '@sac/shared';
 import { envSchema } from './env.schema';
-import type { Env } from './env.schema';
+import type { Env, TrustProxySetting } from './env.schema';
 
 /**
  * Fully resolved runtime configuration.
@@ -20,6 +20,12 @@ export interface AppConfig extends ChannelRuntimeConfig {
   redisUrl: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  /**
+   * Fastify `trustProxy` for client-IP resolution (`TRUST_PROXY`). `false` by
+   * default; a boolean or an explicit proxy IP/CIDR list. See
+   * `docs/SECURITY.md` §6.8 before enabling it in production.
+   */
+  trustProxy: TrustProxySetting;
   /** base64, 32 bytes */
   encryptionMasterKey: string;
   encryptionKeyId: string;
@@ -154,6 +160,7 @@ function buildConfig(env: Env): AppConfig {
     redisUrl: env.REDIS_URL,
     jwtSecret: env.JWT_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
+    trustProxy: env.TRUST_PROXY,
     encryptionMasterKey: env.ENCRYPTION_MASTER_KEY,
     encryptionKeyId: env.ENCRYPTION_KEY_ID,
     agentPresenceTtlSeconds: env.AGENT_PRESENCE_TTL,
@@ -252,4 +259,4 @@ export function loadConfig(env?: NodeJS.ProcessEnv): AppConfig {
 }
 
 export { envSchema } from './env.schema';
-export type { Env } from './env.schema';
+export type { Env, TrustProxySetting } from './env.schema';

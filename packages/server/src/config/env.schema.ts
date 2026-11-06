@@ -80,6 +80,39 @@ function csvFromEnv(fallback: string[] = []): z.ZodType<string[], z.ZodTypeDef, 
   }, z.array(z.string()));
 }
 
+/** Fastify `trustProxy` value: `true`/`false` or an explicit proxy IP/CIDR list. */
+export type TrustProxySetting = boolean | string[];
+
+/**
+ * Parses `TRUST_PROXY`.
+ *
+ * Accepted forms:
+ * - unset/empty -> `false` (never trust `X-Forwarded-For`);
+ * - `true`/`false` (also `1/0`, `yes/no`, `on/off`) -> boolean;
+ * - `10.0.0.0/8, 172.16.0.0/12` -> list of trusted proxy IPs/CIDRs.
+ *
+ * The default is deliberately `false`: with `trustProxy: true` unconditionally
+ * any client can spoof `X-Forwarded-For` and bypass the per-IP rate limits
+ * unless the API is unreachable except through the edge. See
+ * `docs/SECURITY.md` §6.8.
+ */
+function trustProxyFromEnv(): z.ZodType<TrustProxySetting, z.ZodTypeDef, unknown> {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') return false;
+    if (typeof value === 'boolean') return value;
+    const raw = String(value).trim();
+    if (raw === '') return false;
+    const normalized = raw.toLowerCase();
+    if (TRUTHY.has(normalized)) return true;
+    if (FALSY.has(normalized)) return false;
+    const entries = raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return entries.length > 0 ? entries : false;
+  }, z.union([z.boolean(), z.array(z.string().min(1))]));
+}
+
 /** base64 key that MUST decode to exactly 32 bytes (AES-256). */
 function masterKeyFromEnv(fallback: string): z.ZodType<string, z.ZodTypeDef, unknown> {
   return z
@@ -130,6 +163,14 @@ export const envSchema = z.object({
   JWT_SECRET: requiredString('JWT_SECRET').default('dev-only-change-me-please-32-chars-min'),
   JWT_EXPIRES_IN: stringFromEnv('1h'),
   AGENT_PRESENCE_TTL: intFromEnv(120, 10, 86_400),
+  /**
+   * Fastify `trustProxy`. Default `false` (socket address; `X-Forwarded-For`
+   * ignored). In production behind Render/Vercel/Cloudflare set the edge
+   * IPs/CIDRs, e.g. `TRUST_PROXY=10.0.0.0/8,172.16.0.0/12`; `true` is only
+   * acceptable when the API is unreachable except through an edge that
+   * overwrites the header. See `docs/SECURITY.md` §6.8.
+   */
+  TRUST_PROXY: trustProxyFromEnv(),
 
   /* -------------------------- Amazon SP-API / SES ------------------------- */
   AMAZON_LWA_CLIENT_ID: stringFromEnv(''),

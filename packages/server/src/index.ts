@@ -57,6 +57,7 @@ async function bootstrap(): Promise<void> {
       webOrigin: config.webOrigin,
       appBaseUrl: config.appBaseUrl,
       logger: infra.logger,
+      trustProxy: config.trustProxy,
     });
 
     hub.attach(app.server);
@@ -214,6 +215,9 @@ async function logStartupBanner(
   logger.info(`  listening  : http://0.0.0.0:${config.port}`);
   logger.info(`  api base   : ${config.appBaseUrl}/api/v1`);
   logger.info(`  web origin : ${config.webOrigin}`);
+  logger.info(
+    `  trust proxy: ${Array.isArray(config.trustProxy) ? config.trustProxy.join(', ') : String(config.trustProxy)}`,
+  );
   logger.info(`  queues     : 10 (inbound x3, enrichment, outbound, sla, pii, token, lost-push, dlq)`);
   logger.info('  canais     :');
   for (const line of readiness) logger.info(`    - ${line}`);

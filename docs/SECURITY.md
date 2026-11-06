@@ -1,6 +1,6 @@
 # Segurança corporativa — IntegrAI / SAC Hub
 
-> **Status:** documento vivo · **Última revisão:** 2026-11-05 · **Owner:** Engenharia + DPO
+> **Status:** documento vivo · **Última revisão:** 2026-11-06 · **Owner:** Engenharia + DPO
 > **Escopo:** API Fastify (`packages/server`), SPA React servida pela Vercel
 > (`apps/web`), adapters de marketplace, banco PostgreSQL/Redis/S3 e integrações OAuth/OIDC.
 >
@@ -31,8 +31,10 @@ O desenho parte de três premissas:
 Controles maduros já presentes: AES-256-GCM com keyring para tokens de loja,
 JWT com `iss`/`aud`/algoritmo fixos, refresh rotativo single-use, RBAC por rota,
 rate limit distribuído nas rotas de força bruta, headers de segurança, CORS com
-allowlist, `no-store` em `/api`, HMAC de webhooks com `timingSafeEqual`,
-idempotência de 24 h, export/exclusão LGPD e purge de PII.
+allowlist, guard de `Content-Type` em `/api/v1`, allowlist de MIME de anexos
+(SVG/HTML/JS bloqueados), `trustProxy` configurável por ambiente, `no-store` em
+`/api`, HMAC de webhooks com `timingSafeEqual`, idempotência de 24 h,
+export/exclusão LGPD e purge de PII.
 
 Gaps priorizados estão na seção 14 (P0/P1/P2). Os mais relevantes: segredos de
 desenvolvimento aceitos em produção, ausência de rate limit HTTP global,
@@ -184,11 +186,18 @@ pin do IP resolvido.
   transporte SMTP é montado no servidor.
 - Command injection: sem `child_process` no runtime.
 - Path traversal: `sanitizeFileName` + `isSafeAttachmentKey`.
-- **Gap conhecido:** o parser catch-all (`*`) aceita qualquer `Content-Type` para
-  não quebrar o relay SES; as rotas `/api/v1` validam o corpo com Zod, mas não
-  exigem `application/json` explicitamente. Não há cookie, então o vetor CSRF
-  simples não se aplica; ainda assim, um guard de content-type por prefixo é
-  recomendado (P2).
+- **Content-Type em `/api/v1`:** um hook `onRequest`
+  (`http/middleware/content-type-guard.ts`, registrado em `http/app.ts`) exige
+  `application/json` (com parâmetros, ex.: `application/json; charset=utf-8`) ou
+  `application/*+json` para `POST`/`PUT`/`PATCH` com corpo. Caso contrário
+  responde **415** com o corpo estável
+  `{ error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be application/json" } }`,
+  antes de bufferizar o body. Exceções deliberadas: `/api/v1/files/upload`
+  (multipart), callbacks OAuth/SSO sem corpo, requisições sem corpo (nada a
+  parsear) e tudo fora do prefixo (`/webhooks/*`, `/health`, `/status`,
+  `/socket.io`). O parser catch-all (`*`) continua existindo para o relay SES,
+  que não é afetado. `application/*+json` ganhou parser JSON dedicado em
+  `registerBodyParsers`, então não cai mais no buffer genérico.
 
 ### 3.7 Vazamento de PII
 
@@ -271,6 +280,8 @@ destinatário no console (somente fora de produção). Ver seção 14.
 | Headers do SPA | `vercel.json` | manual (seção 5.3) |
 | CORS allowlist + rejeição de wildcard | `http/app.ts` (`resolveAllowedOrigins`) | `security-hardening.test.ts` |
 | Limite de body (1 MiB API / 12 MiB webhook / 10 MiB upload) | `http/app.ts`, `http/constants.ts`, `@fastify/multipart` | `security-hardening.test.ts` |
+| Guard de `Content-Type` em `/api/v1` (415 estável) | `http/middleware/content-type-guard.ts`, `http/app.ts` | `http/__tests__/content-type-guard.test.ts` |
+| `trustProxy` configurável (`TRUST_PROXY`) | `config/env.schema.ts`, `config/index.ts`, `http/app.ts` | `config/__tests__/env-trust-proxy.test.ts`, `http/__tests__/trust-proxy.test.ts` |
 | Timeout de request (60 s) | `http/app.ts` (`HTTP_REQUEST_TIMEOUT_MS`) | — |
 | JWT + RBAC + tenant gate | `http/middleware/auth.ts`, `application/AgentService.ts` | `invitation-routes.test.ts`, `tenant-routes.test.ts` |
 | Rate limit de auth/2FA | `application/auth/rate-limit.ts` | `application/__tests__/AuthRateLimit.test.ts` |
@@ -283,7 +294,8 @@ destinatário no console (somente fora de produção). Ver seção 14.
 | HMAC Shopee + timestamp | `adapters/shopee/inbound/ShopeeWebhookParser.ts`, `client/sign.ts` | `adapters/shopee/__tests__/sign.test.ts` |
 | HMAC billing | `application/BillingService.ts`, `http/controllers/billing.controller.ts` | `http/__tests__/billing-routes.test.ts` |
 | Idempotência de webhook | `application/WebhookIngressService.ts` | testes de ingress |
-| Validação de upload | `http/controllers/file.controller.ts`, `utils/storage-key.ts` | — |
+| Validação de upload (key/prefixo) | `http/controllers/file.controller.ts`, `utils/storage-key.ts` | `http/__tests__/upload-mime.test.ts` |
+| Política de MIME de anexos (SVG/HTML/JS bloqueados; allowlist imagem/doc/zip) | `application/files/upload-policy.ts`, `application/FileService.ts`, `http/controllers/file.controller.ts` | `application/__tests__/FileServiceUpload.test.ts`, `http/__tests__/upload-mime.test.ts` |
 | Export/exclusão LGPD | `application/TenantPrivacyService.ts`, `http/routes/tenants.routes.ts` | `tenant-privacy-routes.test.ts` |
 | Purge de PII/tenant | `application/TenantPurgeService.ts`, `queues/workers.ts` | `tenantPurgeWiring.test.ts` |
 | Erros sem stack em produção | `http/middleware/error-handler.ts` | `security-hardening.test.ts` |
@@ -474,6 +486,46 @@ Meli a chamadas de API e linhas de auditoria (ver risco R-05).
   histórico não basta.
 - Acesso ao cofre do provedor (Render/Vercel/AWS) restrito a poucas pessoas com
   2FA; auditar convites periodicamente.
+
+### 6.8 Proxy, IP do cliente e `TRUST_PROXY`
+
+O rate limit global e o rate limit de autenticação chaveiam por `request.ip`.
+Quem controla esse valor controla a cota: se a API confia em `X-Forwarded-For`
+sem que só o edge consiga chegar nela, qualquer cliente forja o header e troca de
+"IP" a cada tentativa.
+
+**Default seguro:** `TRUST_PROXY=false` (ou ausente). O Fastify ignora
+`X-Forwarded-For` e `request.ip` é o endereço do socket.
+
+**Produção atrás de proxy/edge** (Render/Vercel/Cloudflare/ALB/nginx) **precisa**
+configurar `TRUST_PROXY`, senão todos os clientes compartilham o IP do proxy:
+
+```bash
+# Recomendado: lista de IPs/CIDRs do edge (o socket precisa ser um deles para
+# que o X-Forwarded-For seja considerado).
+TRUST_PROXY=10.0.0.0/8,172.16.0.0/12,2001:db8::/32
+
+# Aceito: true/false (também 1/0, yes/no, on/off).
+TRUST_PROXY=false
+```
+
+Regras de decisão:
+
+- Use a **lista de IPs/CIDRs** do provedor quando ela for publicada (Cloudflare
+  publica os ranges; LB/nginx internos usam a sub-rede privada). Em Render, o
+  tráfego público entra pelo proxy da plataforma, mas confirme se há porta/URL
+  que alcance o processo diretamente antes de usar `true`.
+- `TRUST_PROXY=true` **somente** quando a API for inalcançável fora do edge e o
+  edge **sobrescrever** (não apenas anexar) `X-Forwarded-For`. É uma decisão de
+  infraestrutura, não um default.
+- Nunca use `true` em exposição direta (containers com porta pública, IP
+  elástico, `localhost` compartilhado): o header vindo do cliente passa a valer.
+- O edge deve descartar o `X-Forwarded-For` recebido do cliente e gravar o IP
+  real; um proxy que só append deixa o primeiro valor forjável.
+- Verificação: após configurar, confira `request.ip`/logs (não logamos o header
+  cru) e o bucket de rate limit `sac:http:global:<ip>`; o teste
+  `http/__tests__/trust-proxy.test.ts` cobre `false`, `true`, lista confiável e
+  lista não confiável via `app.inject`.
 
 ---
 
@@ -668,7 +720,7 @@ Escala: probabilidade (1–5) × impacto (1–5). Risco residual após controles
 | R-11 | Flood/DoS em webhook/API pública | 3 | 3 | 9 | Médio | assinatura + idempotência + body limit; **falta rate limit HTTP (P1)** |
 | R-12 | Segredo default em produção | 2 | 5 | 10 | Alto | checklist de deploy; **falta fail-closed (P0)** |
 | R-13 | Enumeração de tenant em `signup` | 3 | 2 | 6 | Médio | trade-off de UX; rate limit |
-| R-14 | Upload de SVG/HTML servido inline | 2 | 3 | 6 | Médio | `image/*` inclui SVG; avaliar bloqueio/Content-Disposition |
+| R-14 | Upload de SVG/HTML servido inline | 1 | 3 | 3 | Baixo | allowlist de MIME bloqueia SVG/HTML/JS antes do storage (`upload-policy.ts`); testes HTTP/unitários |
 
 Revisão trimestral; qualquer mudança de arquitetura recalcula a matriz.
 
@@ -780,6 +832,32 @@ necessidade; a segurança vem do `state` + troca server-side. Não reutilizar o
 - `RateLimitError` → **429** + `Retry-After`;
 - JWT válido sem tenant → **403** (`requireTenantId`).
 
+`packages/server/src/http/__tests__/content-type-guard.test.ts` — 13 casos:
+`text/plain`, form-urlencoded, multipart em rota JSON e corpo sem header → **415**
+com `{ code: "UNSUPPORTED_MEDIA_TYPE" }`; `application/json; charset=utf-8` e
+`application/vnd.api+json` → **200** com body parseado; `PUT`/`PATCH` rejeitados
+antes da autenticação; `POST` sem corpo passa; `/webhooks/*` (fora de `/api/v1`)
+intacto; callback OAuth sem corpo não bloqueado; helpers de media type.
+
+`packages/server/src/http/__tests__/upload-mime.test.ts` — 11 casos:
+`image/svg+xml`, `text/html`, `application/javascript`, `application/xhtml+xml` e
+`application/x-shockwave-flash` → **422** sem tocar no storage; PNG/PDF/ZIP
+aceitos (incluindo `image/jpg` normalizado para `image/jpeg`); MIME fora da
+allowlist rejeitado; rota multipart continua com o erro do controller.
+
+`packages/server/src/application/__tests__/FileServiceUpload.test.ts` — 12 casos
+unitários da política (`assertAllowedUploadMimeType`) e do `FileService.upload`
+(rejeição antes do `putObject`, normalização e key `attachments/...`).
+
+`packages/server/src/config/__tests__/env-trust-proxy.test.ts` — 4 casos de
+parsing de `TRUST_PROXY` (default `false`, booleanos, CSV de IPs/CIDRs).
+
+`packages/server/src/http/__tests__/trust-proxy.test.ts` — 4 casos de resolução
+real de `request.ip` (`false`, `true`, lista confiável, lista não confiável e
+multi-hop).
+
+Estado em **2026-11-06**: `vitest run` → **773 testes / 61 arquivos**, exit 0.
+
 ### 13.2 Cobertura existente
 
 | Requisito | Teste existente |
@@ -794,8 +872,12 @@ necessidade; a segurança vem do `state` + troca server-side. Não reutilizar o
 
 ```bash
 npm test -- --run packages/server/src/http/__tests__/security-hardening.test.ts
+npm test -- --run packages/server/src/http/__tests__/content-type-guard.test.ts
+npm test -- --run packages/server/src/http/__tests__/upload-mime.test.ts
+npm test -- --run packages/server/src/http/__tests__/trust-proxy.test.ts
 npx tsc -p packages/server/tsconfig.json --noEmit
 npm run build:shared
+npm run build:server
 ```
 
 ---
@@ -821,6 +903,32 @@ npm run build:shared
 
 ### P1 — próximas 2 sprints
 
+**Resolvidos em 2026-11-06 (sem commit):**
+
+- [x] **`trustProxy: true` incondicional (antigo P1-7).** `TRUST_PROXY` no
+  `env.schema`/`config` com default `false`; aceita `true`/`false` ou lista de
+  IPs/CIDRs e é passado ao Fastify (`http/app.ts` → `options.trustProxy`).
+  Instruções operacionais na seção 6.8; testes em
+  `config/__tests__/env-trust-proxy.test.ts` e
+  `http/__tests__/trust-proxy.test.ts`.
+- [x] **SVG/HTML em upload (antigo P1-8).** Política central em
+  `application/files/upload-policy.ts`, aplicada no `file.controller` e no
+  `FileService`: `image/svg+xml`, `text/html`,
+  `application/xhtml+xml`, `application/javascript`,
+  `application/x-shockwave-flash` (e variantes) são **422**; o restante precisa
+  estar na allowlist imagem/documento/zip. Testes:
+  `http/__tests__/upload-mime.test.ts` e
+  `application/__tests__/FileServiceUpload.test.ts`.
+- [x] **Guard de `Content-Type` em `/api/v1` (antigo P2-18).** Hook `onRequest`
+  em `http/middleware/content-type-guard.ts`: `POST`/`PUT`/`PATCH` com corpo
+  exigem `application/json` (com parâmetros) ou `application/*+json`; senão
+  **415** `UNSUPPORTED_MEDIA_TYPE` com mensagem estável. Multipart de upload,
+  callbacks sem corpo, requisições sem corpo e tudo fora de `/api/v1`
+  (webhooks) ficam intactos. Testes:
+  `http/__tests__/content-type-guard.test.ts`.
+
+**Pendentes:**
+
 4. **Token no `localStorage`.** Migrar para cookie `HttpOnly`/`SameSite` + CSRF
    (ver 3.1) ou memória + refresh silencioso; enquanto isso, manter CSP estrita
    e revisar qualquer `dangerouslySetInnerHTML` (hoje zero).
@@ -829,32 +937,25 @@ npm run build:shared
 6. **Webhook Meli sem assinatura.** Avaliar segredo compartilhado no header
    (contrato já menciona “optional shared secret header”) ou validação de
    origem por IP do Meli; documentar risco aceito se não houver opção.
-7. **`trustProxy: true` incondicional.** Garantir que a API só é alcançável
-   pelo edge (Render/Vercel/Cloudflare) e que o edge sobrescreve
-   `X-Forwarded-For`; caso contrário, rate limit por IP é burlável.
-8. **SVG/HTML em upload.** `image/*` aceita SVG; bloquear `image/svg+xml` ou
-   servir com `Content-Disposition: attachment` + CSP sandbox no bucket.
-9. **CSP do SPA com hosts exatos.** Trocar `connect-src https: wss:` por
+7. **CSP do SPA com hosts exatos.** Trocar `connect-src https: wss:` por
    `https://api.<domínio> wss://api.<domínio>`; adicionar
    `Content-Security-Policy-Report-Only` com coletor antes de bloquear.
 
 ### P2 — backlog de hardening
 
-10. Migrar dependências com correção apenas em major (zod 4, nodemailer 10,
-    prisma 7, react-router 7) — PRs separados e testados (seção 7).
-11. Purge/rotação de chaves automatizado (keyring + re-cifragem) e teste de
-    restore de backup.
-12. Rate limit/CAPTCHA em `signup` para reduzir enumeração e abuso.
-13. Cifrar colunas de PII do vault (pgcrypto) ou documentar dependência de
+8. Migrar dependências com correção apenas em major (zod 4, nodemailer 10,
+   prisma 7, react-router 7) — PRs separados e testados (seção 7).
+9. Purge/rotação de chaves automatizado (keyring + re-cifragem) e teste de
+   restore de backup.
+10. Rate limit/CAPTCHA em `signup` para reduzir enumeração e abuso.
+11. Cifrar colunas de PII do vault (pgcrypto) ou documentar dependência de
     criptografia de disco do provedor.
-14. Alertas de segurança (falhas de login, 401 de webhook, 429, picos de 5xx) e
+12. Alertas de segurança (falhas de login, 401 de webhook, 429, picos de 5xx) e
     retenção de logs definida.
-15. DPO publicado, DPA/transferência internacional, RIPD e política de
+13. DPO publicado, DPA/transferência internacional, RIPD e política de
     privacidade.
-16. Pentest independente antes do go-live enterprise e plano de reteste.
-17. WAF/edge rules (Vercel/Render/Cloudflare) para OWASP Top 10 e bots.
-18. Guard de `Content-Type` nas rotas `/api/v1` (exigir `application/json`,
-    exceto multipart/billing) para reduzir parser confusion e simplificar CORS.
+14. Pentest independente antes do go-live enterprise e plano de reteste.
+15. WAF/edge rules (Vercel/Render/Cloudflare) para OWASP Top 10 e bots.
 
 ---
 

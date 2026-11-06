@@ -12,6 +12,12 @@ import type {
 import { ValidationError } from '@sac/shared';
 
 import { sanitizeFileName } from './UnifiedTicketService';
+import {
+  assertAllowedUploadMimeType,
+  normalizeUploadMimeType,
+} from './files/upload-policy';
+
+export { ALLOWED_UPLOAD_MIME_TYPES } from './files/upload-policy';
 
 /**
  * ============================================================================
@@ -28,18 +34,6 @@ import { sanitizeFileName } from './UnifiedTicketService';
  */
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-
-export const ALLOWED_UPLOAD_MIME_TYPES: readonly string[] = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'application/pdf',
-  'text/plain',
-  'text/xml',
-  'application/xml',
-];
 
 export interface FileServiceDependencies {
   logger: ILogger;
@@ -73,13 +67,10 @@ export class FileService implements IFileService {
       );
     }
 
-    const mimeType = normalizeMimeType(input.mimeType);
-    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(mimeType)) {
-      throw new ValidationError(
-        `Unsupported file type "${mimeType}". Allowed: images, PDF, XML and plain text.`,
-        { mimeType },
-      );
-    }
+    // Central policy (also enforced by the multipart controller): blocks
+    // SVG/HTML/JS (stored XSS) and anything outside the image/document/zip
+    // allowlist before a single byte reaches object storage.
+    const mimeType = assertAllowedUploadMimeType(input.mimeType);
 
     const fileName = sanitizeFileName(input.fileName);
     const sha256 = createHash('sha256').update(buffer).digest('hex');
@@ -227,11 +218,9 @@ const EXTENSION_MIME: Record<string, string> = {
   nfe: 'application/xml',
 };
 
+/** @deprecated Use `normalizeUploadMimeType` from `./files/upload-policy`. */
 export function normalizeMimeType(value: string): string {
-  const normalized = (value ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
-  if (normalized === 'image/pjpeg' || normalized === 'image/jpg') return 'image/jpeg';
-  if (normalized === 'text/xml' || normalized === 'application/xml') return normalized;
-  return normalized;
+  return normalizeUploadMimeType(value);
 }
 
 export function mimeTypeFromFileName(fileName: string): string {

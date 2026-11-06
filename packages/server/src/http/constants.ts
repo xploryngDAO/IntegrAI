@@ -70,10 +70,6 @@ export const DIAGNOSTICS_TIMEOUT_MS = 30_000;
 /** Storage prefix attachments are written under. */
 export const ATTACHMENTS_KEY_PREFIX = 'attachments/';
 
-/** MIME types the web client may upload (Amazon caps the relay payload). */
-export const ALLOWED_UPLOAD_MIME_TYPES: readonly string[] = [
-  'application/pdf',
-  'text/plain',
-  'text/xml',
-  'application/xml',
-];
+// The upload MIME allowlist/blocklist lives next to the attachment policy
+// (`application/files/upload-policy.ts`) so the HTTP controller and FileService
+// share exactly one list.

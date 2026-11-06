@@ -46,6 +46,12 @@ para a API pública.
 | Segurança | `ENCRYPTION_MASTER_KEY` (32 bytes base64), `ENCRYPTION_KEY_ID`, `JWT_SECRET` |
 | Bootstrap | `ADMIN_EMAIL`, `ADMIN_PASSWORD` (≥12), `ADMIN_NAME` |
 
+> **Proxy/edge:** se a API fica atrás de Render/Vercel/Cloudflare/ALB/nginx,
+> configure `TRUST_PROXY` com os IPs/CIDRs do edge (ou `true` somente se a API
+> for inalcançável fora dele). Sem isso, todos os clientes compartilham o IP do
+> proxy no rate limit; com `true` em exposição direta, o `X-Forwarded-For` é
+> forjável. Ver `docs/SECURITY.md` §6.8.
+
 Sem credenciais de marketplace o sistema sobe, autentica e mostra os canais como
 “sem credenciais” — nenhuma mensagem é inventada.
 

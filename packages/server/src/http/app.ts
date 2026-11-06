@@ -16,6 +16,7 @@ import type { HttpRouteContext, HttpServerOptions } from './types';
 import type { RealtimeHub } from './realtime-hub';
 import { registerAuthGuard } from './middleware/auth';
 import { AuthRateLimiter } from '../application/auth/rate-limit';
+import { registerContentTypeGuard } from './middleware/content-type-guard';
 import { registerErrorHandler } from './middleware/error-handler';
 import { registerRequestContext } from './middleware/request-context';
 import { registerApiRoutes, registerRootRoutes } from './routes';
@@ -96,37 +97,49 @@ export function resolveAllowedOrigins(raw: string): string[] {
  * Content-type parsers.
  *
  * JSON is re-parsed from the raw Buffer (instead of Fastify's default string
- * parser) so the exact bytes survive for webhook HMAC verification. Text, MIME
- * and the catch-all are buffered verbatim: the Amazon SES relay posts raw
- * `.eml` payloads that must never be decoded before the adapter signature check.
+ * parser) so the exact bytes survive for webhook HMAC verification. Structured
+ * syntax suffixes (`application/*+json`, RFC 6839) reuse the same parser so they
+ * do not fall through to the buffer catch-all. Text, MIME and the catch-all are
+ * buffered verbatim: the Amazon SES relay posts raw `.eml` payloads that must
+ * never be decoded before the adapter signature check.
  */
+const JSON_STRUCTURED_SUFFIX = /^application\/[a-z0-9!#$&^_.+-]+\+json(?:;.*)?$/i;
+
 function registerBodyParsers(app: FastifyInstance, bodyLimitBytes: number): void {
   app.removeContentTypeParser(['application/json', 'text/plain']);
+
+  const jsonParser = (
+    request: FastifyRequest,
+    body: Buffer,
+    done: (error: Error | null, result?: unknown) => void,
+  ): void => {
+    request.rawBody = body;
+    if (body.length === 0) {
+      done(null, null);
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(body.toString('utf8'));
+      done(null, parsed);
+    } catch {
+      done(
+        new AppError('VALIDATION_ERROR', 'Malformed JSON request body', 400, {
+          contentType: 'application/json',
+        }),
+        undefined,
+      );
+    }
+  };
 
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'buffer', bodyLimit: bodyLimitBytes },
-    (request, body, done) => {
-      // `parseAs: 'buffer'` guarantees bytes at runtime; the union in Fastify's
-      // typings is a conditional-type inference artifact.
-      const raw = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
-      request.rawBody = raw;
-      if (raw.length === 0) {
-        done(null, null);
-        return;
-      }
-      try {
-        const parsed: unknown = JSON.parse(raw.toString('utf8'));
-        done(null, parsed);
-      } catch {
-        done(
-          new AppError('VALIDATION_ERROR', 'Malformed JSON request body', 400, {
-            contentType: 'application/json',
-          }),
-          undefined,
-        );
-      }
-    },
+    jsonParser,
+  );
+  app.addContentTypeParser(
+    JSON_STRUCTURED_SUFFIX,
+    { parseAs: 'buffer', bodyLimit: bodyLimitBytes },
+    jsonParser,
   );
 
   const bufferParser = (
@@ -164,10 +177,14 @@ export async function buildHttpApp(
 
   const app = Fastify({
     logger: false,
-    // Set by the platform ingress (Render/Vercel/Cloudflare): without it the
-    // per-IP rate limits would see the proxy address. Direct exposure must keep
-    // the edge as the only reachable entrypoint (see docs/SECURITY.md).
-    trustProxy: true,
+    // Client IP resolution. Default `false`: `X-Forwarded-For` is ignored and
+    // `request.ip` is the socket address, which is the only safe default when
+    // the API can be reached directly. Behind an edge (Render/Vercel/Cloudflare)
+    // set `TRUST_PROXY` to the edge IPs/CIDRs (recommended) or `true` only when
+    // the API is unreachable except through that edge and it overwrites XFF -
+    // otherwise the per-IP rate limits are trivially spoofed. See
+    // `docs/SECURITY.md` §6.8.
+    trustProxy: options.trustProxy ?? false,
     bodyLimit: DEFAULT_BODY_LIMIT_BYTES,
     // Backstop against slowloris/body-drip: 60 s is above the 30 s diagnostics
     // budget and the webhook budgets, below Node's 300 s default.
@@ -244,6 +261,10 @@ export async function buildHttpApp(
     logger: options.logger,
     exposeDetails: !production,
   });
+  // Reject non-JSON mutations under `/api/v1` before the body is buffered.
+  // Registered ahead of the Redis-backed limiter: a malformed content type is
+  // cheaper to refuse than to count, and it never reaches a route.
+  registerContentTypeGuard(app);
   // Global per-IP shield in front of every route (including public ones except
   // liveness probes). Tiered auth limits still apply on top of this.
   const globalLimiter = new AuthRateLimiter({

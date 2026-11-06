@@ -9,7 +9,15 @@ callback and `/webhooks/*`.
 
 Errors use the codes from `@sac/shared/errors.ts`
 (`VALIDATION_ERROR`, `NOT_FOUND`, `AUTHENTICATION_ERROR`, `POLICY_VIOLATION`,
-`RATE_LIMITED`, `MARKETPLACE_API_ERROR`, `INVALID_SIGNATURE`, `CONFLICT`).
+`RATE_LIMITED`, `MARKETPLACE_API_ERROR`, `INVALID_SIGNATURE`, `CONFLICT`,
+`UNSUPPORTED_MEDIA_TYPE`).
+
+Mutations under `/api/v1` (`POST`/`PUT`/`PATCH`) that carry a body must send
+`Content-Type: application/json` (parameters such as `; charset=utf-8` are fine)
+or a structured suffix `application/*+json`. Anything else is rejected with
+**415** and `{ "error": { "code": "UNSUPPORTED_MEDIA_TYPE", "message":
+"Content-Type must be application/json" } }`. `POST /files/upload`
+(`multipart/form-data`), bodyless callbacks and `/webhooks/*` are exempt.
 
 ---
 
@@ -199,8 +207,12 @@ For Amazon (self-authorized LWA refresh token) and any manual token flow:
 ## 6. Files (attachments)
 
 ### POST /files/upload (multipart/form-data, field `file`)
-Limits: 10 MB (Amazon MIME cap), accepted `image/*`, `application/pdf`,
-`text/plain`, `text/xml`, `application/xml`.
+Limits: 10 MB (Amazon MIME cap). Allowlist: raster images (`jpeg`, `png`, `gif`,
+`webp`, `bmp`, `tiff`), documents (`application/pdf`, `text/plain`, `text/csv`,
+`text/xml`, `application/xml`, `doc/docx`, `xls/xlsx`) and `application/zip`.
+Active content (`image/svg+xml`, `text/html`, `application/xhtml+xml`,
+`application/javascript`) is rejected with **422** (`VALIDATION_ERROR`,
+`Unsupported attachment mime type`).
 → `data: { key, uri, fileName, mimeType, sizeBytes, sha256 }`
 The returned `key` is what the UI sends as `attachmentS3Keys`.
 

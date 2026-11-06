@@ -39,6 +39,15 @@ export interface HttpServerOptions {
   appBaseUrl: string;
   logger: ILogger;
   maxUploadBytes?: number;
+  /**
+   * Fastify `trustProxy` (client IP behind an edge).
+   *
+   * Defaults to `false` (socket address) - see `TRUST_PROXY` in
+   * `config/env.schema.ts` and `docs/SECURITY.md` §6.8. `true` is only safe when
+   * the API cannot be reached except through a proxy that overwrites
+   * `X-Forwarded-For`; prefer the explicit IP/CIDR list.
+   */
+  trustProxy?: boolean | string[];
 }
 
 /** Everything a route module needs; also the Fastify plugin options contract. */
