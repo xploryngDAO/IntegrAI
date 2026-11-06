@@ -1,44 +1,64 @@
-name: Bug report
-description: Report a reproducible defect (no security issues here).
+name: 🐞 Bug report
+description: Reportar um comportamento incorreto do IntegrAI (não use para vulnerabilidades).
 title: '[bug] '
 labels: ['bug']
 body:
   - type: markdown
     attributes:
       value: |
-        Security issues must go to GitHub Security Advisories, not here.
+        **Vulnerabilidade de segurança?** Não abra issue pública: use
+        [private vulnerability reporting](https://github.com/xploryngDAO/IntegrAI/security/advisories/new).
   - type: textarea
-    id: what
+    id: what-happened
     attributes:
-      label: What happened?
-      description: Expected vs actual behaviour.
+      label: O que aconteceu?
+      description: Descreva o comportamento observado e o esperado.
+      placeholder: Ao clicar em X, recebo Y; esperava Z.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
+      label: Passos para reproduzir
+      placeholder: |
+        1. Abrir /admin
+        2. Convidar operador...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Superfície
+      options:
+        - SPA (workspace)
+        - Admin / convites / sessões
+        - Console de plataforma
+        - API (endpoint)
+        - Webhook / integração de marketplace
+        - E-mail / SMTP
+        - SSO / 2FA
+        - Outro
     validations:
       required: true
   - type: input
-    id: commit
+    id: version
     attributes:
-      label: Commit/version
-      placeholder: e.g. e6c8c19
-  - type: dropdown
-    id: area
-    attributes:
-      label: Area
-      options:
-        - Auth/SSO/2FA
-        - Admin/workspace
-        - Marketplace integration
-        - Webhooks/queues
-        - Landing/UI
-        - Infrastructure/deploy
-        - Other
+      label: Versão/commit
+      description: Saída de `GET /api/v1/version` (ou hash do bundle) ou a release.
+    validations:
+      required: true
   - type: textarea
-    id: logs
+    id: evidence
     attributes:
-      label: Logs / evidence
-      description: Include the `x-request-id` when available. Redact secrets and personal data.
+      label: Evidências
+      description: Screenshot, x-request-id, trecho de log **sem PII/segredos**.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: Não incluí dados pessoais reais nem credenciais.
+          required: true
+        - label: Verifiquei que não é uma vulnerabilidade (essas vão pelo canal privado).
+          required: true

@@ -1,18 +1,31 @@
-## Summary
+## Resumo
 
-<!-- What changed and why. Link the issue/ADR when applicable. -->
+<!-- O que muda e por quê (1-3 linhas). -->
 
-## Checklist
+## Tipo
 
-- [ ] `npm run prisma:generate` (client Prisma 7) before typecheck/build
-- [ ] `npm run build:shared` + `tsc` server/web
-- [ ] `npx vitest run` (1019+ tests, no skips)
-- [ ] `npm run build:server` + `npm run build --workspace @sac/web`
-- [ ] Security: no new secret in code; `npm audit --omit=dev` unchanged/zero high
-- [ ] Live probes when touching auth/admin/infra: `validate:live`, `isolation-test`, `security:probe`
-- [ ] A11y when touching UI: `node scripts/a11y-audit.mjs` (0 violations)
-- [ ] Docs updated (`docs/`, ADR for architectural decisions)
+- [ ] Correção de bug
+- [ ] Nova funcionalidade
+- [ ] Segurança/privacidade
+- [ ] Performance/acessibilidade
+- [ ] Documentação/infra
 
-## Risk / rollback
+## Verificação
 
-<!-- Data migrations? Rollback steps? Feature flags? -->
+- [ ] `npm test` (vitest) verde
+- [ ] `npm run build:shared && npm run build:server` e build web verdes
+- [ ] Testei o fluxo na UI (quando aplicável)
+- [ ] `a11y-audit` (light/dark) sem violações quando altera UI
+- [ ] Sem segredos/PII no diff e logs
+
+## Impacto
+
+- Multi-tenant/LGPD: <!-- como o isolamento e a privacidade são preservados -->
+- Migração/dados: <!-- schema, backfill, rollback -->
+- Deploy: <!-- env nova, runtime-config, imagem, nada além do push -->
+
+## Evidências
+
+<!-- x-request-id, screenshots, saída de testes, link de run do CI. -->
+
+Closes #

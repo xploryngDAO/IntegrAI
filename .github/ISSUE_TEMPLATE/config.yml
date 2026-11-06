@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security advisory
+  - name: 🔐 Vulnerabilidade de segurança
     url: https://github.com/xploryngDAO/IntegrAI/security/advisories/new
-    about: Please report vulnerabilities privately here.
-  - name: Operations runbook
-    url: https://github.com/xploryngDAO/IntegrAI/blob/main/docs/RUNBOOK.md
-    about: Deploy, backup/restore, incident and common failures.
+    about: Reporte de forma privada (não abra issue pública).
+  - name: 📚 Documentação e handoff
+    url: https://github.com/xploryngDAO/IntegrAI/blob/main/docs/HANDOFF.md
+    about: O que falta para o go-live, comandos e pendências externas.
+  - name: 🧪 Como validar localmente
+    url: https://github.com/xploryngDAO/IntegrAI/blob/main/docs/LIVE_VALIDATIONS.md
+    about: Bateria live (15/15), a11y, segurança e performance.

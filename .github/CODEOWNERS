@@ -1,2 +1,11 @@
-# Default owner for the repository (single-maintainer project).
+# CODEOWNERS — revisão obrigatória do dono do produto.
+# Ajuste para o time real quando houver mais mantenedores.
+
 * @xploryngDAO
+
+# Áreas sensíveis: autenticação, criptografia, webhooks e infraestrutura.
+/packages/server/src/application/sso/ @xploryngDAO
+/packages/server/src/http/middleware/ @xploryngDAO
+/packages/server/src/adapters/ @xploryngDAO
+/.github/workflows/ @xploryngDAO
+/deploy/ @xploryngDAO

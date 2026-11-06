@@ -1,27 +1,45 @@
-name: Feature request
-description: Suggest a product or engineering improvement.
+name: ✨ Feature request
+description: Propor uma melhoria de produto/operação.
 title: '[feat] '
 labels: ['enhancement']
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: Which user/operator problem does this solve?
+      label: Problema/necessidade
+      description: Qual dor do operador, cliente ou operação isso resolve?
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: Desired behaviour, affected screens/endpoints, alternatives.
+      label: Proposta
+      description: Comportamento desejado, telas/fluxos e critérios de aceite.
     validations:
       required: true
   - type: dropdown
-    id: impact
+    id: area
     attributes:
-      label: Impact
+      label: Área
       options:
-        - Low
-        - Medium
-        - High (revenue/security/compliance)
+        - Fila/atendimento
+        - Canais (Amazon/Meli/Shopee)
+        - Admin/equipe
+        - SSO/2FA/segurança
+        - LGPD/privacidade
+        - Console de plataforma
+        - Infra/deploy/observabilidade
+        - Documentação
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+  - type: checkboxes
+    id: compliance
+    attributes:
+      label: Conformidade
+      options:
+        - label: A proposta preserva isolamento multi-tenant e LGPD.
+          required: true
