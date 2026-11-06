@@ -44,6 +44,7 @@ export interface AdminControllers {
   exportUsersCsv: RouteHandler;
   updateUser: RouteHandler;
   revokeUserSessions: RouteHandler;
+  resetUserTwoFactor: RouteHandler;
   listSessions: RouteHandler;
   revokeSession: RouteHandler;
   listInvitations: RouteHandler;
@@ -252,6 +253,26 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
 
       return ok(
         await services.adminUsers.revokeSessions(
+          tenantId,
+          auditActorContext(request),
+          params.id,
+        ),
+      );
+    },
+
+    /**
+     * `POST /admin/users/:id/reset-2fa` - break-glass wipe of the target factor.
+     *
+     * 200 with `{ id, twoFactorEnabled: false }`; 404 for an unknown/foreign id;
+     * 409 `CANNOT_RESET_OWN_2FA` (self) or `TWO_FACTOR_NOT_ENABLED` (nothing to
+     * reset). The tenant always comes from the JWT, never from the path.
+     */
+    async resetUserTwoFactor(request) {
+      const tenantId = requireTenantId(request);
+      const params = parseInput(adminUserParamsSchema, request.params, 'params');
+
+      return ok(
+        await services.adminUsers.resetTwoFactor(
           tenantId,
           auditActorContext(request),
           params.id,

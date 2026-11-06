@@ -10,6 +10,7 @@ import type {
   AdminUserListQuery,
   AdminUserRecord,
   AdminUserListResult,
+  AdminUserTwoFactorResetResult,
   AdminUserView,
   AuditActorContext,
   IAdminUserRepository,
@@ -21,6 +22,7 @@ import type {
   ILogger,
   ISessionRepository,
   ITenantRepository,
+  ITwoFactorRepository,
   UpdateAdminUserCommand,
 } from '@sac/shared';
 import {
@@ -57,7 +59,11 @@ import { setUserRevocationWatermark } from './auth/access-token-revocation';
  *    (`409 CANNOT_REVOKE_CURRENT_SESSION`) — same reason, and the console list
  *    flags that row with `current: true`;
  *  - `revokeSessions` revokes the refresh sessions AND stamps the per-user
- *    access-token watermark, so live JWTs of the target die immediately.
+ *    access-token watermark, so live JWTs of the target die immediately;
+ *  - `resetTwoFactor` is the break-glass path for an operator who lost the
+ *    authenticator: the TOTP secret/recovery codes are wiped through the 2FA
+ *    repository and the target sessions are revoked, so the next sign-in is a
+ *    clean one (self-reset is a 409 — `/settings` is the flow for that).
  *
  * Every mutation is audited through the best-effort `AuditService`.
  *
@@ -71,6 +77,8 @@ export const ADMIN_USER_ERROR_CODES = {
   lastAdminProtected: 'LAST_ADMIN_PROTECTED',
   cannotRevokeOwnSessions: 'CANNOT_REVOKE_OWN_SESSIONS',
   cannotRevokeCurrentSession: 'CANNOT_REVOKE_CURRENT_SESSION',
+  cannotResetOwn2fa: 'CANNOT_RESET_OWN_2FA',
+  twoFactorNotEnabled: 'TWO_FACTOR_NOT_ENABLED',
 } as const;
 
 export interface AdminUserServiceDependencies {
@@ -80,6 +88,13 @@ export interface AdminUserServiceDependencies {
   repos: {
     adminUsers: IAdminUserRepository;
     sessions: ISessionRepository;
+    /**
+     * The ONLY writer of `two_factor_secret_enc`/`two_factor_enabled` and of the
+     * recovery-code table. The break-glass reset goes through `disable`, so the
+     * wipe keeps the same atomic semantics as the operator's own `/settings`
+     * flow instead of a second, divergent implementation.
+     */
+    twoFactor: ITwoFactorRepository;
   };
   /** Optional only so legacy unit harnesses keep compiling. */
   audit?: IAuditService;
@@ -95,6 +110,7 @@ export class AdminUserService implements IAdminUserService {
   private readonly cache: ICache;
   private readonly adminUsers: IAdminUserRepository;
   private readonly sessions: ISessionRepository;
+  private readonly twoFactor: ITwoFactorRepository;
   private readonly audit: IAuditService | undefined;
   private readonly email: IEmailService | undefined;
   private readonly tenants: ITenantRepository | undefined;
@@ -105,6 +121,7 @@ export class AdminUserService implements IAdminUserService {
     this.cache = deps.cache;
     this.adminUsers = deps.repos.adminUsers;
     this.sessions = deps.repos.sessions;
+    this.twoFactor = deps.repos.twoFactor;
     this.audit = deps.audit;
     this.email = deps.email;
     this.tenants = deps.tenants;
@@ -302,16 +319,7 @@ export class AdminUserService implements IAdminUserService {
     }
 
     const now = this.clock.now();
-    const revoked = await this.sessions.revokeAllForUser(target.id, now);
-
-    // Refresh sessions alone would leave a stateless JWT usable until `exp`.
-    // Best effort by contract: a Redis outage must not fail the operation.
-    await setUserRevocationWatermark({
-      userId: target.id,
-      cache: this.cache,
-      logger: this.logger,
-      at: now,
-    });
+    const revoked = await this.revokeTargetSessions(target.id, now);
 
     this.audit?.record({
       action: AUDIT_ACTIONS.adminUserSessionsRevoked,
@@ -333,6 +341,90 @@ export class AdminUserService implements IAdminUserService {
     });
 
     return { revoked };
+  }
+
+  /* ==================================================================== */
+  /* Break-glass 2FA reset                                                */
+  /* ==================================================================== */
+
+  /**
+   * Wipes the TOTP factor of one operator (`POST /admin/users/:id/reset-2fa`).
+   *
+   * This is the escape hatch for a workspace with the `require_2fa` policy when
+   * an operator loses the authenticator (and the recovery codes): the ADMIN
+   * cannot disable the policy without weakening everyone, so it resets ONE
+   * factor instead.
+   *
+   * Order of the writes is deliberate:
+   *  1. refresh sessions are revoked and the access-token watermark is stamped
+   *     FIRST — if that fails nothing changed and the ADMIN can retry;
+   *  2. the factor is then wiped atomically by the 2FA repository (flag off,
+   *     secret null, every recovery code deleted). A retry after a failure here
+   *     is still accepted because the target is still `twoFactorEnabled`;
+   *  3. the audit row is written last, with the masked operator e-mail and the
+   *     agent id — never the TOTP secret or a recovery code.
+   *
+   * `role`/`isActive` of the target are never touched, and the actor's own
+   * account (sessions + factor) is out of scope by construction.
+   */
+  async resetTwoFactor(
+    tenantId: string,
+    actor: AuditActorContext,
+    userId: string,
+  ): Promise<AdminUserTwoFactorResetResult> {
+    const target = await this.requireTenantUser(tenantId, userId);
+
+    // Self-service is `/settings` (`DELETE /auth/2fa`), which requires the
+    // password + a valid code: an ADMIN must not bypass that for its own row.
+    if (target.id === actor.id) {
+      throw new AppError(
+        ADMIN_USER_ERROR_CODES.cannotResetOwn2fa,
+        'Use the 2FA settings to reset your own factor',
+        409,
+        { userId: target.id },
+      );
+    }
+
+    if (!target.twoFactorEnabled) {
+      throw new AppError(
+        ADMIN_USER_ERROR_CODES.twoFactorNotEnabled,
+        'Two-factor authentication is not enabled for this operator',
+        409,
+        { userId: target.id },
+      );
+    }
+
+    const now = this.clock.now();
+    await this.revokeTargetSessions(target.id, now);
+
+    // Same transaction the operator's own disable uses: an account can never be
+    // left "off" but still holding usable recovery codes.
+    await this.twoFactor.disable(target.id);
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.adminUser2faReset,
+      tenantId,
+      actorId: actor.id,
+      actorEmail: actor.email ?? null,
+      ip: actor.ip ?? null,
+      userAgent: actor.userAgent ?? null,
+      resourceType: 'user',
+      resourceId: target.id,
+      // The operator e-mail is PII: it is masked here AND scrubbed again by
+      // `AuditService` before the metadata reaches the database/logs.
+      metadata: {
+        targetEmail: redactPiiForLogs(target.email),
+        targetAgentId: target.id,
+      },
+    });
+
+    this.logger.info('admin.user.2fa_reset', {
+      tenantId,
+      actorId: actor.id,
+      userId: target.id,
+    });
+
+    return { id: target.id, twoFactorEnabled: false };
   }
 
   /* ==================================================================== */
@@ -422,6 +514,25 @@ export class AdminUserService implements IAdminUserService {
   /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
+
+  /**
+   * Revokes every refresh session of `userId` AND stamps the per-user
+   * access-token watermark (a stateless JWT would otherwise survive until its
+   * own `exp`). Shared by the bulk revocation and the 2FA reset.
+   *
+   * Best effort by contract: `setUserRevocationWatermark` never throws, so a
+   * Redis outage cannot fail an operation whose database writes already landed.
+   */
+  private async revokeTargetSessions(userId: string, at: Date): Promise<number> {
+    const revoked = await this.sessions.revokeAllForUser(userId, at);
+    await setUserRevocationWatermark({
+      userId,
+      cache: this.cache,
+      logger: this.logger,
+      at,
+    });
+    return revoked;
+  }
 
   /**
    * Schedules the account-change e-mails (never awaited).
@@ -541,6 +652,7 @@ function toAdminUserView(row: AdminUserRecord): AdminUserView {
     lastLoginAt: row.lastLoginAt !== null ? row.lastLoginAt.toISOString() : null,
     createdAt: row.agent.createdAt.toISOString(),
     sessionsCount: row.sessionsCount,
+    twoFactorEnabled: row.agent.twoFactorEnabled,
   };
 }
 

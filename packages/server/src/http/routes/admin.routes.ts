@@ -30,6 +30,13 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
     { preHandler: adminOnly },
     controllers.revokeUserSessions,
   );
+  // Break-glass: wipes the TOTP factor of an operator who lost the authenticator
+  // (a `require_2fa` workspace would otherwise lock them out permanently).
+  app.post(
+    '/users/:id/reset-2fa',
+    { preHandler: adminOnly },
+    controllers.resetUserTwoFactor,
+  );
   app.get('/invitations', { preHandler: adminOnly }, controllers.listInvitations);
   app.post(
     '/invitations/:id/resend',

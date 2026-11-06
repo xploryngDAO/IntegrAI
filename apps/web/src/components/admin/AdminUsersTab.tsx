@@ -8,6 +8,7 @@ import {
   adminErrorMessage,
   adminUsersExportName,
   adminUsersRangeLabel,
+  resetUserTwoFactorErrorMessage,
   roleLabel,
   roleTone,
 } from '../../lib/admin';
@@ -86,9 +87,20 @@ export interface AdminUsersTabProps {
 /**
  * "Usuários" tab of `/admin`.
  *
- * Table of the workspace operators with the three administrative actions the
- * API exposes: change role, activate/deactivate and revoke every session of one
- * operator. The CTA sends a real invitation (Fase 1 `/invitations`).
+ * Table of the workspace operators with the four administrative actions the
+ * API exposes: change role, activate/deactivate, revoke every session of one
+ * operator and reset another operator's 2FA. The CTA sends a real invitation
+ * (Fase 1 `/invitations`).
+ *
+ * The **2FA** column renders the operator's TOTP state as a pill
+ * (`twoFactorEnabled`, tolerant: an API that predates the field reads as
+ * `false`). "Redefinir 2FA" (`POST /admin/users/:id/reset-2fa`) is offered only
+ * for a row with 2FA on that is not the caller's own — the API refuses both
+ * cases with `409`, so the UI never leads the operator into a predictable error.
+ * The confirmation spells out the consequences (the operator loses the 2FA
+ * enrollment and every live session is closed until they reconfigure), the
+ * request is loading per row, and a failed reset keeps the API's real
+ * `409`/`404` message on screen while the list is re-read.
  *
  * Filtering and pagination are **server-side** (`GET /admin/users?search=&role=
  * &status=&page=&perPage=`): the name/e-mail search is debounced by 350ms (and
@@ -103,7 +115,9 @@ export interface AdminUsersTabProps {
  *
  * Guards: the API answers 403/404/409/422 with a real message, which is always
  * shown; the operator cannot change their own role/active flag from this table
- * (an ADMIN locking themselves out is a support incident, not a workflow).
+ * (an ADMIN locking themselves out is a support incident, not a workflow), and
+ * the own row never offers a 2FA reset either — self-service disable lives in
+ * `/settings`, guarded by password + code.
  */
 export function AdminUsersTab({
   currentAgentId,
@@ -134,6 +148,10 @@ export function AdminUsersTab({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<AdminUser | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
+  /** Id of the row whose reset is running (per-row loading, not a global one). */
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
 
   const hasFilters =
@@ -302,6 +320,51 @@ export function AdminUsersTab({
   }
 
   /**
+   * `POST /admin/users/:id/reset-2fa` — an ADMIN removes another operator's TOTP.
+   *
+   * The action is only offered for a row that reports `twoFactorEnabled` and is
+   * not the caller's own (self-service disable lives in `/settings`, and the API
+   * answers `409 CANNOT_RESET_OWN_2FA`). The dialog stays open on failure so the
+   * API's real 409/404 message is not lost; the list is re-read either way, so a
+   * stale row (2FA already off, operator removed) stops lying immediately.
+   */
+  async function handleResetTwoFactor(): Promise<void> {
+    if (resetTarget === null || resettingId !== null) return;
+    const target = resetTarget;
+    setResettingId(target.id);
+    setResetError(null);
+    try {
+      const result = await api.resetAdminUserTwoFactor(target.id);
+      setResetTarget(null);
+      if (result.twoFactorEnabled) {
+        // A 200 that still reports 2FA on means the reset did not take effect:
+        // never claim success; the reload below shows the server's state.
+        setNotice({
+          tone: 'danger',
+          text: `A API respondeu 200, mas ainda reporta a verificação em duas etapas de ${target.name} como ativa. Atualize a lista; se persistir, tente novamente.`,
+        });
+      } else {
+        setNotice({
+          tone: 'success',
+          text: `2FA de ${target.name} redefinido. O operador perdeu a configuração e as sessões ativas foram encerradas; ele só volta a usar o 2FA configurando o app autenticador de novo no próximo login.`,
+        });
+      }
+      reload();
+    } catch (failure) {
+      if (failure instanceof ApiClientError && failure.status === 403) {
+        setResetTarget(null);
+        onForbidden();
+        return;
+      }
+      setResetError(resetUserTwoFactorErrorMessage(failure));
+      // Re-read: TWO_FACTOR_NOT_ENABLED / 404 mean the row is stale.
+      reload();
+    } finally {
+      setResettingId(null);
+    }
+  }
+
+  /**
    * Downloads the CSV of the **applied** filters (all pages of the result).
    *
    * The file is fetched with the bearer token and saved from a Blob, so the
@@ -350,6 +413,7 @@ export function AdminUsersTab({
     { key: 'email', label: 'E-mail' },
     { key: 'role', label: 'Papel' },
     { key: 'status', label: 'Status' },
+    { key: 'twoFactor', label: '2FA' },
     { key: 'lastLogin', label: 'Último login' },
     { key: 'sessions', label: 'Sessões' },
     { key: 'actions', label: 'Ações' },
@@ -380,6 +444,18 @@ export function AdminUsersTab({
           status: (
             <Pill tone={user.isActive ? 'ok' : 'danger'}>
               {user.isActive ? 'Ativo' : 'Inativo'}
+            </Pill>
+          ),
+          twoFactor: (
+            <Pill
+              tone={user.twoFactorEnabled ? 'ok' : 'neutral'}
+              title={
+                user.twoFactorEnabled
+                  ? 'Verificação em duas etapas ativada (app autenticador).'
+                  : 'Verificação em duas etapas desativada.'
+              }
+            >
+              {user.twoFactorEnabled ? 'Ativado' : 'Desativado'}
             </Pill>
           ),
           lastLogin: (
@@ -433,11 +509,34 @@ export function AdminUsersTab({
               >
                 {user.isActive ? 'Desativar' : 'Ativar'}
               </Button>
+              {/*
+                Only a row that actually has 2FA and is not the caller offers the
+                reset: the API refuses both cases (409), so the UI never leads the
+                operator into an error it can predict.
+              */}
+              {user.twoFactorEnabled && !self ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon="tool"
+                  loading={resettingId === user.id}
+                  disabled={resettingId !== null && resettingId !== user.id}
+                  title="Remove a configuração de 2FA e encerra as sessões ativas deste operador."
+                  aria-label={`Redefinir 2FA de ${user.name}`}
+                  onClick={() => {
+                    setNotice(null);
+                    setResetError(null);
+                    setResetTarget(user);
+                  }}
+                >
+                  Redefinir 2FA
+                </Button>
+              ) : null}
             </span>
           ),
         };
       }),
-    [currentAgentId, users],
+    [currentAgentId, resettingId, users],
   );
 
   return (
@@ -571,7 +670,7 @@ export function AdminUsersTab({
         ) : (
           <>
             <p className="sac-admin-scroll-hint">
-              Deslize a tabela para ver papel, status, sessões e ações.
+              Deslize a tabela para ver papel, status, 2FA, sessões e ações.
             </p>
             <DataTable
               caption={`Equipe do workspace — ${users.length} de ${total} operador(es)`}
@@ -612,6 +711,7 @@ export function AdminUsersTab({
           Chamadas: <span className="sac-num">GET /admin/users?search=&amp;role=&amp;status=&amp;page=&amp;perPage=</span>{' '}
           · <span className="sac-num">GET /admin/users/export.csv?search=&amp;role=&amp;status=</span>{' '}
           (download autenticado) · <span className="sac-num">PATCH /admin/users/:id</span> ·{' '}
+          <span className="sac-num">POST /admin/users/:id/reset-2fa</span> ·{' '}
           <span className="sac-num">POST /admin/users/:id/revoke-sessions</span>
         </p>
       </div>
@@ -698,6 +798,46 @@ export function AdminUsersTab({
           A API fecha {revokeTarget?.sessionsCount ?? 0} sessão(ões) — o operador continua ativo no
           workspace, mas perde o acesso imediato em todos os navegadores.
         </p>
+      </ConfirmActionDialog>
+
+      <ConfirmActionDialog
+        open={resetTarget !== null}
+        title={`Redefinir a verificação em duas etapas de ${resetTarget?.name ?? 'operador'}?`}
+        description="O operador perde o 2FA atual e todas as sessões ativas são encerradas; ele só volta a usar o 2FA configurando o app autenticador de novo."
+        confirmLabel="Redefinir 2FA"
+        tone="danger"
+        loading={resetTarget !== null && resettingId === resetTarget.id}
+        onConfirm={() => void handleResetTwoFactor()}
+        onClose={() => {
+          if (resettingId === null) {
+            setResetTarget(null);
+            setResetError(null);
+          }
+        }}
+      >
+        <div className="flex flex-col gap-3">
+          <Alert title="O operador perde acesso ao 2FA até reconfigurar" tone="warning">
+            A configuração atual (secret e códigos de recuperação) deixa de existir. As sessões
+            abertas em todos os dispositivos são encerradas, então o acesso atual cai na hora — o
+            próximo login pede novamente a configuração do app autenticador quando a política do
+            workspace exigir 2FA.
+          </Alert>
+          <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            {resetTarget !== null && resetTarget.isActive
+              ? 'O operador continua ativo no workspace; apenas o 2FA é removido. Avise-o antes de redefinir, para que ele não seja surpreendido pelo encerramento das sessões.'
+              : 'O operador está desativado: as sessões já abertas também são encerradas e ele continua sem poder entrar até ser reativado.'}
+          </p>
+          {resetTarget !== null && resetTarget.id === currentAgentId ? (
+            <Alert title="Esta é a sua própria conta" tone="danger">
+              Um ADMIN não redefine o próprio 2FA por aqui; use Configurações → Segurança.
+            </Alert>
+          ) : null}
+          {resetError !== null ? (
+            <Alert title="Não foi possível redefinir o 2FA" tone="danger">
+              {resetError}
+            </Alert>
+          ) : null}
+        </div>
       </ConfirmActionDialog>
     </Card>
   );

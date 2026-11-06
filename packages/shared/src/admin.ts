@@ -12,6 +12,7 @@ import type { AgentRole, Marketplace } from './enums';
  *   GET   /api/v1/admin/users               -> AdminUserListResult
  *   PATCH /api/v1/admin/users/:id           -> AdminUserView
  *   POST  /api/v1/admin/users/:id/revoke-sessions -> { revoked }
+ *   POST  /api/v1/admin/users/:id/reset-2fa -> AdminUserTwoFactorResetResult
  *   GET   /api/v1/admin/invitations         -> AdminInvitationListResult
  *   DELETE /api/v1/admin/invitations/:id    -> 204
  *   GET   /api/v1/admin/sessions            -> AdminSessionListResult
@@ -65,6 +66,15 @@ export const AUDIT_ACTIONS = {
   adminUserActivated: 'admin.user.activated',
   adminUserDeactivated: 'admin.user.deactivated',
   adminUserSessionsRevoked: 'admin.user.sessions_revoked',
+  /**
+   * ADMIN reset the TOTP factor of an operator who lost the authenticator (a
+   * workspace with the `require_2fa` policy would otherwise lock them out).
+   *
+   * The row records WHO reset WHICH operator: the e-mail is masked and neither
+   * the TOTP secret nor a recovery code ever reaches the metadata. The reset
+   * also revokes the target sessions, so the next sign-in starts from scratch.
+   */
+  adminUser2faReset: 'admin.user.2fa_reset',
   /** ADMIN console revoked ONE session of another operator (`/admin/sessions`). */
   adminSessionRevoked: 'admin.session.revoked',
   /**
@@ -388,6 +398,14 @@ export interface AdminUserView {
   createdAt: string;
   /** Live refresh sessions (`revoked_at IS NULL` and not expired). */
   sessionsCount: number;
+  /**
+   * True when the operator has an ACTIVE TOTP factor.
+   *
+   * The console only offers `POST /admin/users/:id/reset-2fa` on rows where
+   * this is true: resetting a factor that does not exist is a 409
+   * (`TWO_FACTOR_NOT_ENABLED`), never a silent no-op.
+   */
+  twoFactorEnabled: boolean;
 }
 
 export interface AdminUserListResult {
@@ -401,6 +419,18 @@ export interface AdminUserListResult {
 export interface UpdateAdminUserCommand {
   role?: AgentRole;
   isActive?: boolean;
+}
+
+/**
+ * Result of `POST /admin/users/:id/reset-2fa`.
+ *
+ * `twoFactorEnabled` is always `false` after a successful reset (the TOTP
+ * secret and every recovery code are wiped), so the console can update the row
+ * without another round-trip.
+ */
+export interface AdminUserTwoFactorResetResult {
+  id: string;
+  twoFactorEnabled: false;
 }
 
 /** Application projection: agent row + the two derived counters. */
@@ -510,7 +540,9 @@ export interface IAdminUserRepository {
  *    deactivated (409);
  *  - revoking sessions of the caller itself is refused (409) — logout is the
  *    endpoint for that, and it keeps the caller's own session intact by mistake
- *    impossible.
+ *    impossible;
+ *  - resetting the 2FA factor of the caller itself is likewise refused (409) —
+ *    `/settings` is the flow for the operator's own factor.
  */
 export interface IAdminUserService {
   /** Aggregated, tenant-scoped snapshot of `GET /admin/overview`. */
@@ -539,6 +571,27 @@ export interface IAdminUserService {
     actor: AuditActorContext,
     userId: string,
   ): Promise<{ revoked: number }>;
+  /**
+   * Break-glass reset of one operator's TOTP factor (`POST /admin/users/:id/reset-2fa`).
+   *
+   * Guards (in the service, not only at the HTTP layer):
+   *  - the target is re-read and must belong to the caller tenant (404);
+   *  - an ADMIN cannot reset its own factor (409 `CANNOT_RESET_OWN_2FA`) — the
+   *    self-service `/settings` flow is the endpoint for that;
+   *  - a target without an ACTIVE factor is a 409 `TWO_FACTOR_NOT_ENABLED`
+   *    (there is nothing to break, and a silent no-op would mislead the console).
+   *
+   * A successful reset wipes the TOTP secret AND every recovery code (one
+   * repository transaction), revokes all refresh sessions of the target and
+   * stamps its access-token watermark, so the operator must sign in again. The
+   * role/active flag of the target and the actor's own account are untouched;
+   * the action is audited as `admin.user.2fa_reset`.
+   */
+  resetTwoFactor(
+    tenantId: string,
+    actor: AuditActorContext,
+    userId: string,
+  ): Promise<AdminUserTwoFactorResetResult>;
   /**
    * LIVE sessions of the workspace, tenant-scoped and ordered by last use.
    * `currentSessionId` is the access-token `sid` claim: the matching row is the

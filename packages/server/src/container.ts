@@ -324,6 +324,9 @@ export function createContainer(args: ContainerArgs): IAppServices {
     repos: {
       adminUsers: infra.adminUsers,
       sessions: infra.sessions,
+      // Break-glass 2FA reset: the factor wipe goes through the same repository
+      // as the operator's self-service disable (atomic secret + codes wipe).
+      twoFactor: infra.twoFactor,
     },
   });
 

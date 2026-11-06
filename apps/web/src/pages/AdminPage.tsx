@@ -31,8 +31,10 @@ function asAdminTab(value: string): AdminTab {
  * Four tabs share one page:
  *  - **Usuários**: the operator roster with server-side filters (name/e-mail,
  *    role, status), server-side pagination and the CSV export of the applied
- *    filters, plus the role/activation/session-revoke actions and the invitation
- *    CTA (`GET|PATCH /admin/users`, `POST /admin/users/:id/revoke-sessions`,
+ *    filters, plus the role/activation/2FA-reset/session-revoke actions and the
+ *    invitation CTA (`GET|PATCH /admin/users`,
+ *    `POST /admin/users/:id/reset-2fa`,
+ *    `POST /admin/users/:id/revoke-sessions`,
  *    `GET /admin/users/export.csv`, `POST /invitations`);
  *  - **Convites**: pending/accepted/expired invitations with revoke for PENDING
  *    rows and re-send for PENDING/EXPIRED rows, never ACCEPTED

@@ -652,6 +652,7 @@ export interface DeleteTenantBody {
  *                                     -> { items, total, page, perPage }
  *   GET   /admin/users/export.csv?search=&role=&status= -> text/csv
  *   PATCH /admin/users/:id            -> AdminUser
+ *   POST  /admin/users/:id/reset-2fa  -> { id, twoFactorEnabled: false }
  *   POST  /admin/users/:id/revoke-sessions -> { revoked: number }
  *   GET   /admin/sessions?page=&perPage= -> { items, total }
  *   DELETE /admin/sessions/:id        -> 204 (409 CANNOT_REVOKE_CURRENT_SESSION)
@@ -749,6 +750,14 @@ export interface AdminUser {
   email: string;
   role: string;
   isActive: boolean;
+  /**
+   * Whether TOTP is currently enrolled for this operator.
+   *
+   * Tolerant read: `api.adminUsers` maps an absent/non-boolean field to `false`
+   * (a deployment that predates the admin 2FA column), so the table always has
+   * a boolean instead of rendering "unknown".
+   */
+  twoFactorEnabled: boolean;
   /** ISO instant of the last successful login (null = never). */
   lastLoginAt: string | null;
   createdAt: string;
@@ -807,6 +816,22 @@ export interface AdminUsersResult {
 export interface AdminUserUpdate {
   role?: string;
   isActive?: boolean;
+}
+
+/**
+ * `POST /admin/users/:id/reset-2fa` (200) — the ADMIN removed the target's TOTP
+ * enrollment and every live session of that operator was closed.
+ *
+ * `twoFactorEnabled` is read straight from the API response (`false` on a
+ * successful reset); when the deployment answers with an empty body,
+ * `api.resetAdminUserTwoFactor` still resolves with the requested id and
+ * `false`, because the route's only successful outcome is a disabled 2FA.
+ * 409 `CANNOT_RESET_OWN_2FA`, 409 `TWO_FACTOR_NOT_ENABLED` and 404 (unknown or
+ * cross-tenant operator) are errors, never a silent success.
+ */
+export interface AdminUserTwoFactorResetResult {
+  id: string;
+  twoFactorEnabled: boolean;
 }
 
 /**

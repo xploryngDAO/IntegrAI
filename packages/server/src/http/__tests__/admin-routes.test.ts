@@ -138,6 +138,7 @@ const USER: AdminUserView = {
   lastLoginAt: '2026-11-05T10:00:00.000Z',
   createdAt: '2026-11-01T10:00:00.000Z',
   sessionsCount: 2,
+  twoFactorEnabled: true,
 };
 
 const AUDIT_PAGE: AuditLogPage = {
@@ -179,6 +180,10 @@ describe('admin HTTP routes', () => {
   const exportUsers = vi.fn(async () => [USER]);
   const updateUser = vi.fn(async () => USER);
   const revokeSessions = vi.fn(async () => ({ revoked: 3 }));
+  const resetTwoFactor = vi.fn(async () => ({
+    id: USER_ID,
+    twoFactorEnabled: false as const,
+  }));
   const listSessions = vi.fn(async () => SESSIONS);
   const revokeSession = vi.fn(async () => undefined);
   const listInvitations = vi.fn(async () => INVITATION_LIST);
@@ -216,6 +221,7 @@ describe('admin HTTP routes', () => {
           exportRows: exportUsers,
           update: updateUser,
           revokeSessions,
+          resetTwoFactor,
           listSessions,
           revokeSession,
         },
@@ -245,6 +251,7 @@ describe('admin HTTP routes', () => {
     exportUsers.mockClear();
     updateUser.mockClear();
     revokeSessions.mockClear();
+    resetTwoFactor.mockClear();
     listSessions.mockClear();
     revokeSession.mockClear();
     listInvitations.mockClear();
@@ -265,6 +272,10 @@ describe('admin HTTP routes', () => {
     }));
     exportUsers.mockImplementation(async () => [USER]);
     revokeSessions.mockImplementation(async () => ({ revoked: 3 }));
+    resetTwoFactor.mockImplementation(async () => ({
+      id: USER_ID,
+      twoFactorEnabled: false as const,
+    }));
     listSessions.mockImplementation(async () => SESSIONS);
     revokeSession.mockImplementation(async () => undefined);
     listInvitations.mockImplementation(async () => INVITATION_LIST);
@@ -291,6 +302,7 @@ describe('admin HTTP routes', () => {
       { method: 'GET' as const, url: '/api/v1/admin/users/export.csv' },
       { method: 'PATCH' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222' },
       { method: 'POST' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/revoke-sessions' },
+      { method: 'POST' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/reset-2fa' },
       { method: 'GET' as const, url: '/api/v1/admin/invitations' },
       {
         method: 'POST' as const,
@@ -333,6 +345,11 @@ describe('admin HTTP routes', () => {
         app.inject({
           method: 'POST',
           url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/revoke-sessions',
+          headers: auth(token),
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/reset-2fa',
           headers: auth(token),
         }),
         app.inject({ method: 'GET', url: '/api/v1/admin/invitations', headers: auth(token) }),
@@ -435,6 +452,11 @@ describe('admin HTTP routes', () => {
     expect(response.json()).toEqual({
       data: { items: [USER], total: 1, page: 1, perPage: 25 },
     });
+    // The console only offers `reset-2fa` when the row reports an active factor.
+    expect(
+      (response.json() as { data: { items: AdminUserView[] } }).data.items[0]
+        ?.twoFactorEnabled,
+    ).toBe(true);
     expect(listUsers).toHaveBeenCalledWith('tenant-1', { page: 1, perPage: 25 });
   });
 
@@ -662,6 +684,75 @@ describe('admin HTTP routes', () => {
       headers: auth(ADMIN_TOKEN),
     });
     expect(conflict.statusCode).toBe(409);
+  });
+
+  it('POST /admin/users/:id/reset-2fa returns the reset projection and forwards tenant + actor', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/users/${USER_ID}/reset-2fa`,
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: { id: USER_ID, twoFactorEnabled: false },
+    });
+    expect(resetTwoFactor).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        id: 'admin-1',
+        email: 'admin@acme.test',
+        tenantId: 'tenant-1',
+      }),
+      USER_ID,
+    );
+  });
+
+  it('POST /admin/users/:id/reset-2fa maps 409 self/not-enabled and 404 foreign', async () => {
+    resetTwoFactor.mockRejectedValueOnce(
+      new AppError('CANNOT_RESET_OWN_2FA', 'Use the settings endpoint', 409),
+    );
+    const self = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/users/${USER_ID}/reset-2fa`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(self.statusCode).toBe(409);
+    expect(self.json()).toMatchObject({ error: { code: 'CANNOT_RESET_OWN_2FA' } });
+
+    resetTwoFactor.mockRejectedValueOnce(
+      new AppError('TWO_FACTOR_NOT_ENABLED', 'Already disabled', 409),
+    );
+    const notEnabled = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/users/${USER_ID}/reset-2fa`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(notEnabled.statusCode).toBe(409);
+    expect(notEnabled.json()).toMatchObject({
+      error: { code: 'TWO_FACTOR_NOT_ENABLED' },
+    });
+
+    resetTwoFactor.mockRejectedValueOnce(new NotFoundError('User', USER_ID));
+    const foreign = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/users/${USER_ID}/reset-2fa`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+  });
+
+  it('POST /admin/users/:id/reset-2fa answers 422 for a malformed id', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users/not-a-uuid/reset-2fa',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(resetTwoFactor).not.toHaveBeenCalled();
   });
 
   it('GET /admin/sessions returns the tenant live sessions with the JWT sid as current', async () => {

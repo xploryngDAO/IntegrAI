@@ -17,6 +17,7 @@ import type {
   IAuditEventRepository,
   IAuditService,
   IClock,
+  ITwoFactorRepository,
   Marketplace,
   SessionRecord,
   TicketStatus,
@@ -472,4 +473,81 @@ export function makeUserSession(overrides: Partial<UserSessionView> = {}): UserS
     ip: overrides.ip ?? null,
     current: overrides.current ?? false,
   };
+}
+
+/**
+ * In-memory `ITwoFactorRepository` bound to an `InMemoryAdminUserRepository`.
+ *
+ * It mirrors the production invariants that matter to the admin reset tests:
+ * `disable` flips the flag AND clears the secret AND drops every recovery code
+ * (one logical transaction). The agent rows are the same objects seeded by the
+ * admin repository, so assertions can inspect the persisted state directly.
+ */
+export class InMemoryTwoFactorRepository implements ITwoFactorRepository {
+  /** userId -> SHA-256 hashes of the still-stored recovery codes. */
+  readonly codes = new Map<string, string[]>();
+
+  constructor(private readonly agents: InMemoryAdminUserRepository) {}
+
+  /** Seeds an ACTIVE factor (default: 8 unused recovery codes). */
+  seedEnabled(
+    userId: string,
+    options: { secretEnc?: string; recoveryCodes?: number } = {},
+  ): void {
+    const agent = this.requireAgent(userId);
+    agent.twoFactorEnabled = true;
+    agent.twoFactorSecretEnc = options.secretEnc ?? `enc:${userId}:totp`;
+    const count = options.recoveryCodes ?? 8;
+    this.codes.set(
+      userId,
+      Array.from({ length: count }, (_, index) => `recovery-hash-${userId}-${index + 1}`),
+    );
+  }
+
+  /** Stored recovery-code hashes (empty after a reset/disable). */
+  recoveryCodeHashes(userId: string): readonly string[] {
+    return this.codes.get(userId) ?? [];
+  }
+
+  async setPendingSecret(userId: string, secretEnc: string): Promise<void> {
+    const agent = this.requireAgent(userId);
+    agent.twoFactorSecretEnc = secretEnc;
+    agent.twoFactorEnabled = false;
+  }
+
+  async enable(userId: string, codeHashes: string[]): Promise<void> {
+    const agent = this.requireAgent(userId);
+    agent.twoFactorEnabled = true;
+    this.codes.set(userId, [...codeHashes]);
+  }
+
+  async disable(userId: string): Promise<void> {
+    const agent = this.requireAgent(userId);
+    agent.twoFactorEnabled = false;
+    agent.twoFactorSecretEnc = null;
+    this.codes.delete(userId);
+  }
+
+  async replaceRecoveryCodes(userId: string, codeHashes: string[]): Promise<void> {
+    this.requireAgent(userId);
+    this.codes.set(userId, [...codeHashes]);
+  }
+
+  async countUnusedRecoveryCodes(userId: string): Promise<number> {
+    return this.recoveryCodeHashes(userId).length;
+  }
+
+  async consumeRecoveryCode(userId: string, codeHash: string, _at: Date): Promise<boolean> {
+    const stored = this.codes.get(userId) ?? [];
+    const index = stored.indexOf(codeHash);
+    if (index === -1) return false;
+    stored.splice(index, 1);
+    return true;
+  }
+
+  private requireAgent(userId: string): AgentRecord {
+    const agent = this.agents.rows.find((row) => row.id === userId);
+    if (agent === undefined) throw new Error(`Agent not found: ${userId}`);
+    return agent;
+  }
 }

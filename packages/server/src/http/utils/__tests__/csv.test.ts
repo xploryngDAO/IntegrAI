@@ -117,6 +117,7 @@ function makeUser(overrides: Partial<AdminUserView> = {}): AdminUserView {
     lastLoginAt: '2026-11-05T10:00:00.000Z',
     createdAt: '2026-11-01T10:00:00.000Z',
     sessionsCount: 2,
+    twoFactorEnabled: false,
     ...overrides,
   };
 }

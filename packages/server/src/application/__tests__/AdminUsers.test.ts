@@ -7,13 +7,17 @@ import type {
   ITenantRepository,
   RoleChangedAlertEmail,
 } from '@sac/shared';
-import { ADMIN_USERS_EXPORT_MAX_ROWS } from '@sac/shared';
+import { ADMIN_USERS_EXPORT_MAX_ROWS, redactPiiForLogs } from '@sac/shared';
 
 import { userRevocationWatermarkKey } from '../auth/access-token-revocation';
 import { AdminUserService } from '../AdminUserService';
 import { InMemoryCache } from './accountFakes';
 import { InMemorySessionRepository } from './authFakes';
-import { InMemoryAdminUserRepository, RecordingAuditService } from './adminFakes';
+import {
+  InMemoryAdminUserRepository,
+  InMemoryTwoFactorRepository,
+  RecordingAuditService,
+} from './adminFakes';
 
 /**
  * Workspace user administration guards:
@@ -112,6 +116,7 @@ function build(options: { withEmail?: boolean } = {}) {
   const audit = new RecordingAuditService();
   const sessions = new InMemorySessionRepository(clock);
   const repo = new InMemoryAdminUserRepository(clock);
+  const twoFactor = new InMemoryTwoFactorRepository(repo);
   const email = new RecordingAccountEmailService();
   const tenants = new FakeTenantDirectory();
   tenants.names.set('tenant-1', TENANT_NAME);
@@ -123,9 +128,9 @@ function build(options: { withEmail?: boolean } = {}) {
     audit,
     ...(options.withEmail === false ? {} : { email }),
     tenants: tenants as unknown as ITenantRepository,
-    repos: { adminUsers: repo, sessions },
+    repos: { adminUsers: repo, sessions, twoFactor },
   });
-  return { clock, cache, audit, sessions, repo, service, email, tenants };
+  return { clock, cache, audit, sessions, repo, twoFactor, service, email, tenants };
 }
 
 const ACTOR = { id: 'admin-1', email: 'admin@acme.test', tenantId: 'tenant-1', ip: '203.0.113.7' };
@@ -173,6 +178,7 @@ describe('AdminUserService.list', () => {
       lastLoginAt: '2026-11-05T10:00:00.000Z',
       createdAt: T0.toISOString(),
       sessionsCount: 3,
+      twoFactorEnabled: false,
     });
     expect(result.items[1]).toMatchObject({ id: 'agent-2', lastLoginAt: null, sessionsCount: 0 });
     expect(second.id).toBe('agent-2');
@@ -666,5 +672,145 @@ describe('AdminUserService.revokeSessions', () => {
     await expect(
       service.revokeSessions('tenant-1', ACTOR, 'foreign'),
     ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+  });
+});
+
+describe('AdminUserService.resetTwoFactor', () => {
+  it('wipes TOTP + recovery codes, revokes the target sessions and audits (masked e-mail)', async () => {
+    const { repo, twoFactor, sessions, cache, audit, service } = build();
+    // The actor has its own factor and device: neither may be touched.
+    const actor = seedAgent(repo, {
+      id: 'admin-1',
+      role: 'ADMIN',
+      email: 'admin@acme.test',
+    });
+    twoFactor.seedEnabled(actor.id, { secretEnc: 'enc:actor', recoveryCodes: 4 });
+
+    const target = seedAgent(repo, {
+      id: 'agent-2',
+      name: 'Bob',
+      email: 'bob.silva@acme.test',
+      role: 'SUPERVISOR',
+      isActive: true,
+    });
+    twoFactor.seedEnabled(target.id, { secretEnc: 'enc:target', recoveryCodes: 8 });
+
+    for (const [userId, hash] of [
+      ['admin-1', 'hash-actor'],
+      [target.id, 'hash-target-1'],
+      [target.id, 'hash-target-2'],
+    ] as const) {
+      await sessions.create({
+        userId,
+        tenantId: 'tenant-1',
+        refreshTokenHash: hash,
+        expiresAt: new Date(T0.getTime() + 86_400_000),
+      });
+    }
+
+    const result = await service.resetTwoFactor('tenant-1', ACTOR, target.id);
+
+    expect(result).toEqual({ id: target.id, twoFactorEnabled: false });
+
+    // Factor wiped: flag off, secret null and no break-glass code left.
+    expect(target.twoFactorEnabled).toBe(false);
+    expect(target.twoFactorSecretEnc).toBeNull();
+    expect(twoFactor.recoveryCodeHashes(target.id)).toEqual([]);
+
+    // Role/active flag are out of scope for the reset.
+    expect(target.role).toBe('SUPERVISOR');
+    expect(target.isActive).toBe(true);
+
+    // Every refresh session of the target is revoked; the actor keeps its own.
+    const targetSessions = sessions.rows.filter((row) => row.userId === target.id);
+    expect(targetSessions).toHaveLength(2);
+    expect(targetSessions.every((row) => row.revokedAt !== null)).toBe(true);
+    expect(sessions.rows.find((row) => row.userId === 'admin-1')?.revokedAt).toBeNull();
+
+    // The watermark is stamped for the target only (JWT dies before `exp`).
+    expect(cache.entries.get(userRevocationWatermarkKey(target.id))).toBe(
+      Math.floor(T0.getTime() / 1000),
+    );
+    expect(cache.entries.has(userRevocationWatermarkKey('admin-1'))).toBe(false);
+
+    // The actor's factor is untouched.
+    expect(actor.twoFactorEnabled).toBe(true);
+    expect(actor.twoFactorSecretEnc).toBe('enc:actor');
+    expect(twoFactor.recoveryCodeHashes('admin-1')).toHaveLength(4);
+
+    // One audit row with the masked e-mail and the agent id — no secret/codes.
+    expect(audit.actions()).toEqual(['admin.user.2fa_reset']);
+    const row = audit.recorded[0];
+    expect(row).toMatchObject({
+      tenantId: 'tenant-1',
+      actorId: 'admin-1',
+      actorEmail: 'admin@acme.test',
+      resourceType: 'user',
+      resourceId: target.id,
+    });
+    const metadata = row?.metadata as Record<string, unknown>;
+    expect(metadata.targetEmail).toBe(redactPiiForLogs('bob.silva@acme.test'));
+    expect(metadata.targetEmail).not.toBe('bob.silva@acme.test');
+    expect(metadata.targetAgentId).toBe(target.id);
+    expect(JSON.stringify(metadata)).not.toContain('enc:target');
+    expect(JSON.stringify(metadata)).not.toContain('recovery-hash');
+  });
+
+  it('refuses to reset the caller own factor with 409 CANNOT_RESET_OWN_2FA', async () => {
+    const { repo, twoFactor, sessions, audit, service } = build();
+    const actor = seedAgent(repo, {
+      id: 'admin-1',
+      role: 'ADMIN',
+    });
+    twoFactor.seedEnabled(actor.id, { secretEnc: 'enc:actor', recoveryCodes: 8 });
+    await sessions.create({
+      userId: actor.id,
+      tenantId: 'tenant-1',
+      refreshTokenHash: 'hash-own',
+      expiresAt: new Date(T0.getTime() + 86_400_000),
+    });
+
+    await expect(
+      service.resetTwoFactor('tenant-1', ACTOR, actor.id),
+    ).rejects.toMatchObject({ code: 'CANNOT_RESET_OWN_2FA', httpStatus: 409 });
+
+    expect(actor.twoFactorEnabled).toBe(true);
+    expect(twoFactor.recoveryCodeHashes(actor.id)).toHaveLength(8);
+    expect(sessions.rows[0]?.revokedAt).toBeNull();
+    expect(audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 409 TWO_FACTOR_NOT_ENABLED when the target has no active factor', async () => {
+    const { repo, twoFactor, cache, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    const target = seedAgent(repo, { id: 'agent-2' });
+
+    await expect(
+      service.resetTwoFactor('tenant-1', ACTOR, target.id),
+    ).rejects.toMatchObject({ code: 'TWO_FACTOR_NOT_ENABLED', httpStatus: 409 });
+
+    expect(target.twoFactorEnabled).toBe(false);
+    expect(twoFactor.recoveryCodeHashes(target.id)).toEqual([]);
+    expect(cache.entries.has(userRevocationWatermarkKey(target.id))).toBe(false);
+    expect(audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 404 for a foreign or unknown target and never writes', async () => {
+    const { repo, twoFactor, cache, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    const foreign = seedAgent(repo, { id: 'foreign', tenantId: 'tenant-2' });
+    twoFactor.seedEnabled(foreign.id);
+
+    await expect(
+      service.resetTwoFactor('tenant-1', ACTOR, foreign.id),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+    await expect(
+      service.resetTwoFactor('tenant-1', ACTOR, 'missing'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+
+    expect(foreign.twoFactorEnabled).toBe(true);
+    expect(twoFactor.recoveryCodeHashes(foreign.id)).toHaveLength(8);
+    expect(cache.entries.has(userRevocationWatermarkKey(foreign.id))).toBe(false);
+    expect(audit.recorded).toHaveLength(0);
   });
 });

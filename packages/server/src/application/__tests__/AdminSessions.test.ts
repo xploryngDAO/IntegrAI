@@ -4,7 +4,7 @@ import type { AgentRecord, ILogger } from '@sac/shared';
 import { AdminUserService } from '../AdminUserService';
 import { InMemoryCache } from './accountFakes';
 import { InMemorySessionRepository } from './authFakes';
-import { InMemoryAdminUserRepository, RecordingAuditService } from './adminFakes';
+import { InMemoryAdminUserRepository, InMemoryTwoFactorRepository, RecordingAuditService } from './adminFakes';
 
 /**
  * Workspace session administration (`GET/DELETE /admin/sessions`):
@@ -43,14 +43,15 @@ function build() {
   const audit = new RecordingAuditService();
   const sessions = new InMemorySessionRepository(clock);
   const repo = new InMemoryAdminUserRepository(clock);
+  const twoFactor = new InMemoryTwoFactorRepository(repo);
   const service = new AdminUserService({
     logger: silentLogger,
     clock,
     cache,
     audit,
-    repos: { adminUsers: repo, sessions },
+    repos: { adminUsers: repo, sessions, twoFactor },
   });
-  return { clock, audit, sessions, repo, service };
+  return { clock, audit, sessions, repo, twoFactor, service };
 }
 
 function seedAgent(

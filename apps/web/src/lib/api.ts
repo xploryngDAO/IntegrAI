@@ -37,6 +37,7 @@ import type {
   AdminSessionsQuery,
   AdminSessionsResult,
   AdminUser,
+  AdminUserTwoFactorResetResult,
   AdminUserUpdate,
   AdminUsersExportQuery,
   AdminUsersQuery,
@@ -858,6 +859,16 @@ export interface ApiClient {
   exportAdminUsersCsv(query: AdminUsersExportQuery): Promise<DownloadedFile>;
   /** `PATCH /admin/users/:id` — role and/or active flag. */
   updateAdminUser(id: string, body: AdminUserUpdate): Promise<AdminUser>;
+  /**
+   * `POST /admin/users/:id/reset-2fa` — removes the target's TOTP enrollment
+   * and closes every live session of that operator.
+   *
+   * `409 CANNOT_RESET_OWN_2FA` refuses the caller's own account (self-service
+   * disable lives in `/settings`), `409 TWO_FACTOR_NOT_ENABLED` means the row
+   * was stale, and `404` that the operator is unknown or belongs to another
+   * tenant. All of them keep their real code/message in `ApiClientError`.
+   */
+  resetAdminUserTwoFactor(id: string): Promise<AdminUserTwoFactorResetResult>;
   /** `POST /admin/users/:id/revoke-sessions` — closes every session of one user. */
   revokeUserSessions(id: string): Promise<{ revoked: number }>;
   /**
@@ -1032,6 +1043,9 @@ function normalizeAdminUser(raw: unknown): AdminUser | null {
     email: asTextOrNull(raw.email) ?? '',
     role: asTextOrNull(raw.role) ?? 'AGENT',
     isActive: raw.isActive !== false,
+    // Tolerant: an API that predates the admin 2FA column omits the field, and
+    // the table must still render a boolean ("Desativado") instead of unknown.
+    twoFactorEnabled: raw.twoFactorEnabled === true,
     lastLoginAt: asIsoOrNull(raw.lastLoginAt),
     createdAt: asIsoOrNull(raw.createdAt) ?? '',
     sessionsCount: asCounter(raw.sessionsCount),
@@ -2076,6 +2090,23 @@ export const api: ApiClient = {
     return user;
   },
 
+  async resetAdminUserTwoFactor(id) {
+    const payload = await request<unknown>(
+      `/admin/users/${encodeURIComponent(id)}/reset-2fa`,
+      // A deployment may answer 200 with no body; the reset itself already
+      // happened, so an empty success must not be reported as a failure.
+      { method: 'POST', allowEmpty: true, timeoutMs: 15_000 },
+    );
+    const result = isRecord(payload) ? payload : {};
+    return {
+      // The requested id is the fallback: the target was resolved by the API,
+      // and a bodyless 200 must still name the operator the caller asked for.
+      id: asTextOrNull(result.id) ?? id,
+      // `true` only when the API explicitly says so; 409s never reach here.
+      twoFactorEnabled: result.twoFactorEnabled === true,
+    };
+  },
+
   async revokeUserSessions(id) {
     const payload = await request<unknown>(
       `/admin/users/${encodeURIComponent(id)}/revoke-sessions`,
@@ -2282,6 +2313,7 @@ export type {
   AdminSessionsQuery,
   AdminSessionsResult,
   AdminUser,
+  AdminUserTwoFactorResetResult,
   AdminUserUpdate,
   AdminUsersExportQuery,
   AdminUsersQuery,

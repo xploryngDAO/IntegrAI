@@ -6,6 +6,7 @@ import { AdminUserService } from '../../application/AdminUserService';
 import { InMemoryCache } from '../../application/__tests__/accountFakes';
 import {
   InMemoryAdminUserRepository,
+  InMemoryTwoFactorRepository,
   RecordingAuditService,
 } from '../../application/__tests__/adminFakes';
 import { InMemorySessionRepository } from '../../application/__tests__/authFakes';
@@ -113,6 +114,7 @@ function createApp(
     repos: {
       adminUsers: repository,
       sessions: new InMemorySessionRepository(clock),
+      twoFactor: new InMemoryTwoFactorRepository(repository),
     },
   });
 

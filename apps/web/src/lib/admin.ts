@@ -265,6 +265,52 @@ export function adminSessionErrorMessage(error: unknown): string {
   return adminErrorMessage(error);
 }
 
+/**
+ * Failure of `POST /admin/users/:id/reset-2fa` (administrative 2FA reset).
+ *
+ * The API's own message is shown first — it is the truth of *why* the reset was
+ * refused — and the hint after it says what the operator can do next:
+ *  - `409 CANNOT_RESET_OWN_2FA`: self-service disable lives in `/settings`;
+ *  - `409 TWO_FACTOR_NOT_ENABLED`: the row was stale, so the list is re-read;
+ *  - `404`: the operator does not exist in this tenant (or was removed).
+ */
+export function resetUserTwoFactorErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    const message = error.message.trim();
+    // The API answers PT-BR sentences, but a proxy may drop the final
+    // punctuation; the hint is appended as a new sentence either way.
+    const detail = message.length === 0 ? '' : /[.!?]$/.test(message) ? message : `${message}.`;
+    const prefix = detail.length > 0 ? `${detail} ` : '';
+
+    switch (error.code) {
+      case 'CANNOT_RESET_OWN_2FA':
+        return `${prefix}Sua própria verificação em duas etapas não pode ser redefinida por aqui: use Configurações → Segurança para desativá-la com a senha e um código.`;
+      case 'TWO_FACTOR_NOT_ENABLED':
+        return `${prefix}Este operador já está sem a verificação em duas etapas; a lista foi atualizada com o estado real. Nenhuma sessão foi encerrada por esta tentativa.`;
+      default:
+        break;
+    }
+
+    if (error.status === 404) {
+      return 'Usuário não encontrado (HTTP 404). Ele pode ter sido removido ou pertencer a outro workspace; atualize a lista antes de tentar de novo.';
+    }
+    if (error.status === 409) {
+      return `${prefix}O estado do 2FA mudou em outra sessão (HTTP 409); atualize a lista e tente novamente.`;
+    }
+    if (error.status === 401) {
+      return 'Sua sessão expirou. Entre novamente para redefinir a verificação em duas etapas.';
+    }
+    if (error.status === 403) {
+      return 'Somente um ADMIN do workspace pode redefinir o 2FA de outro operador (HTTP 403).';
+    }
+    if (error.status === 422) {
+      return `${error.message} Revise o operador escolhido e tente novamente.`;
+    }
+    if (error.status === 0) return error.message;
+  }
+  return adminErrorMessage(error);
+}
+
 /** Failure of `DELETE /admin/invitations/:id` (revocation of a pending invite). */
 export function invitationErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
