@@ -26,6 +26,19 @@ import type {
   TicketStats,
 } from '@sac/shared';
 
+/**
+ * Public build identity returned by `GET /version` (no session required).
+ * Used by the status page to show which API build is answering.
+ */
+export interface ApiVersionInfo {
+  version: string;
+  commit: string | null;
+  node: string;
+  env: string;
+  uptimeSeconds: number;
+  startedAt: string;
+}
+
 import type {
   AcceptInvitationBody,
   AccountRow,
@@ -914,6 +927,8 @@ export interface ApiClient {
    * reach the API.
    */
   status(): Promise<SystemStatusSnapshot>;
+  /** Public build identity (`GET /version`); never requires a session. */
+  version(): Promise<ApiVersionInfo>;
   /** Creates tenant + first ADMIN and mails the verification link (public). */
   signup(body: SignupBody): Promise<SignupResult>;
   /** Consumes the single-use verification token (public). */
@@ -1699,6 +1714,13 @@ export const api: ApiClient = {
 
   me() {
     return request<IAgentSummary>('/auth/me');
+  },
+
+  version() {
+    return request<ApiVersionInfo>('/version', {
+      timeoutMs: 5_000,
+      cache: 'no-store',
+    });
   },
 
   async status() {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Moon, Sun } from 'lucide-react';
 import { PageHeader } from '@xploryng/convergencia';
-import { api } from '../lib/api';
+import { api, type ApiVersionInfo } from '../lib/api';
 import { formatDateTimeSeconds } from '../lib/format';
 import { useTheme } from '../lib/theme';
 import {
@@ -156,6 +156,7 @@ export function StatusPage(): JSX.Element {
   const { theme, toggle } = useTheme();
 
   const [snapshot, setSnapshot] = useState<SystemStatusSnapshot | null>(null);
+  const [version, setVersion] = useState<ApiVersionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +183,14 @@ export function StatusPage(): JSX.Element {
       if (!mountedRef.current) return;
       setSnapshot(result);
       setError(null);
+      // Build identity is informative only: a failure here must never hide the
+      // availability snapshot.
+      void api
+        .version()
+        .then((info) => {
+          if (mountedRef.current) setVersion(info);
+        })
+        .catch(() => undefined);
     } catch (failure) {
       if (!mountedRef.current) return;
       // Keeps the last real snapshot on screen; the alert states it is stale.
@@ -310,6 +319,12 @@ export function StatusPage(): JSX.Element {
 
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--cv-color-border)] pt-4 text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
           <span>Atualização automática a cada 60 segundos.</span>
+          <span className="sac-num" title="Build da API que respondeu à esta página">
+            API{' '}
+            {version === null
+              ? '—'
+              : `v${version.version}${version.commit === null ? '' : ` · ${version.commit.slice(0, 7)}`}`}
+          </span>
           <Link
             to="/"
             className="underline-offset-2 hover:text-[var(--cv-color-text)] hover:underline"

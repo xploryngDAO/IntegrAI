@@ -476,3 +476,10 @@ osv-scanner lockfile -> No issues found (581 pacotes)
 Removidos s3rver (nao usado) e vitest2/vite5; agora vitest 4.1.12 + vite 6.4.5 (override)
 1072 testes + builds verdes apos o upgrade
 ```
+
+### 46. Build da API visivel no /status
+```
+/status (publico) -> rodape: "API v1.0.0 · 7549023" (version + commit de GET /version)
+fonte: GET /version publico; falha na consulta nao esconde o snapshot de disponibilidade
+a11y: 10/10 telas com 0 violacoes apos a mudanca
+```
