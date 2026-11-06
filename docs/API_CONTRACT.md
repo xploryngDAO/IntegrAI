@@ -380,3 +380,28 @@ npm run doctor -- --account=<uuid>
 - Login/2FA/SSO/enrollment têm buckets por IP/e-mail; `/health*`, `/status`, `/metrics` são isentos do limite global.
 - `401` = não autenticado/expirado (renove via `POST /auth/refresh`); `403` = autenticado sem permissão;
   `429` = rate limit com `details.retryAfterMs` e header `Retry-After`.
+
+## 13. Autenticação self-service (público)
+
+Rotas usadas pelo signup/login/reset/convite do SPA. Todas são públicas e
+protegidas por rate limit por IP/e-mail; erros seguem o envelope padrão.
+
+- `POST /auth/signup` `{companyName, name, email, password}` → **201** com o
+  workspace criado e e-mail de verificação enviado (o login só libera após
+  `verify-email`). `409` quando o e-mail já existe.
+- `POST /auth/verify-email` `{token}` → **200** `{verified:true}`; token
+  inválido/expirado/consumido responde erro de verificação (não revela dados).
+- `POST /auth/resend-verification` `{email}` → **202** sempre (sem enumeração).
+- `POST /auth/forgot-password` `{email}` → **202** sempre (sem enumeração).
+- `POST /auth/reset-password` `{token, password}` → **200**; encerra as sessões
+  abertas da conta. Token inválido/expirado não altera a senha.
+- `POST /auth/accept-invitation` `{token, name, password, deviceName?}` →
+  **200** `AuthResponse` (já autentica o convidado); convite expirado/aceito
+  responde erro dedicado.
+- `POST /auth/refresh` `{refreshToken, deviceName?}` → **200** `AuthResponse`
+  com refresh **rotacionado**; token revogado/expirado → **401**.
+- `POST /auth/logout` `{refreshToken?}` → **204**; sem token encerra todas as
+  sessões do operador (watermark).
+
+Fluxo real validado na produção: signup (10/10 UI), convite (11/11 UI),
+reset (10/10 UI) e 2FA (9/9 UI) — ver `docs/LIVE_VALIDATIONS.md`.
