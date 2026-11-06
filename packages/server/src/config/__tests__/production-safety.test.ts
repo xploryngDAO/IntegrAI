@@ -51,4 +51,8 @@ describe('production config safety', () => {
       loadConfig(productionEnv({ WEB_ORIGIN: 'https://app.integrai.example.com,*' })),
     ).toThrow(/WEB_ORIGIN/);
   });
+
+  it('refuses TRUST_PROXY=true (trusts every proxy)', () => {
+    expect(() => loadConfig(productionEnv({ TRUST_PROXY: 'true' }))).toThrow(/TRUST_PROXY/);
+  });
 });

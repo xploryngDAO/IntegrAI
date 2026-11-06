@@ -172,6 +172,11 @@ function assertProductionSafety(env: Env): void {
   if (env.WEB_ORIGIN.split(',').some((origin) => origin.trim() === '*')) {
     issues.push('WEB_ORIGIN: wildcard CORS is not allowed in production; list the exact frontend origins');
   }
+  if (env.TRUST_PROXY === true) {
+    issues.push(
+      'TRUST_PROXY: do not trust every proxy in production (X-Forwarded-For spoofing); set the edge IP/CIDR or false',
+    );
+  }
   if (issues.length > 0) {
     throw new ConfigError('Unsafe production secrets', issues);
   }
