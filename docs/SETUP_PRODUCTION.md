@@ -236,3 +236,12 @@ DATABASE_URL=postgresql://sac:<senha>@127.0.0.1:55433/sac_hub \
 ## Frontend self-hosted (sem Vercel)
 
 O docker-compose.prod.yml também sobe o serviço **web** (imagem pps/web/Dockerfile: nginx servindo o SPA e fazendo proxy same-origin de /api, /socket.io e /webhooks para o container da API). Basta docker build -f apps/web/Dockerfile -t sac-hub-web:prod . e docker compose ... up -d; o SPA fica em http://localhost:8080 (ajuste WEB_HOST_PORT). Validado localmente: web+api healthy, seed, login, perfil, admin, logout e WCAG AA 0 violações no bundle servido pelo nginx.
+
+## Backup e restore do Postgres
+
+`ash
+npm run db:backup                  # docker compose exec pg_dump -> backups/db-<ts>.sql
+npm run db:restore backups/db-<ts>.sql   # janela de manutencao (aplica DROP/CREATE do dump)
+` 
+
+Drill validado: seed -> marker 'DR-MARKER' -> backup 63,8 KB -> alteracao para 'BROKEN' -> restore -> marker restaurado. Agende o backup fora do host (S3) e teste o restore periodicamente.

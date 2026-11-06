@@ -21,6 +21,8 @@
         "prisma:migrate:deploy": "prisma migrate deploy",
         "db:push": "prisma db push",
         "db:seed": "prisma db seed",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:restore": "node scripts/db-restore.mjs",
         "typecheck:shared": "tsc -p packages/shared/tsconfig.json --noEmit",
         "typecheck:server": "npm run build:shared && tsc -p packages/server/tsconfig.json --noEmit",
         "typecheck:web": "npm run typecheck --workspace @sac/web",
