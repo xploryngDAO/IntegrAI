@@ -397,9 +397,11 @@ CSP sem `unsafe-eval`, sem `script-src *` e com `frame-ancestors 'none'`.
 Cifrados hoje: `access_token_enc`, `refresh_token_enc`, `two_factor_secret_enc`,
 `tenant_sso_connections.client_secret_enc`.
 
-**Ponto de atenção:** `ENCRYPTION_MASTER_KEY` e `JWT_SECRET` têm valores default
-de desenvolvimento em `config/env.schema.ts`. `assertProductionSafety` valida
-apenas o tamanho do JWT, não rejeita os defaults. Ver gap P0 na seção 14.
+**Produção:** `assertProductionSafety` **recusa iniciar** com segredos de desenvolvimento:
+`JWT_SECRET` curto/default, `ENCRYPTION_MASTER_KEY`/`ENCRYPTION_KEY_ID` de dev,
+`SHOPEE_PARTNER_KEY` ausente/curta e credenciais S3 `minioadmin`. Mercado Livre
+(`MELI_WEBHOOK_SECRET`) e Amazon SES (`AMAZON_SES_INBOUND_SHARED_SECRET`) também
+falham fechado no webhook quando o segredo não está configurado.
 
 ### 6.2 Nunca logar token/PII
 

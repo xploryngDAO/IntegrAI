@@ -164,6 +164,11 @@ function assertProductionSafety(env: Env): void {
       'SHOPEE_PARTNER_KEY: required in production (webhooks are signed with it; an empty key is forgeable)',
     );
   }
+  if (env.S3_ACCESS_KEY_ID === 'minioadmin' || env.S3_SECRET_ACCESS_KEY === 'minioadmin') {
+    issues.push(
+      'S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY: remove the minioadmin defaults before going to production',
+    );
+  }
   if (issues.length > 0) {
     throw new ConfigError('Unsafe production secrets', issues);
   }

@@ -17,6 +17,8 @@ function productionEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEn
     APP_BASE_URL: 'https://api.integrai.example.com',
     WEB_ORIGIN: 'https://app.integrai.example.com',
     SHOPEE_PARTNER_KEY: 'shopee-partner-key-0123456789',
+    S3_ACCESS_KEY_ID: 'prod-s3-access-key',
+    S3_SECRET_ACCESS_KEY: 'prod-s3-secret-key',
     ...overrides,
   };
 }
@@ -36,5 +38,11 @@ describe('production config safety', () => {
     expect(() =>
       loadConfig(productionEnv({ JWT_SECRET: 'dev-only-change-me-please-32-chars-min' })),
     ).toThrow(/JWT_SECRET/);
+  });
+
+  it('refuses the minioadmin storage credentials', () => {
+    expect(() =>
+      loadConfig(productionEnv({ S3_ACCESS_KEY_ID: 'minioadmin', S3_SECRET_ACCESS_KEY: 'minioadmin' })),
+    ).toThrow(/S3_ACCESS_KEY_ID/);
   });
 });
