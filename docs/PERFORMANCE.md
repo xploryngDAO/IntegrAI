@@ -68,3 +68,15 @@ npx --yes autocannon -c 10 -d 10 -p 2 http://127.0.0.1:4101/api/v1/status
 Caveat: o quick tunnel adiciona latência de borda e pode limitar a vazão; no
 self-hosted (Caddy → API) os números tendem a ser iguais ou melhores. O objetivo
 é provar ausência de erros e latência p99 < 100 ms com 10 conexões concorrentes.
+
+## Web Vitals reais (2026-11-06, produção)
+
+`node scripts/web-vitals.mjs` (Chromium/Edge, 1440×900, API pelo túnel):
+
+| Tela | LCP | CLS | FCP | TTFB | long tasks |
+|---|---|---|---|---|---|
+| landing (anônima) | 488 ms | 0.000 | 488 ms | 13 ms | 0 |
+| workspace (pós-login) | 72 ms | 0.001 | 72 ms | 9 ms | 0 |
+| `/accounts` | 384 ms | 0.000 | 84 ms | 8 ms | 0 |
+
+Alvo: LCP ≤ 2,5 s e CLS ≤ 0,1 — **3/3 dentro do alvo**, sem long tasks.

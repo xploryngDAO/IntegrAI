@@ -666,3 +666,9 @@ Alias: https://integrai-dev.vercel.app (assets/index-B3PF2iot.js)
 /login /signup /status /billing/success -> A11Y 100 · BP 100 · SEO 100
 axe: 21/21 light e 21/21 dark; verify-live exit 0
 ```
+
+### 69. Web Vitals de producao (landing/workspace/accounts)
+```
+node scripts/web-vitals.mjs -> landing LCP 488ms CLS 0; workspace LCP 72ms CLS 0.001;
+/accounts LCP 384ms CLS 0; 0 long tasks; 3/3 dentro do alvo
+```
