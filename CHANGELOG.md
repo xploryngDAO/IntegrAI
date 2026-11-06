@@ -26,6 +26,14 @@ All notable changes to IntegrAI. Dates in `YYYY-MM-DD`; versions follow SemVer.
 - **A11y/UX**: login com âncora de produto, jargão de endpoints removido de todas as telas.
 - **Banco**: drill de backup/restore por workspace validado (backup → restore → soft delete → purge).
 
+### Security
+
+- **Webhooks fail-closed**: Shopee exige `SHOPEE_PARTNER_KEY` (produção não inicia sem ela); Mercado Livre
+  exige `MELI_WEBHOOK_SECRET` na Callback URL (sem segredo → 401); Amazon SES e billing já rejeitavam sem
+  segredo. Assinatura inválida nunca processa evento.
+- Imagens Docker sem CVEs HIGH/CRITICAL (API sem `npm`/`npx`, web em `nginx:stable-alpine`), com scan
+  obrigatório no CI; SAST semgrep sem achados em produção; `TRUST_PROXY` restrito ao salto do túnel.
+
 ## [0.1.0] — 2026-11-06
 
 ### Added
