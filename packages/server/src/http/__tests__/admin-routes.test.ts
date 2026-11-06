@@ -137,6 +137,13 @@ describe('admin HTTP routes', () => {
   const revokeSessions = vi.fn(async () => ({ revoked: 3 }));
   const listInvitations = vi.fn(async () => INVITATION_LIST);
   const revokeInvitation = vi.fn(async () => undefined);
+  const resendInvitation = vi.fn(async () => ({
+    id: INVITATION_ID,
+    email: 'invitee@acme.test',
+    role: 'AGENT' as const,
+    expiresAt: new Date('2026-11-20T10:00:00.000Z'),
+    status: 'PENDING' as const,
+  }));
   const listAuditLogs = vi.fn(async () => AUDIT_PAGE);
   const exportAuditRows = vi.fn(async () => CSV_ROWS);
 
@@ -148,6 +155,7 @@ describe('admin HTTP routes', () => {
         invitations: {
           listForAdmin: listInvitations,
           revokeForAdmin: revokeInvitation,
+          resendForAdmin: resendInvitation,
         },
         audit: {
           list: listAuditLogs,
@@ -170,12 +178,20 @@ describe('admin HTTP routes', () => {
     revokeSessions.mockClear();
     listInvitations.mockClear();
     revokeInvitation.mockClear();
+    resendInvitation.mockClear();
     listAuditLogs.mockClear();
     exportAuditRows.mockClear();
     updateUser.mockImplementation(async () => USER);
     revokeSessions.mockImplementation(async () => ({ revoked: 3 }));
     listInvitations.mockImplementation(async () => INVITATION_LIST);
     revokeInvitation.mockImplementation(async () => undefined);
+    resendInvitation.mockImplementation(async () => ({
+      id: INVITATION_ID,
+      email: 'invitee@acme.test',
+      role: 'AGENT' as const,
+      expiresAt: new Date('2026-11-20T10:00:00.000Z'),
+      status: 'PENDING' as const,
+    }));
     listAuditLogs.mockImplementation(async () => AUDIT_PAGE);
     exportAuditRows.mockImplementation(async () => CSV_ROWS);
   });
@@ -190,6 +206,10 @@ describe('admin HTTP routes', () => {
       { method: 'PATCH' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222' },
       { method: 'POST' as const, url: '/api/v1/admin/users/22222222-2222-4222-8222-222222222222/revoke-sessions' },
       { method: 'GET' as const, url: '/api/v1/admin/invitations' },
+      {
+        method: 'POST' as const,
+        url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+      },
       { method: 'DELETE' as const, url: `/api/v1/admin/invitations/${INVITATION_ID}` },
       { method: 'GET' as const, url: '/api/v1/admin/audit-logs' },
       { method: 'GET' as const, url: '/api/v1/admin/audit-logs/export.csv' },
@@ -218,6 +238,11 @@ describe('admin HTTP routes', () => {
           headers: auth(token),
         }),
         app.inject({ method: 'GET', url: '/api/v1/admin/invitations', headers: auth(token) }),
+        app.inject({
+          method: 'POST',
+          url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+          headers: auth(token),
+        }),
         app.inject({
           method: 'DELETE',
           url: `/api/v1/admin/invitations/${INVITATION_ID}`,
@@ -490,6 +515,93 @@ describe('admin HTTP routes', () => {
     expect(response.statusCode).toBe(422);
     expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
     expect(revokeInvitation).not.toHaveBeenCalled();
+  });
+
+  it('POST /admin/invitations/:id/resend returns the refreshed PENDING row', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        id: INVITATION_ID,
+        email: 'invitee@acme.test',
+        role: 'AGENT',
+        expiresAt: '2026-11-20T10:00:00.000Z',
+        status: 'PENDING',
+      },
+    });
+
+    const [tenantId, actor, invitationId] = resendInvitation.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+      string,
+    ];
+    expect(tenantId).toBe('tenant-1');
+    expect(actor).toMatchObject({
+      id: 'admin-1',
+      email: 'admin@acme.test',
+      tenantId: 'tenant-1',
+      name: 'Ana',
+    });
+    expect(invitationId).toBe(INVITATION_ID);
+  });
+
+  it('POST /admin/invitations/:id/resend propagates 404 and 409', async () => {
+    resendInvitation.mockRejectedValueOnce(
+      new NotFoundError('Invitation', INVITATION_ID),
+    );
+    const notFound = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(notFound.statusCode).toBe(404);
+    expect(notFound.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+
+    resendInvitation.mockRejectedValueOnce(
+      new AppError('INVITATION_ALREADY_ACCEPTED', 'accepted', 409),
+    );
+    const conflict = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: { code: 'INVITATION_ALREADY_ACCEPTED' },
+    });
+  });
+
+  it('POST /admin/invitations/:id/resend propagates 502 EMAIL_SEND_FAILED', async () => {
+    resendInvitation.mockRejectedValueOnce(
+      new AppError('EMAIL_SEND_FAILED', 'relay unavailable', 502),
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: { code: 'EMAIL_SEND_FAILED' },
+    });
+  });
+
+  it('POST /admin/invitations/:id/resend answers 422 for a malformed id', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/invitations/not-a-uuid/resend',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(resendInvitation).not.toHaveBeenCalled();
   });
 
   it('GET /admin/audit-logs/export.csv sends an RFC4180 attachment scoped by JWT tenant and filters', async () => {

@@ -25,6 +25,8 @@ import type {
   InvitationSummary,
   IssuedSession,
   ITenantRepository,
+  ResendInvitationActor,
+  ResendInvitationResult,
   SessionDeviceInfo,
 } from '@sac/shared';
 import {
@@ -56,13 +58,18 @@ import { isUniqueConstraintViolation } from './repositories/errors';
  *    when the row does not belong to the caller tenant.
  *  - `listForAdmin` / `revokeForAdmin`: ADMIN console projection (uppercase
  *    status) and the hard-delete revoke, audited as `invitation.revoked`.
+ *  - `resendForAdmin`: ADMIN console re-issue of a PENDING/EXPIRED row with a
+ *    NEW token and a fresh 7-day TTL, audited as `invitation.resent`. The
+ *    e-mail is delivered BEFORE the row is written: a delivery failure answers
+ *    502 `EMAIL_SEND_FAILED` and keeps the stored hash/expiry untouched (see
+ *    `resendForAdmin` for the trade-off).
  *  - `accept` : public flow. The token proves ownership of the e-mail, so the
  *    new operator is created already verified, in the invitation tenant and
  *    with the invited role; a session (JWT + rotating refresh token) is opened
  *    right away so the SPA can enter without a second login.
  *
  * Failure paths use stable `AppError.code`s: `INVALID_INVITATION_TOKEN` (400),
- * `VALIDATION_ERROR` (422) and `CONFLICT` (409).
+ * `VALIDATION_ERROR` (422), `CONFLICT` (409) and `EMAIL_SEND_FAILED` (502).
  */
 
 /** Fase 1 design: invitation links live 7 days (`docs/PHASE1_AUTH.md`). */
@@ -181,20 +188,17 @@ export class InvitationService implements IInvitationService {
     // address that is already pending is exempt (no second seat).
     await this.planLimits?.assertCanInviteAgent(command.actor.tenantId, { excludeEmail: email });
 
-    const token = randomToken(INVITATION_TOKEN_BYTES);
-    const now = this.clock.now();
-    const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
-
+    const token = this.issueInvitationToken();
     const invitation = await this.invitations.upsert({
       tenantId: command.actor.tenantId,
       email,
       role,
-      tokenHash: hashToken(token),
+      tokenHash: token.tokenHash,
       invitedBy: command.actor.id,
-      expiresAt,
+      expiresAt: token.expiresAt,
     });
 
-    await this.sendInvitationEmail(invitation, token, command.actor.name);
+    await this.sendInvitationEmailBestEffort(invitation, token.token, command.actor.name);
 
     this.logger.info('invitation.created', {
       invitationId: invitation.id,
@@ -348,6 +352,105 @@ export class InvitationService implements IInvitationService {
         role: invitation.role,
       },
     });
+  }
+
+  /* ==================================================================== */
+  /* ADMIN console - resend                                               */
+  /* ==================================================================== */
+
+  /**
+   * ADMIN resend: rotates the single-use token of a PENDING **or EXPIRED**
+   * invitation of the caller tenant and mails it through the exact same
+   * template/link builder as `create`.
+   *
+   * Ordering decision (send-then-persist):
+   *
+   *  1. The previous hash is still valid while the e-mail is being sent, so a
+   *     delivery failure (SMTP down, relay timeout) cannot leave the row with a
+   *     token the invitee never received — and cannot burn the link the invitee
+   *     already has. The caller gets 502 `EMAIL_SEND_FAILED` and nothing was
+   *     written.
+   *  2. Only after the relay accepted the message is the row updated with the
+   *     new hash/TTL. The conditional update (`accepted_at IS NULL`) means a
+   *     concurrent acceptance still wins: the endpoint answers 409 and the
+   *     already-mailed link is simply dead, never a persisted inconsistency.
+   *
+   * The unavoidable window is a process crash between the relay call and the
+   * update: the invitee receives a link that was never stored. That is strictly
+   * better than persisting a token for an e-mail that failed to leave.
+   */
+  async resendForAdmin(
+    tenantId: string,
+    actor: ResendInvitationActor,
+    invitationId: string,
+  ): Promise<ResendInvitationResult> {
+    if (!UUID_PATTERN.test((invitationId ?? '').trim())) {
+      throw new NotFoundError('Invitation', invitationId);
+    }
+
+    const invitation = await this.invitations.findById(invitationId);
+    // Cross-tenant ids are indistinguishable from unknown ids (no enumeration).
+    if (invitation === null || invitation.tenantId !== tenantId) {
+      throw new NotFoundError('Invitation', invitationId);
+    }
+    if (invitation.acceptedAt !== null) {
+      throw this.alreadyAcceptedError();
+    }
+
+    // A brand-new 32-byte token; the previous hash is never reused.
+    const issued = this.issueInvitationToken();
+    try {
+      await this.deliverInvitationEmail(invitation, issued.token, actor.name);
+    } catch (error) {
+      // The row is intentionally untouched: the old link keeps working and the
+      // ADMIN can retry once SMTP recovers. Never log the token or the link.
+      this.logger.warn('invitation.resend.email_failed', {
+        invitationId: invitation.id,
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw this.emailSendFailedError();
+    }
+
+    const reissued = await this.invitations.reissue(invitation.id, tenantId, {
+      tokenHash: issued.tokenHash,
+      expiresAt: issued.expiresAt,
+    });
+    if (!reissued) {
+      // A concurrent acceptance/revoke won the race after the e-mail went out.
+      throw this.alreadyAcceptedError();
+    }
+
+    this.logger.info('invitation.resent', {
+      invitationId: invitation.id,
+      tenantId,
+      actorId: actor.id,
+      role: invitation.role,
+    });
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.invitationResent,
+      tenantId,
+      actorId: actor.id,
+      // Full actor e-mail on its own column; the invitee e-mail is redacted.
+      actorEmail: actor.email ?? null,
+      resourceType: 'invitation',
+      resourceId: invitation.id,
+      ip: actor.ip ?? null,
+      userAgent: actor.userAgent ?? null,
+      metadata: {
+        email: redactPiiForLogs(invitation.email),
+        role: invitation.role,
+      },
+    });
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      expiresAt: issued.expiresAt,
+      status: 'PENDING',
+    };
   }
 
   /* ==================================================================== */
@@ -549,17 +652,45 @@ export class InvitationService implements IInvitationService {
     }
   }
 
-  private async sendInvitationEmail(
+  /**
+   * Shared token factory: one fresh 32-byte token, its SHA-256 and the TTL
+   * window. `create` and `resendForAdmin` MUST go through this helper so a
+   * resend can never reuse the previous hash.
+   */
+  private issueInvitationToken(): { token: string; tokenHash: string; expiresAt: Date } {
+    const token = randomToken(INVITATION_TOKEN_BYTES);
+    return {
+      token,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(this.clock.now().getTime() + INVITATION_TTL_MS),
+    };
+  }
+
+  /**
+   * Shared delivery: builds the SPA link and hands it to the e-mail port. The
+   * same template (`IEmailService.sendInvitationEmail`) serves `create` and
+   * `resendForAdmin`; errors propagate to the caller, which decides between
+   * best effort (create) and 502 (resend).
+   */
+  private async deliverInvitationEmail(
+    invitation: InvitationRecord,
+    token: string,
+    inviterName?: string | null,
+  ): Promise<void> {
+    const link = `${this.resolveLinkBase()}/invite?token=${encodeURIComponent(token)}`;
+    await this.email.sendInvitationEmail(invitation.email, link, inviterName ?? undefined);
+  }
+
+  /** `create` keeps the row even when SMTP is down: the ADMIN can resend. */
+  private async sendInvitationEmailBestEffort(
     invitation: InvitationRecord,
     token: string,
     inviterName: string,
   ): Promise<void> {
-    const link = `${this.resolveLinkBase()}/invite?token=${encodeURIComponent(token)}`;
     try {
-      await this.email.sendInvitationEmail(invitation.email, link, inviterName);
+      await this.deliverInvitationEmail(invitation, token, inviterName);
     } catch (error) {
-      // The invitation is already persisted: the ADMIN can resend once SMTP
-      // recovers. Never log the token or the link.
+      // Never log the token or the link.
       this.logger.warn('invitation.email.send_failed', {
         invitationId: invitation.id,
         error: error instanceof Error ? error.message : String(error),
@@ -585,6 +716,15 @@ export class InvitationService implements IInvitationService {
       'INVALID_INVITATION_TOKEN',
       'Invitation link is invalid, expired or already used',
       400,
+    );
+  }
+
+  /** SMTP/relay failure while re-issuing an invite; the row was not touched. */
+  private emailSendFailedError(): AppError {
+    return new AppError(
+      'EMAIL_SEND_FAILED',
+      'Invitation e-mail could not be delivered; the invitation was not changed',
+      502,
     );
   }
 }

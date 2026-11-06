@@ -27,8 +27,9 @@ function asAdminTab(value: string): AdminTab {
  *  - **Usuários**: the operator roster with role, activation and session
  *    revoke actions plus the invitation CTA (`GET|PATCH /admin/users`,
  *    `POST /admin/users/:id/revoke-sessions`, `POST /invitations`);
- *  - **Convites**: pending/accepted/expired invitations with the revoke action
- *    for PENDING rows (`GET|DELETE /admin/invitations`);
+ *  - **Convites**: pending/accepted/expired invitations with revoke for PENDING
+ *    rows and re-send for PENDING/EXPIRED rows, never ACCEPTED
+ *    (`GET|DELETE /admin/invitations`, `POST /admin/invitations/:id/resend`);
  *  - **Logs**: the administrative audit trail with action/actor/period filters,
  *    server-side pagination and the CSV export of the applied filters
  *    (`GET /admin/audit-logs`, `GET /admin/audit-logs/export.csv`).

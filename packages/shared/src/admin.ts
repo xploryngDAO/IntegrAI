@@ -42,6 +42,8 @@ export const AUDIT_ACTIONS = {
   invitationCreated: 'invitation.created',
   invitationAccepted: 'invitation.accepted',
   invitationRevoked: 'invitation.revoked',
+  /** ADMIN console re-issue of a PENDING/EXPIRED invite (new token + TTL). */
+  invitationResent: 'invitation.resent',
   adminUserRoleChanged: 'admin.user.role_changed',
   adminUserActivated: 'admin.user.activated',
   adminUserDeactivated: 'admin.user.deactivated',

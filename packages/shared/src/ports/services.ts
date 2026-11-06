@@ -654,6 +654,27 @@ export interface CreateInvitationResult {
   expiresAt: Date;
 }
 
+/**
+ * Actor of `POST /admin/invitations/:id/resend`.
+ *
+ * Extends the audited provenance with the ADMIN display name rendered by the
+ * invitation e-mail template (`"Você foi convidado por <name>"`), so a resend
+ * uses the exact same delivery path as `create`.
+ */
+export interface ResendInvitationActor extends AuditActorContext {
+  name?: string | null;
+}
+
+/** Result of a resend: the invite is guaranteed PENDING after the call. */
+export interface ResendInvitationResult {
+  id: string;
+  email: string;
+  role: AgentRole;
+  /** New expiry (`now + INVITATION_TTL_MS`), never the previous instant. */
+  expiresAt: Date;
+  status: 'PENDING';
+}
+
 /** Tenant-scoped invitation projection rendered by `GET /invitations`. */
 export interface InvitationSummary {
   id: string;
@@ -707,6 +728,19 @@ export interface IInvitationService {
     actor: AuditActorContext,
     invitationId: string,
   ): Promise<void>;
+  /**
+   * ADMIN console resend: re-issues a PENDING or EXPIRED invitation with a NEW
+   * single-use token and a fresh TTL, mailing it through the same template as
+   * `create`. An ACCEPTED row is 409 `INVITATION_ALREADY_ACCEPTED`; a foreign or
+   * unknown id is 404. The e-mail is sent BEFORE the row is updated, so a
+   * delivery failure is 502 `EMAIL_SEND_FAILED` and leaves the stored token
+   * hash/expiry untouched. Audits `invitation.resent`.
+   */
+  resendForAdmin(
+    tenantId: string,
+    actor: ResendInvitationActor,
+    invitationId: string,
+  ): Promise<ResendInvitationResult>;
   /** Consumes the token, creates the verified operator and opens a session. */
   accept(
     command: AcceptInvitationCommand,

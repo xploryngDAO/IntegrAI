@@ -28,6 +28,7 @@ export interface AdminControllers {
   revokeUserSessions: RouteHandler;
   listInvitations: RouteHandler;
   revokeInvitation: RouteHandler;
+  resendInvitation: RouteHandler;
   listAuditLogs: RouteHandler;
   exportAuditLogsCsv: RouteHandler;
 }
@@ -113,6 +114,36 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
 
       reply.code(204);
       return undefined;
+    },
+
+    /**
+     * `POST /admin/invitations/:id/resend` - re-issues a PENDING/EXPIRED invite.
+     *
+     * 200 with the refreshed row envelope (status always `PENDING`), 404 when
+     * the id is unknown or belongs to another tenant, 409
+     * `INVITATION_ALREADY_ACCEPTED` once consumed, 502 `EMAIL_SEND_FAILED` when
+     * the relay rejects the message (nothing was written).
+     */
+    async resendInvitation(request) {
+      const tenantId = requireTenantId(request);
+      const params = parseInput(invitationParamsSchema, request.params, 'params');
+      // The audited provenance plus the display name used by the e-mail
+      // template, exactly like `POST /invitations` obtains it from the JWT.
+      const actor = { ...auditActorContext(request), name: requireAgent(request).name };
+
+      const result = await services.invitations.resendForAdmin(
+        tenantId,
+        actor,
+        params.id,
+      );
+
+      return ok({
+        id: result.id,
+        email: result.email,
+        role: result.role,
+        expiresAt: result.expiresAt.toISOString(),
+        status: result.status,
+      });
     },
 
     /** `GET /admin/audit-logs` - filtered, paginated, tenant-scoped. */

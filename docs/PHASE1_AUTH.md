@@ -103,7 +103,7 @@ Decisões:
   (nunca lança, grava em background) e `AuditService.list` é paginado/filtrado
   por tenant. Ações emitidas: `auth.login.success|failure`, `auth.logout`,
   `auth.password.reset_completed`, `auth.2fa.enabled|disabled`,
-  `auth.profile.updated`, `invitation.created|accepted`,
+  `auth.profile.updated`, `invitation.created|accepted|revoked|resent`,
   `admin.user.role_changed|activated|deactivated|sessions_revoked`,
   `tenant.sso.updated|deleted` e `billing.webhook.processed`.
   `metadata` é higienizado antes do insert (chaves de senha/token/segredo e

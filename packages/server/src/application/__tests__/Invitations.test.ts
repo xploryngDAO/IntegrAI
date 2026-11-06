@@ -340,6 +340,20 @@ class InMemoryInvitationRepository implements IInvitationRepository {
     this.rows.splice(index, 1);
     return true;
   }
+
+  async reissue(
+    id: string,
+    tenantId: string,
+    input: { tokenHash: string; expiresAt: Date },
+  ): Promise<boolean> {
+    const row = this.rows.find(
+      (entry) => entry.id === id && entry.tenantId === tenantId && entry.acceptedAt === null,
+    );
+    if (row === undefined) return false;
+    row.tokenHash = input.tokenHash;
+    row.expiresAt = input.expiresAt;
+    return true;
+  }
 }
 
 /* ==========================================================================
@@ -680,6 +694,8 @@ describe('InvitationService.revoke', () => {
 function adminActor(h: Harness) {
   return {
     id: h.admin.id,
+    // The resend e-mail template renders the ADMIN display name.
+    name: h.admin.name,
     email: h.admin.email,
     tenantId: h.acme.id,
     ip: '203.0.113.9',
@@ -834,6 +850,192 @@ describe('InvitationService.revokeForAdmin', () => {
 
     await expect(
       h.service.revokeForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({
+      code: 'INVITATION_ALREADY_ACCEPTED',
+      httpStatus: 409,
+    });
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+});
+
+/* ==========================================================================
+ * admin console (resend)
+ * ========================================================================== */
+
+describe('InvitationService.resendForAdmin', () => {
+  it('re-issues a PENDING invitation with a NEW token/hash, fresh TTL and audits invitation.resent', async () => {
+    const h = buildHarness();
+    const created = await invite(h, 'resent@acme.test', 'SUPERVISOR');
+    const firstToken = extractToken(h.email.invitations[0].link);
+    const firstHash = h.invitations.rows[0].tokenHash;
+    h.audit.recorded.length = 0;
+
+    h.clock.advance(2 * DAY_MS);
+    const result = await h.service.resendForAdmin(
+      h.acme.id,
+      adminActor(h),
+      created.invitationId,
+    );
+
+    expect(result).toMatchObject({
+      id: created.invitationId,
+      email: 'resent@acme.test',
+      role: 'SUPERVISOR',
+      status: 'PENDING',
+    });
+    expect(result.expiresAt.getTime()).toBe(h.clock.now().getTime() + INVITATION_TTL_MS);
+
+    // Same template/service as `create`, once more, addressed to the invitee.
+    expect(h.email.invitations).toHaveLength(2);
+    const secondToken = extractToken(h.email.invitations[1].link);
+    expect(h.email.invitations[1]).toMatchObject({
+      to: 'resent@acme.test',
+      inviterName: 'Ana Admin',
+      link: `https://app.test/invite?token=${encodeURIComponent(secondToken)}`,
+    });
+    expect(secondToken).not.toBe(firstToken);
+
+    // The row keeps its id/role and receives the new hash + expiry.
+    expect(h.invitations.rows).toHaveLength(1);
+    const row = h.invitations.rows[0];
+    expect(row.tokenHash).not.toBe(firstHash);
+    expect(row.tokenHash).toBe(sha256(secondToken));
+    expect(row.expiresAt).toEqual(result.expiresAt);
+    expect(row.acceptedAt).toBeNull();
+
+    // The superseded link is dead as soon as the resend lands.
+    await expect(
+      h.service.accept({ token: firstToken, name: 'Op', password: NEW_PASSWORD }),
+    ).rejects.toMatchObject({ code: 'INVALID_INVITATION_TOKEN', httpStatus: 400 });
+
+    expect(h.audit.actions()).toEqual(['invitation.resent']);
+    expect(h.audit.recorded[0]).toMatchObject({
+      action: 'invitation.resent',
+      tenantId: h.acme.id,
+      actorId: h.admin.id,
+      actorEmail: h.admin.email,
+      resourceType: 'invitation',
+      resourceId: created.invitationId,
+      ip: '203.0.113.9',
+      userAgent: 'Vitest/1.0',
+      metadata: {
+        email: redactPiiForLogs('resent@acme.test'),
+        role: 'SUPERVISOR',
+      },
+    });
+  });
+
+  it('re-issues an EXPIRED invitation, reviving its acceptance', async () => {
+    const h = buildHarness();
+    const created = await invite(h, 'expired@acme.test', 'AGENT');
+    h.clock.advance(INVITATION_TTL_MS + 1000);
+    expect((await h.service.list(h.acme.id))[0].status).toBe('expired');
+
+    const result = await h.service.resendForAdmin(
+      h.acme.id,
+      adminActor(h),
+      created.invitationId,
+    );
+
+    expect(result.status).toBe('PENDING');
+    expect(h.invitations.rows[0].expiresAt.getTime()).toBe(
+      h.clock.now().getTime() + INVITATION_TTL_MS,
+    );
+    expect((await h.service.list(h.acme.id))[0].status).toBe('pending');
+
+    // The freshly mailed link is the only one that can be consumed.
+    const freshToken = extractToken(h.email.invitations[1].link);
+    const accepted = await h.service.accept({
+      token: freshToken,
+      name: 'Expired Revived',
+      password: NEW_PASSWORD,
+    });
+    expect(accepted.agent.email).toBe('expired@acme.test');
+    expect(h.invitations.rows[0].acceptedAt).toEqual(h.clock.now());
+  });
+
+  it('answers 409 INVITATION_ALREADY_ACCEPTED for an accepted invitation without mailing', async () => {
+    const h = buildHarness();
+    const created = await invite(h, 'accepted@acme.test');
+    const token = extractToken(h.email.invitations[0].link);
+    await h.service.accept({ token, name: 'Op', password: NEW_PASSWORD });
+    h.audit.recorded.length = 0;
+    const emailsBefore = h.email.invitations.length;
+
+    await expect(
+      h.service.resendForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({
+      code: 'INVITATION_ALREADY_ACCEPTED',
+      httpStatus: 409,
+    });
+
+    expect(h.email.invitations).toHaveLength(emailsBefore);
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 404 for a foreign, unknown or malformed id without mailing or auditing', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    h.audit.recorded.length = 0;
+    const emailsBefore = h.email.invitations.length;
+
+    await expect(
+      h.service.resendForAdmin(h.other.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+    await expect(
+      h.service.resendForAdmin(
+        h.acme.id,
+        adminActor(h),
+        '00000000-0000-4000-8000-000000000000',
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+    await expect(
+      h.service.resendForAdmin(h.acme.id, adminActor(h), 'not-a-uuid'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+
+    expect(h.invitations.rows).toHaveLength(1);
+    expect(h.email.invitations).toHaveLength(emailsBefore);
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 502 EMAIL_SEND_FAILED and leaves the stored token/expiry untouched', async () => {
+    const h = buildHarness();
+    const created = await invite(h, 'bounce@acme.test');
+    const firstToken = extractToken(h.email.invitations[0].link);
+    const before = {
+      tokenHash: h.invitations.rows[0].tokenHash,
+      expiresAt: h.invitations.rows[0].expiresAt,
+    };
+    h.audit.recorded.length = 0;
+    h.email.failInvitations = true;
+
+    await expect(
+      h.service.resendForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({ code: 'EMAIL_SEND_FAILED', httpStatus: 502 });
+
+    // Nothing was written and nothing was audited.
+    expect(h.invitations.rows[0].tokenHash).toBe(before.tokenHash);
+    expect(h.invitations.rows[0].expiresAt).toEqual(before.expiresAt);
+    expect(h.audit.recorded).toHaveLength(0);
+
+    // The original link still works because it was never overwritten.
+    const accepted = await h.service.accept({
+      token: firstToken,
+      name: 'Still Valid',
+      password: NEW_PASSWORD,
+    });
+    expect(accepted.agent.email).toBe('bounce@acme.test');
+  });
+
+  it('answers 409 when a concurrent acceptance wins the reissue race', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    h.audit.recorded.length = 0;
+    // The e-mail leaves, but the conditional UPDATE finds the row accepted.
+    h.invitations.reissue = async () => false;
+
+    await expect(
+      h.service.resendForAdmin(h.acme.id, adminActor(h), created.invitationId),
     ).rejects.toMatchObject({
       code: 'INVITATION_ALREADY_ACCEPTED',
       httpStatus: 409,

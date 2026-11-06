@@ -149,6 +149,44 @@ export function invitationErrorMessage(error: unknown): string {
   return adminErrorMessage(error);
 }
 
+/**
+ * Failure of `POST /admin/invitations/:id/resend` (re-send of the invite e-mail).
+ *
+ * The API's own message is shown first; the hint after it says what to do next.
+ * `502 EMAIL_SEND_FAILED` is the mail-provider failure: the link may not have
+ * been delivered, so the operator retries — and, when it persists, checks the
+ * workspace SMTP with another ADMIN.
+ */
+export function resendInvitationErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    const message = error.message.trim();
+    // The API answers PT-BR sentences, but a proxy may send one without the
+    // final punctuation; the hint is appended as a new sentence either way.
+    const detail = message.length === 0 ? '' : /[.!?]$/.test(message) ? message : `${message}.`;
+    const prefix = detail.length > 0 ? `${detail} ` : '';
+
+    if (error.code === 'EMAIL_SEND_FAILED' || error.status === 502) {
+      return `${prefix}O e-mail do convite não foi entregue (HTTP 502). Tente reenviar em instantes; se o erro persistir, peça a um ADMIN para conferir o SMTP do workspace.`;
+    }
+    if (error.status === 404) {
+      return 'Convite não encontrado (HTTP 404). Ele pode ter sido aceito ou removido; atualize a lista antes de tentar de novo.';
+    }
+    if (error.status === 409) {
+      if (error.code === 'INVITATION_ALREADY_ACCEPTED') {
+        return `${prefix}Convites aceitos não podem ser reenviados. Atualize a lista: o convite já gerou um operador.`;
+      }
+      return `${prefix}O convite mudou em outra sessão (HTTP 409); atualize a lista e tente novamente.`;
+    }
+    if (error.status === 401) {
+      return 'Sua sessão expirou. Entre novamente para administrar os convites.';
+    }
+    if (error.status === 403) {
+      return 'Somente um ADMIN do workspace pode reenviar convites (HTTP 403).';
+    }
+  }
+  return adminErrorMessage(error);
+}
+
 /* ==========================================================================
  * Invitations (`GET /admin/invitations`)
  * ========================================================================== */
@@ -187,6 +225,23 @@ export function invitationStatusTone(status: string | null | undefined): Invitat
 /** Only a PENDING invitation can be revoked (`DELETE /admin/invitations/:id`). */
 export function isInvitationPending(status: string | null | undefined): boolean {
   return (status ?? '').trim().toUpperCase() === 'PENDING';
+}
+
+/** Whether the single-use link of the invitation has already expired. */
+export function isInvitationExpired(status: string | null | undefined): boolean {
+  return (status ?? '').trim().toUpperCase() === 'EXPIRED';
+}
+
+/**
+ * Whether the invitation can be re-sent (`POST /admin/invitations/:id/resend`).
+ *
+ * PENDING and EXPIRED invites can be re-sent; an ACCEPTED invite already created
+ * the operator and must never be offered here. An unknown status is not assumed
+ * resendable — the UI waits for a status it actually understands.
+ */
+export function canResendInvitation(status: string | null | undefined): boolean {
+  const value = (status ?? '').trim().toUpperCase();
+  return value === 'PENDING' || value === 'EXPIRED';
 }
 
 /* ==========================================================================

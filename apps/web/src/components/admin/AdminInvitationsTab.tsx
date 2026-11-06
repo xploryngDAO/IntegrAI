@@ -3,10 +3,13 @@ import { DataTable } from '@xploryng/convergencia';
 import { api, ApiClientError } from '../../lib/api';
 import {
   adminErrorMessage,
+  canResendInvitation,
   invitationErrorMessage,
   invitationStatusLabel,
   invitationStatusTone,
+  isInvitationExpired,
   isInvitationPending,
+  resendInvitationErrorMessage,
   roleLabel,
   roleTone,
 } from '../../lib/admin';
@@ -26,14 +29,20 @@ export interface AdminInvitationsTabProps {
  * "Convites" tab of `/admin`.
  *
  * The pending invitations of the workspace (`GET /admin/invitations`) with the
- * one write the API allows on them: revoke a **PENDING** invite
- * (`DELETE /admin/invitations/:id`, 204). The CTA reuses `InviteUserDialog`
- * (`POST /invitations`) and the list is re-read after every successful write, so
- * the table always reflects the server — never an optimistic guess.
+ * writes the API allows on them:
+ *  - revoke a **PENDING** invite (`DELETE /admin/invitations/:id`, 204);
+ *  - re-send the link of a **PENDING** or **EXPIRED** invite
+ *    (`POST /admin/invitations/:id/resend`), never an ACCEPTED one.
+ *
+ * The CTA reuses `InviteUserDialog` (`POST /invitations`) and the list is
+ * re-read after every successful write, so the table always reflects the
+ * server — never an optimistic guess.
  *
  * A 409 (`INVITATION_ALREADY_ACCEPTED`) keeps the dialog open and shows the
  * API's real message: the invitee accepted in another session and the row must
- * not disappear as if the revoke had worked.
+ * not disappear as if the revoke/re-send had worked. A 502
+ * (`EMAIL_SEND_FAILED`) is surfaced as a delivery failure — the UI never claims
+ * the e-mail was sent when the API could not deliver it.
  */
 export function AdminInvitationsTab({
   onForbidden,
@@ -49,6 +58,11 @@ export function AdminInvitationsTab({
   const [revokeTarget, setRevokeTarget] = useState<AdminInvitation | null>(null);
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [resendTarget, setResendTarget] = useState<AdminInvitation | null>(null);
+  const [resending, setResending] = useState(false);
+  /** Id of the row whose re-send is running (per-row loading, not a global one). */
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
 
   useEffect(() => {
@@ -115,6 +129,43 @@ export function AdminInvitationsTab({
     }
   }
 
+  async function handleResend(): Promise<void> {
+    if (resendTarget === null || resending) return;
+    const target = resendTarget;
+    setResending(true);
+    setResendingId(target.id);
+    setResendError(null);
+    try {
+      const result = await api.resendInvitation(target.id);
+      const email = result?.email || target.email;
+      const recipient = email.length > 0 ? email : 'o operador convidado';
+      setResendTarget(null);
+      setNotice({
+        tone: 'success',
+        text:
+          result?.expiresAt
+            ? `Convite reenviado para ${recipient}. O novo link expira em ${formatDateTime(result.expiresAt)}.`
+            : `Convite reenviado para ${recipient}. A lista já reflete o novo prazo do convite.`,
+      });
+      // The POST response is only the success signal: the row is re-read from
+      // the server so the status/expiry shown are the API's, not a local patch.
+      reload();
+    } catch (failure) {
+      if (failure instanceof ApiClientError && failure.status === 403) {
+        setResendTarget(null);
+        onForbidden();
+        return;
+      }
+      // Keep the dialog open with the real message (409 already accepted, 502
+      // e-mail not delivered…) and refresh the list so the row stops lying.
+      setResendError(resendInvitationErrorMessage(failure));
+      reload();
+    } finally {
+      setResending(false);
+      setResendingId(null);
+    }
+  }
+
   const columns = [
     { key: 'email', label: 'E-mail' },
     { key: 'role', label: 'Papel' },
@@ -158,32 +209,53 @@ export function AdminInvitationsTab({
             {invitationStatusLabel(invitation.status)}
           </Pill>
         ),
-        actions: isInvitationPending(invitation.status) ? (
+        actions: canResendInvitation(invitation.status) ? (
           <span className="sac-admin-actions">
             <Button
               size="sm"
               variant="ghost"
-              icon="close"
-              aria-label={`Revogar o convite de ${invitation.email}`}
+              icon="link"
+              loading={resendingId === invitation.id}
+              disabled={resendingId !== null && resendingId !== invitation.id}
+              aria-label={`Reenviar o convite de ${invitation.email || 'operador'}`}
               onClick={() => {
                 setNotice(null);
-                setRevokeError(null);
-                setRevokeTarget(invitation);
+                setResendError(null);
+                setResendTarget(invitation);
               }}
             >
-              Revogar
+              Reenviar
             </Button>
+            {isInvitationPending(invitation.status) ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon="close"
+                aria-label={`Revogar o convite de ${invitation.email || 'operador'}`}
+                onClick={() => {
+                  setNotice(null);
+                  setRevokeError(null);
+                  setRevokeTarget(invitation);
+                }}
+              >
+                Revogar
+              </Button>
+            ) : null}
           </span>
         ) : (
           <span
             className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]"
-            title="Somente convites pendentes podem ser revogados."
+            title={
+              invitation.status.trim().toUpperCase() === 'ACCEPTED'
+                ? 'Convites aceitos não podem ser reenviados nem revogados.'
+                : 'Nenhuma ação disponível para o status atual deste convite.'
+            }
           >
             —
           </span>
         ),
       })),
-    [items],
+    [items, resendingId],
   );
 
   return (
@@ -192,7 +264,7 @@ export function AdminInvitationsTab({
       subtitle={
         loading
           ? 'Consultando os convites do workspace…'
-          : `${pendingCount} pendente(s) de ${total} convite(s). Só um convite PENDING pode ser revogado.`
+          : `${pendingCount} pendente(s) de ${total} convite(s). Pendentes e expirados podem ser reenviados; a revogação vale só para pendentes.`
       }
     >
       <div className="flex flex-col gap-3">
@@ -235,7 +307,7 @@ export function AdminInvitationsTab({
           <EmptyState
             icon="users"
             title="Nenhum convite registrado"
-            description="Convide um operador para enviar o link de uso único. Convites pendentes aparecem aqui com a data de expiração e podem ser revogados a qualquer momento."
+            description="Convide um operador para enviar o link de uso único. Convites pendentes e expirados aparecem aqui com a data de expiração e podem ser reenviados; só os pendentes podem ser revogados."
             action={
               <Button variant="primary" icon="plus" onClick={() => setInviteOpen(true)}>
                 Convidar operador
@@ -245,7 +317,7 @@ export function AdminInvitationsTab({
         ) : (
           <>
             <p className="sac-admin-scroll-hint">
-              Deslize a tabela para ver papel, datas, status e a ação de revogar.
+              Deslize a tabela para ver papel, datas, status e as ações de reenviar e revogar.
             </p>
             <DataTable
               caption={`Convites do workspace — ${items.length} convite(s)`}
@@ -257,8 +329,9 @@ export function AdminInvitationsTab({
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
           Chamadas: <span className="sac-num">GET /admin/invitations</span> ·{' '}
-          <span className="sac-num">DELETE /admin/invitations/:id</span>. A revogação invalida o link
-          já enviado; o e-mail não é reenviado automaticamente.
+          <span className="sac-num">POST /admin/invitations/:id/resend</span> ·{' '}
+          <span className="sac-num">DELETE /admin/invitations/:id</span>. O reenvio manda o e-mail
+          novamente e renova a expiração do convite; a revogação invalida o link sem reenviar e-mail.
         </p>
       </div>
 
@@ -276,6 +349,40 @@ export function AdminInvitationsTab({
           }}
         />
       ) : null}
+
+      <ConfirmActionDialog
+        open={resendTarget !== null}
+        title={`Reenviar o convite de ${resendTarget?.email || 'operador'}?`}
+        description="A API reenvia o e-mail do link de uso único e define um novo prazo de expiração."
+        confirmLabel="Reenviar convite"
+        tone="primary"
+        loading={resending}
+        onConfirm={() => void handleResend()}
+        onClose={() => {
+          if (!resending) {
+            setResendTarget(null);
+            setResendError(null);
+          }
+        }}
+      >
+        <div className="flex flex-col gap-3">
+          <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            {resendTarget !== null && isInvitationExpired(resendTarget.status)
+              ? `Este convite expirou em ${
+                  resendTarget.expiresAt ? formatDateTime(resendTarget.expiresAt) : 'uma data anterior'
+                }. O reenvio o deixa pendente de novo, com um novo link de uso único.`
+              : 'O convite continua pendente. Um novo e-mail com o link de uso único será enviado ao operador.'}
+          </p>
+          <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            Nenhum operador é criado por esta ação e convites aceitos nunca podem ser reenviados.
+          </p>
+          {resendError !== null ? (
+            <Alert title="Não foi possível reenviar o convite" tone="danger">
+              {resendError}
+            </Alert>
+          ) : null}
+        </div>
+      </ConfirmActionDialog>
 
       <ConfirmActionDialog
         open={revokeTarget !== null}

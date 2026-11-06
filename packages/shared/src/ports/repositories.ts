@@ -554,6 +554,21 @@ export interface IInvitationRepository {
    * acceptance/expiry wins the race and the caller sees `false`.
    */
   deletePending(id: string, tenantId: string, at: Date): Promise<boolean>;
+  /**
+   * Re-issues an invitation: replaces `token_hash` and `expires_at` of a row
+   * that is still PENDING or already EXPIRED (never ACCEPTED) and belongs to
+   * the caller tenant.
+   *
+   * The service sends the e-mail BEFORE calling this method (a delivery failure
+   * must not overwrite the previous link), so the update is a conditional
+   * `updateMany` solely on `accepted_at IS NULL`: a concurrent acceptance wins
+   * the race and the caller sees `false`.
+   */
+  reissue(
+    id: string,
+    tenantId: string,
+    input: { tokenHash: string; expiresAt: Date },
+  ): Promise<boolean>;
 }
 
 /* ==========================================================================

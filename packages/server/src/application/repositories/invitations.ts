@@ -106,6 +106,27 @@ export class PrismaInvitationRepository implements IInvitationRepository {
     });
     return result.count > 0;
   }
+
+  /**
+   * Resend write path: rotates the token hash + expiry of a row that is still
+   * PENDING or already EXPIRED of the caller tenant.
+   *
+   * Only `accepted_at IS NULL` is checked (not `expires_at > now`): re-issuing
+   * an expired invite is exactly the point of the ADMIN resend. The e-mail has
+   * already been sent by the service, so a lost race (or a foreign id) must
+   * produce `false` instead of resurrecting/overwriting another row.
+   */
+  async reissue(
+    id: string,
+    tenantId: string,
+    input: { tokenHash: string; expiresAt: Date },
+  ): Promise<boolean> {
+    const result = await this.prisma.invitation.updateMany({
+      where: { id, tenantId, acceptedAt: null },
+      data: { tokenHash: input.tokenHash, expiresAt: input.expiresAt },
+    });
+    return result.count > 0;
+  }
 }
 
 export function createInvitationRepository(

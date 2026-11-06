@@ -435,4 +435,18 @@ export class StubInvitationRepository implements IInvitationRepository {
     this.rows.splice(index, 1);
     return true;
   }
+
+  async reissue(
+    id: string,
+    tenantId: string,
+    input: { tokenHash: string; expiresAt: Date },
+  ): Promise<boolean> {
+    const row = this.rows.find(
+      (entry) => entry.id === id && entry.tenantId === tenantId && entry.acceptedAt === null,
+    );
+    if (row === undefined) return false;
+    row.tokenHash = input.tokenHash;
+    row.expiresAt = input.expiresAt;
+    return true;
+  }
 }

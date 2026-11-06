@@ -63,6 +63,7 @@ import type {
   RecoveryCodeCountResult,
   RegenerateRecoveryCodesBody,
   RegenerateRecoveryCodesResult,
+  ResendInvitationResult,
   SendMessageBody,
   SignupBody,
   SsoDiscovery,
@@ -760,6 +761,16 @@ export interface ApiClient {
    */
   revokeInvitation(id: string): Promise<void>;
   /**
+   * `POST /admin/invitations/:id/resend` — re-issues the single-use link and
+   * mails it again. Offered for **PENDING** and **EXPIRED** rows only.
+   *
+   * `404` means the invitation is gone, `409 INVITATION_ALREADY_ACCEPTED` that
+   * the invitee accepted meanwhile, and `502 EMAIL_SEND_FAILED` that the API
+   * could not deliver the e-mail. Resolves `null` when the API confirms the
+   * re-send without returning the invitation body; the caller re-reads the list.
+   */
+  resendInvitation(id: string): Promise<ResendInvitationResult | null>;
+  /**
    * `POST /invitations` (Fase 1, ADMIN) — mails the invitation link. Used by the
    * "Convidar operador" CTA of `/admin`.
    */
@@ -928,6 +939,36 @@ function normalizeAdminInvitation(raw: unknown): AdminInvitation | null {
     expiresAt,
     acceptedAt,
     status: normalizeInvitationStatus(raw.status, acceptedAt, expiresAt),
+  };
+}
+
+/**
+ * `POST /admin/invitations/:id/resend` read model.
+ *
+ * The route answers the refreshed invitation (`{ id, email, role, expiresAt,
+ * status: 'PENDING' }`), but a deployment can omit fields — or the whole body —
+ * without the re-send having failed. A bodyless 2xx is "confirmed, no details"
+ * (`null`, the caller re-reads the list); the id falls back to the invitation
+ * that was resent, and the remaining fields stay empty instead of being
+ * invented. An omitted `status` is derived from the returned timestamps by
+ * `normalizeAdminInvitation` (PENDING for a fresh re-send).
+ */
+function normalizeResendInvitation(
+  payload: unknown,
+  invitationId: string,
+): ResendInvitationResult | null {
+  if (!isRecord(payload)) return null;
+  const invitation = normalizeAdminInvitation({
+    ...payload,
+    id: asTextOrNull(payload.id) ?? invitationId,
+  });
+  if (invitation === null) return null;
+  return {
+    id: invitation.id,
+    email: invitation.email,
+    role: invitation.role,
+    expiresAt: invitation.expiresAt,
+    status: invitation.status,
   };
 }
 
@@ -1704,6 +1745,21 @@ export const api: ApiClient = {
     });
   },
 
+  async resendInvitation(id) {
+    const payload = await request<unknown>(
+      `/admin/invitations/${encodeURIComponent(id)}/resend`,
+      {
+        method: 'POST',
+        // SMTP delivery happens inside this request (same headroom as the invite).
+        // A 204/empty 2xx still means the re-send worked: null is a confirmation
+        // without details, and the caller re-reads `GET /admin/invitations`.
+        allowEmpty: true,
+        timeoutMs: 20_000,
+      },
+    );
+    return normalizeResendInvitation(payload, id);
+  },
+
   async inviteUser(body) {
     const payload = await request<unknown>('/invitations', {
       method: 'POST',
@@ -1799,6 +1855,7 @@ export type {
   RecoveryCodeCountResult,
   RegenerateRecoveryCodesBody,
   RegenerateRecoveryCodesResult,
+  ResendInvitationResult,
   RouteDecision,
   SendMessageBody,
   SsoDiscovery,

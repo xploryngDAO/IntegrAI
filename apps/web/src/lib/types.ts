@@ -709,8 +709,10 @@ export interface InviteUserResult {
 /* ==========================================================================
  * Convites pendentes (`/admin/invitations`) + exportação da trilha
  *
- *   GET    /admin/invitations      -> { items: AdminInvitation[], total }
- *   DELETE /admin/invitations/:id  -> 204 (409 INVITATION_ALREADY_ACCEPTED)
+ *   GET    /admin/invitations            -> { items: AdminInvitation[], total }
+ *   POST   /admin/invitations/:id/resend -> 200 (409 INVITATION_ALREADY_ACCEPTED,
+ *                                           502 EMAIL_SEND_FAILED)
+ *   DELETE /admin/invitations/:id        -> 204 (409 INVITATION_ALREADY_ACCEPTED)
  *   GET    /admin/audit-logs/export.csv?action=&actorId=&from=&to= -> text/csv
  * ========================================================================== */
 
@@ -741,6 +743,20 @@ export interface AdminInvitationsResult {
   items: AdminInvitation[];
   total: number;
 }
+
+/**
+ * Response of `POST /admin/invitations/:id/resend` (ADMIN).
+ *
+ * The API re-issues the single-use link and answers the refreshed invitation
+ * (`id`, `email`, `role`, `expiresAt`, `status: 'PENDING'`). The client keeps the
+ * same row shape, so a partial body still renders what the API actually sent.
+ * These fields feed the success message only — the table is re-read from
+ * `GET /admin/invitations` right after the call.
+ */
+export type ResendInvitationResult = Pick<
+  AdminInvitation,
+  'id' | 'email' | 'role' | 'expiresAt' | 'status'
+>;
 
 /** Query of `GET /admin/audit-logs/export.csv` (same filters as the trail). */
 export type AuditLogExportQuery = Omit<AuditLogQuery, 'page' | 'perPage'>;

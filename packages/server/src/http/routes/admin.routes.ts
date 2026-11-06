@@ -23,6 +23,11 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
     controllers.revokeUserSessions,
   );
   app.get('/invitations', { preHandler: adminOnly }, controllers.listInvitations);
+  app.post(
+    '/invitations/:id/resend',
+    { preHandler: adminOnly },
+    controllers.resendInvitation,
+  );
   app.delete(
     '/invitations/:id',
     { preHandler: adminOnly },
