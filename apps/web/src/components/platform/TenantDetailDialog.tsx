@@ -401,7 +401,7 @@ function TenantBillingForm({
   return (
     <Card
       title="Cobrança"
-      subtitle="Somente os campos alterados são enviados em PATCH /platform/tenants/:id/billing."
+      subtitle="Somente os campos alterados são enviados."
     >
       <div className="mt-3 flex flex-col gap-3">
         <Select
@@ -465,7 +465,7 @@ function TenantBillingForm({
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="m-0 max-w-full break-all text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-            PATCH /api/v1/platform/tenants/{tenant.id}/billing
+            Alterações de cobrança valem assim que você salvar.
           </p>
           <Button
             variant="primary"

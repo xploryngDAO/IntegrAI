@@ -373,9 +373,8 @@ export function AdminSessionsTab({
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamadas: <span className="sac-num">GET /admin/sessions?page=&amp;perPage=</span> ·{' '}
-          <span className="sac-num">DELETE /admin/sessions/:id</span>. A revogação encerra o refresh
-          token na hora; o access token restante expira no prazo normal do JWT.
+          A revogação encerra o acesso daquele dispositivo na hora; a sessão atual deste navegador
+          só termina com <strong>Sair</strong>, no menu da conta.
         </p>
       </div>
 
@@ -400,11 +399,9 @@ export function AdminSessionsTab({
       >
         <div className="flex flex-col gap-3">
           <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
-            A API revoga o refresh token imediatamente (
-            <span className="sac-num">DELETE /admin/sessions/:id</span>). A sessão atual deste
-            navegador não pode ser revogada por aqui — a API responde{' '}
-            <span className="sac-num">409 CANNOT_REVOKE_CURRENT_SESSION</span>; encerre-a com{' '}
-            <strong>Sair</strong> no menu da conta.
+            A revogação encerra a sessão imediatamente. A sessão atual deste navegador não pode ser
+            revogada por aqui — a API recusa a operação; encerre-a com <strong>Sair</strong> no menu
+            da conta.
           </p>
           {revokeError !== null ? (
             <Alert title="Não foi possível revogar a sessão" tone="danger">

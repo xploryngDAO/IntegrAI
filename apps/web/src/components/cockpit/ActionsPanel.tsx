@@ -62,7 +62,6 @@ export function ActionsPanel({
   actions,
   marketplace,
   crr,
-  ticketId,
   className,
 }: ActionsPanelProps) {
   const runAction = useWorkspace((state) => state.runAction);
@@ -101,7 +100,7 @@ export function ActionsPanel({
   }
 
   const confirmDescription = confirmAction
-    ? `${confirmAction.description} Chamada de API: POST /api/v1/tickets/${ticketId}/actions com { "kind": "${confirmAction.kind}" }. Rota: ${ROUTE_LABEL[confirmAction.route]}.`
+    ? `${confirmAction.description} A ação será aplicada apenas a este atendimento, pelo canal ${ROUTE_LABEL[confirmAction.route]}.`
     : '';
 
   return (

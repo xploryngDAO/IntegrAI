@@ -111,8 +111,7 @@ export function InviteUserDialog({ onClose, onInvited }: InviteUserDialogProps):
         />
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamada executada: <span className="sac-num">POST /invitations</span>. Reenviar para o
-          mesmo e-mail renova o token do convite pendente.
+          Reenviar para o mesmo e-mail renova o link do convite pendente.
         </p>
 
         {error !== null ? (

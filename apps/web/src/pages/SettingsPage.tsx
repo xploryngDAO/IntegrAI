@@ -181,7 +181,7 @@ export function SettingsPage(): JSX.Element {
 
       <Card
         title="Dados do workspace"
-        subtitle="Identidade do tenant autenticado, lida de GET /tenants/me."
+        subtitle="Identidade do workspace autenticado: nome, slug e ID do tenant."
       >
         {loading ? (
           <div className="flex flex-col gap-2" aria-busy="true">
@@ -314,7 +314,7 @@ export function SettingsPage(): JSX.Element {
 
         <Card
           title="Exportar dados"
-          subtitle="Baixe um JSON com os dados mantidos para este workspace (GET /tenants/me/export)."
+          subtitle="Baixe um JSON com os dados mantidos para este workspace."
         >
           <div className="flex flex-col gap-3">
             <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
@@ -345,7 +345,7 @@ export function SettingsPage(): JSX.Element {
 
         <Card
           title="Zona de perigo"
-          subtitle="Exclusão definitiva do workspace (DELETE /tenants/me)."
+          subtitle="Exclusão definitiva do workspace e dos dados associados."
           className="sac-card--danger"
         >
           <div className="flex flex-col gap-3">

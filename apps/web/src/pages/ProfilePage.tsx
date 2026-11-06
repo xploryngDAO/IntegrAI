@@ -273,7 +273,7 @@ export function ProfilePage(): JSX.Element {
                   </Button>
                 ) : null}
                 <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-                  Chamada: <span className="sac-num">PATCH /auth/me</span>
+                  O novo nome passa a valer assim que você salvar.
                 </span>
               </div>
 
@@ -421,10 +421,8 @@ export function ProfilePage(): JSX.Element {
             )}
 
             <p className="m-0 mt-3 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-              Chamadas: <span className="sac-num">GET /auth/sessions</span> ·{' '}
-              <span className="sac-num">DELETE /auth/sessions/:id</span> ·{' '}
-              <span className="sac-num">POST /auth/logout</span> (sem refresh token = todos os
-              dispositivos)
+              Revogar encerra o acesso daquele dispositivo imediatamente. “Sair de todos os
+              dispositivos” encerra também esta sessão.
             </p>
           </Card>
         </div>
@@ -525,9 +523,8 @@ export function ProfilePage(): JSX.Element {
         onClose={() => setRevokeTarget(null)}
       >
         <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
-          A API revoga o refresh token imediatamente ({' '}
-          <span className="sac-num">DELETE /auth/sessions/:id</span> ). O access token restante expira
-          no prazo normal do JWT.
+          A revogação encerra o acesso imediatamente; o restante do período de validade expira
+          sozinho e o dispositivo precisará entrar novamente.
         </p>
       </ConfirmActionDialog>
 
@@ -545,9 +542,8 @@ export function ProfilePage(): JSX.Element {
         onClose={() => setConfirmEverywhere(false)}
       >
         <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
-          Você será levado para o login. Todos os dispositivos precisarão autenticar novamente. A
-          chamada usa <span className="sac-num">POST /auth/logout</span> sem{' '}
-          <span className="sac-num">refreshToken</span>, que a API interpreta como “sair de todos”.
+          Você será levado para o login. Todos os dispositivos precisarão autenticar novamente,
+          inclusive este navegador.
         </p>
       </ConfirmActionDialog>
     </div>

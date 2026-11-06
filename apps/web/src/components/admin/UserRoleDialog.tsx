@@ -78,8 +78,7 @@ export function UserRoleDialog({ user, onClose, onSaved }: UserRoleDialogProps):
         />
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Operador: <strong className="font-medium text-[var(--cv-color-text)]">{user.email}</strong>{' '}
-          · Chamada: <span className="sac-num">PATCH /admin/users/:id</span>
+          Operador: <strong className="font-medium text-[var(--cv-color-text)]">{user.email}</strong>
         </p>
 
         {error !== null ? (

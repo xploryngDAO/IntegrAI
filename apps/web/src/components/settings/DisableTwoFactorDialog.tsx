@@ -120,9 +120,7 @@ export function DisableTwoFactorDialog({
         ) : null}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamada executada:{' '}
-          <span className="sac-num">POST /api/v1/auth/2fa/disable</span> · a API revalida a senha
-          (bcrypt) e o código antes de desativar.
+          Sua senha e um código válido são revalidados antes de desativar.
         </p>
       </div>
     </Modal>

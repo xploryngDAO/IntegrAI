@@ -143,7 +143,7 @@ export function ChannelDiagnosis({ accounts }: ChannelDiagnosisProps): JSX.Eleme
         <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
           {systemDiagnosis
             ? `Último teste ${formatDateTime(systemDiagnosis.testedAt)}`
-            : 'Chamadas reais de token e leitura em cada loja.'}
+            : 'Testes reais de token e leitura em cada loja.'}
         </span>
       </div>
 

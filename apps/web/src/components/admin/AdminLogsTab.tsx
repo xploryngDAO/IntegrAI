@@ -484,9 +484,8 @@ export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps)
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamadas: <span className="sac-num">GET /admin/audit-logs?action=&amp;actorId=&amp;page=&amp;perPage=&amp;from=&amp;to=</span>{' '}
-          · <span className="sac-num">GET /admin/audit-logs/export.csv?action=&amp;actorId=&amp;from=&amp;to=</span>{' '}
-          (download autenticado)
+          Os filtros e a paginação são aplicados no servidor; a exportação baixa o mesmo recorte em
+          CSV e exige sessão ativa.
         </p>
       </div>
     </Card>

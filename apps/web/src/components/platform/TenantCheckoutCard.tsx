@@ -63,7 +63,7 @@ export function TenantCheckoutCard({
       if (url === null) {
         setFailure({
           message:
-            'A API respondeu sem uma URL de checkout absoluta (http/https), então o redirecionamento foi bloqueado. Nada foi cobrado; revise BILLING_CHECKOUT_URL_TEMPLATE e o valor retornado por POST /platform/tenants/:id/checkout.',
+            'A API respondeu sem uma URL de checkout válida, então o redirecionamento foi bloqueado. Nada foi cobrado; revise a configuração do template de checkout do provedor e tente novamente.',
           tone: 'warning',
         });
         return;
@@ -116,7 +116,7 @@ export function TenantCheckoutCard({
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="m-0 max-w-full break-all text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-            POST /api/v1/platform/tenants/{tenantId}/checkout
+            Redireciona para o provedor de pagamento.
           </p>
           <Button
             variant="primary"

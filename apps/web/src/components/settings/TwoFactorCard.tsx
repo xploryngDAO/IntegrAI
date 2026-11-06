@@ -214,7 +214,7 @@ export function TwoFactorCard(): JSX.Element {
   return (
     <Card
       title="Verificação em duas etapas"
-      subtitle="TOTP com app autenticador · estado real de GET /auth/2fa/status."
+      subtitle="TOTP com app autenticador · estado atual da sua conta."
       actions={statusPill}
     >
       {loading ? (

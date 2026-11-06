@@ -824,9 +824,9 @@ export function IntegrationSetupPage(): JSX.Element {
 
                     {!account && marketplace ? (
                       <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-                        Sem loja conectada: “Testar conexão” executa o diagnóstico do sistema
-                        (GET /diagnostics) e mostra os checks deste marketplace. Para testar uma loja
-                        específica, conecte-a em Canais.
+                        Sem loja conectada: “Testar conexão” executa o diagnóstico do sistema e
+                        mostra os checks deste marketplace. Para testar uma loja específica,
+                        conecte-a em Canais.
                       </p>
                     ) : null}
                   </div>

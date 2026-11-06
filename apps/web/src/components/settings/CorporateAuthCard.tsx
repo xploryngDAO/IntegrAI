@@ -376,7 +376,7 @@ export function CorporateAuthCard(): JSX.Element {
   return (
     <Card
       title={ssoProviderLabel(config?.provider)}
-      subtitle="Provedor OIDC do workspace · estado real de GET/PUT/DELETE /tenants/me/sso e do teste ADMIN."
+      subtitle="Provedor OIDC do workspace · estado atual da configuração e do teste de conexão."
     >
       {loading ? (
         <div className="flex flex-col gap-2" aria-busy="true">

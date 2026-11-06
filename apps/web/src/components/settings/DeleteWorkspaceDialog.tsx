@@ -128,9 +128,7 @@ export function DeleteWorkspaceDialog({ tenant, onClose }: DeleteWorkspaceDialog
         </div>
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamada executada:{' '}
-          <span className="sac-num">DELETE /api/v1/tenants/me</span> · após a exclusão sua sessão é
-          encerrada e você volta para o login.
+          Após a exclusão, sua sessão é encerrada e você volta para o login.
         </p>
 
         {error !== null ? (

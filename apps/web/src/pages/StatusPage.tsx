@@ -252,7 +252,7 @@ export function StatusPage(): JSX.Element {
             loading ? (
               <StatusSkeleton />
             ) : error !== null ? (
-              <Card title="Status indisponível" subtitle="A consulta ao endpoint público falhou.">
+              <Card title="Status indisponível" subtitle="A consulta pública de status falhou.">
                 <Alert title="Não foi possível carregar o status" tone="danger">
                   <div className="flex flex-col gap-2">
                     <span>{error}</span>

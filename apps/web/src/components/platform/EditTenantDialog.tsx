@@ -147,8 +147,8 @@ export function EditTenantDialog({
         </FieldRow>
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamada executada:{' '}
-          <span className="sac-num">PATCH /api/v1/platform/tenants/{tenant.id}</span>
+          Trocar de plano realinha as cotas aos padrões do plano; os valores abaixo podem ser
+          ajustados antes de salvar.
         </p>
 
         {error !== null ? (

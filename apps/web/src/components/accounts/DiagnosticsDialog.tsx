@@ -223,8 +223,8 @@ export function DiagnosticsDialog(props: DiagnosticsDialogProps): JSX.Element {
     mode === 'account' ? `Diagnóstico · ${props.accountName}` : 'Diagnóstico dos canais';
   const description =
     mode === 'account'
-      ? `Chamada real ao marketplace: POST /api/v1/accounts/${props.accountId}/diagnose. Nada é enviado ao comprador.`
-      : 'Chamada real de infraestrutura e canais: GET /api/v1/diagnostics. Nada é enviado ao comprador.';
+      ? 'Teste real de conexão com o marketplace desta conta. Nada é enviado ao comprador.'
+      : 'Teste real de infraestrutura e canais. Nada é enviado ao comprador.';
 
   return (
     <Modal

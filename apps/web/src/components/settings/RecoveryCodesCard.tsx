@@ -84,7 +84,7 @@ export function RecoveryCodesCard(): JSX.Element {
   return (
     <Card
       title="Códigos de recuperação"
-      subtitle="Códigos de uso único do 2FA · estado real de GET /auth/2fa/recovery-codes/count."
+      subtitle="Códigos de uso único do 2FA · saldo disponível na sua conta."
       actions={remaining === null ? undefined : <Pill tone={tone}>{remaining}</Pill>}
     >
       {loading ? (

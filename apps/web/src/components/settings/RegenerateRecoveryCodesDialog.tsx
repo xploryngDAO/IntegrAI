@@ -188,8 +188,7 @@ export function RegenerateRecoveryCodesDialog({
           ) : null}
 
           <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-            Chamada executada:{' '}
-            <span className="sac-num">POST /api/v1/auth/2fa/recovery-codes/regenerate</span>
+            A troca só é concluída com a senha correta e um código válido.
           </p>
         </div>
       ) : emptyResult ? (

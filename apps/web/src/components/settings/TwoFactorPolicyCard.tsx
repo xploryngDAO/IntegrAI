@@ -111,7 +111,7 @@ export function TwoFactorPolicyCard(): JSX.Element {
       setProfile(fresh);
       if (fresh.require2fa === null) {
         setSaveError(
-          'A API aceitou a alteração, mas não publica o campo require2fa em GET /tenants/me. Confirme o estado pela API antes de considerar a política ativa.',
+          'A alteração foi aceita, mas este serviço não informa se a exigência de 2FA está ativa. Confirme o estado antes de considerar a política valendo.',
         );
         return;
       }
@@ -135,7 +135,7 @@ export function TwoFactorPolicyCard(): JSX.Element {
   return (
     <Card
       title="Verificação em duas etapas obrigatória"
-      subtitle="Política do workspace aplicada pela API a todos os operadores · GET/PATCH /tenants/me."
+      subtitle="Política do workspace aplicada a todos os operadores."
       actions={
         loading || policyValue === null ? undefined : (
           <Pill tone={policyValue ? 'ok' : 'neutral'}>{policyValue ? 'Exigida' : 'Opcional'}</Pill>
@@ -162,9 +162,8 @@ export function TwoFactorPolicyCard(): JSX.Element {
       ) : profile === null ? null : policyValue === null ? (
         <div className="flex flex-col gap-3">
           <Alert title="Indisponível nesta API" tone="warning">
-            Esta implantação de <span className="sac-num">GET /tenants/me</span> não publica o campo{' '}
-            <span className="sac-num">require2fa</span>. O painel não assume que a política está
-            desligada: atualize a API para gerenciá-la por aqui.
+            Esta implantação do serviço não informa se a exigência de 2FA está ativa. O painel não
+            assume que a política está desligada: atualize o serviço para gerenciá-la por aqui.
           </Alert>
           <div>
             <Button size="sm" icon="pulse" onClick={retry}>

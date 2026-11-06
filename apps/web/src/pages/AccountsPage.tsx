@@ -417,7 +417,7 @@ export function AccountsPage(): JSX.Element {
         title="Desconectar loja?"
         description={
           confirmDisconnect
-            ? `A conta "${confirmDisconnect.displayName}" deixará de sincronizar mensagens e pedidos. Chamada executada: DELETE /api/v1/accounts/${confirmDisconnect.id}.`
+            ? `A conta "${confirmDisconnect.displayName}" deixará de sincronizar mensagens e pedidos.`
             : ''
         }
         confirmLabel="Desconectar"

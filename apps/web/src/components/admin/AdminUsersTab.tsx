@@ -708,11 +708,9 @@ export function AdminUsersTab({
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamadas: <span className="sac-num">GET /admin/users?search=&amp;role=&amp;status=&amp;page=&amp;perPage=</span>{' '}
-          · <span className="sac-num">GET /admin/users/export.csv?search=&amp;role=&amp;status=</span>{' '}
-          (download autenticado) · <span className="sac-num">PATCH /admin/users/:id</span> ·{' '}
-          <span className="sac-num">POST /admin/users/:id/reset-2fa</span> ·{' '}
-          <span className="sac-num">POST /admin/users/:id/revoke-sessions</span>
+          Os filtros e a paginação são aplicados no servidor; a exportação baixa o mesmo recorte em
+          CSV e exige sessão ativa. Revogar sessões encerra os acessos abertos do operador; redefinir
+          o 2FA remove a configuração atual e também encerra as sessões ativas.
         </p>
       </div>
 

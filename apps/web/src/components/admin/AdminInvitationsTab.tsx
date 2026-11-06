@@ -339,10 +339,8 @@ export function AdminInvitationsTab({
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamadas: <span className="sac-num">GET /admin/invitations</span> ·{' '}
-          <span className="sac-num">POST /admin/invitations/:id/resend</span> ·{' '}
-          <span className="sac-num">DELETE /admin/invitations/:id</span>. O reenvio manda o e-mail
-          novamente e renova a expiração do convite; a revogação invalida o link sem reenviar e-mail.
+          O reenvio manda o e-mail novamente e renova a expiração do convite; a revogação invalida
+          o link sem reenviar e-mail.
         </p>
       </div>
 

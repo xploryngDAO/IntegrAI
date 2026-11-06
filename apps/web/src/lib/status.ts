@@ -161,7 +161,7 @@ export function statusErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
     if (error.status === 0) return error.message;
     if (error.status === 404 || error.status === 405 || error.status === 501) {
-      return `${error.message} (HTTP ${error.status}) — o endpoint público GET /status não está publicado nesta API.`;
+      return `${error.message} (HTTP ${error.status}) — o painel público de status não está disponível nesta instalação.`;
     }
     // A generic envelope already carries the status ("Erro HTTP 500."); avoid
     // printing it twice while keeping the real server message intact.

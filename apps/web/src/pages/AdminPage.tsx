@@ -131,7 +131,7 @@ export function AdminPage(): JSX.Element {
           />
         </Card>
         <p className="m-0 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-          A API revalida o papel em cada chamada de <span className="sac-num">/admin/*</span>.
+          A API revalida o seu papel a cada acesso à área administrativa.
         </p>
       </div>
     );
