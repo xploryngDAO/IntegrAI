@@ -157,9 +157,9 @@ export const envSchema = z.object({
    *
    * Default `0.0.0.0` keeps Docker/self-hosted behaviour. When a local tunnel
    * (cloudflared/ngrok) is the only ingress, bind `127.0.0.1` and set
-   * `TRUST_PROXY=true`: the edge then supplies `X-Forwarded-For` and Fastify
-   * resolves the real client IP, instead of every user sharing the tunnel's
-   * loopback address in rate limits and audit records.
+   * `TRUST_PROXY=127.0.0.1`: only the tunnel hop is trusted, Fastify resolves
+   * the rightmost (edge-appended) `X-Forwarded-For` entry, and the real client
+   * IP reaches rate limits/audit records instead of the shared loopback.
    */
   HOST: stringFromEnv('0.0.0.0'),
   APP_BASE_URL: stringFromEnv('http://localhost:4000'),

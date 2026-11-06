@@ -93,11 +93,15 @@ isso o `.env` local usa:
 
 ```dotenv
 HOST=127.0.0.1
-TRUST_PROXY=true
+TRUST_PROXY=127.0.0.1
 ```
 
-O bind em loopback impede que alguém na LAN forje `X-Forwarded-For` e burle o
-rate limit. Em Docker/self-hosted o padrão continua `HOST=0.0.0.0` e
+`TRUST_PROXY` é uma **lista** com apenas o salto do cloudflared: o Fastify
+confia no socket de loopback e usa o IP mais à direita do `X-Forwarded-For` —
+exatamente o que o edge do Cloudflare acrescenta. Testado: enviar um
+`X-Forwarded-For` forjado pelo túnel **não** muda o IP registrado na auditoria
+(aparece o IP público real do operador). O bind em loopback impede que alguém na
+LAN forje o header. Em Docker/self-hosted o padrão continua `HOST=0.0.0.0` e
 `TRUST_PROXY` deve ser a lista de CIDRs do edge (ver `docs/SECURITY.md` §6.8).
 
 ## Diagnóstico
