@@ -221,3 +221,14 @@ assinatura do webhook da Shopee.
 O pacote @xploryng/convergencia é consumido de endor/xploryng-convergencia-0.1.0.tgz (verificado por sha512 no package-lock.json). O asset do GitHub Release deixou de responder 404 em instalações limpas, o que quebrava 
 pm ci, o build Docker e deploys sem cache. Para atualizar: 
 pm pack --ignore-scripts node_modules/@xploryng/convergencia --pack-destination vendor e ajustar a versão em pps/web/package.json.
+## Stack completo com Docker Compose
+
+O `docker-compose.prod.yml` sobe PostgreSQL 16, Redis 7 e a **imagem de produção da API** (com migrações automáticas). O object storage é externo (S3/MinIO/R2/s3rver) via `S3_ENDPOINT`. Fluxo validado localmente: `up -d` -> api `healthy` -> seed -> login ADMIN -> `/status` operational -> `/admin/users` 200.
+
+```bash
+cp .env.prod.example .env.prod    # preencha os segredos
+docker build -f packages/server/Dockerfile -t sac-hub-api:prod .
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+DATABASE_URL=postgresql://sac:<senha>@127.0.0.1:55433/sac_hub \
+  ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:seed
+```
