@@ -1,5 +1,10 @@
-import type { AuditActorContext } from '@sac/shared';
-import { ADMIN_USERS_EXPORT_MAX_ROWS, AUDIT_EXPORT_MAX_ROWS } from '@sac/shared';
+import type { AuditActorContext, ExportAuditMetadata, IAppServices } from '@sac/shared';
+import {
+  ADMIN_USERS_EXPORT_MAX_ROWS,
+  AUDIT_ACTIONS,
+  AUDIT_EXPORT_MAX_ROWS,
+  redactPiiForLogs,
+} from '@sac/shared';
 import type { FastifyRequest } from 'fastify';
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
@@ -13,6 +18,7 @@ import {
   sessionParamsSchema,
   updateAdminUserBodySchema,
 } from '../schemas';
+import type { AdminUserExportQueryInput, AuditExportQueryInput } from '../schemas';
 import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
 import { requireAgent, requireTenantId } from '../middleware/auth';
@@ -21,6 +27,7 @@ import {
   auditCsvFileName,
   buildAdminUsersCsv,
   buildAuditCsv,
+  countCsvDataRows,
 } from '../utils/csv';
 
 /**
@@ -59,6 +66,100 @@ export function auditActorContext(request: FastifyRequest): AuditActorContext {
   };
 }
 
+/** `resource_type` of every CSV export audit row (the SQL child is `export`). */
+const EXPORT_RESOURCE_TYPE = 'export';
+
+/** Serialization format recorded in the export metadata. */
+const EXPORT_FORMAT: ExportAuditMetadata['format'] = 'csv';
+
+/**
+ * Filters of `GET /admin/users/export.csv` that are actually present.
+ *
+ * Only the applied filters are recorded (an absent filter is not invented as
+ * `undefined`), and `search` is PII-redacted here because it may be a full
+ * operator e-mail. `AuditService` scrubs the metadata again before persisting.
+ */
+function userExportFilters(
+  query: AdminUserExportQueryInput,
+): Record<string, string> {
+  const filters: Record<string, string> = {};
+  if (query.search !== undefined) filters.search = redactPiiForLogs(query.search);
+  if (query.role !== undefined) filters.role = query.role;
+  if (query.status !== undefined) filters.status = query.status;
+  return filters;
+}
+
+/**
+ * Filters of `GET /admin/audit-logs/export.csv` that are actually present.
+ * `from`/`to` are serialized as ISO-8601 so the audit row is timezone-proof.
+ */
+function auditExportFilters(
+  query: AuditExportQueryInput,
+): Record<string, string> {
+  const filters: Record<string, string> = {};
+  if (query.action !== undefined) filters.action = query.action;
+  if (query.actorId !== undefined) filters.actorId = query.actorId;
+  if (query.from !== undefined) filters.from = query.from.toISOString();
+  if (query.to !== undefined) filters.to = query.to.toISOString();
+  return filters;
+}
+
+/**
+ * Best-effort audit of a data export (`admin.users.exported` /
+ * `admin.audit.exported`) for accountability/LGPD.
+ *
+ * Contract:
+ *  - called AFTER the CSV was serialized, with the count of DATA rows (header
+ *    excluded) read from the bytes that are about to leave — never from the
+ *    pre-serialization array, so the trail matches the download;
+ *  - the download is never affected: `AuditService.record` is throw-free by
+ *    contract, and a synchronous failure of another implementation is caught
+ *    here (warn + continue), keeping the response 200 with the same body;
+ *  - the actor e-mail lives in its own column (allowed by the audit contract)
+ *    while the metadata carries only the applied filters and the row count —
+ *    never the exported rows and never a full e-mail from the filters.
+ */
+function recordExportAudit(
+  services: IAppServices,
+  request: FastifyRequest,
+  input: {
+    action: string;
+    filters: Record<string, string>;
+    rowCount: number;
+  },
+): void {
+  const actor = auditActorContext(request);
+  const metadata: ExportAuditMetadata = {
+    // An unfiltered export keeps the metadata lean: no empty `filters` object.
+    ...(Object.keys(input.filters).length > 0 ? { filters: input.filters } : {}),
+    rowCount: input.rowCount,
+    format: EXPORT_FORMAT,
+  };
+
+  try {
+    services.audit.record({
+      action: input.action,
+      tenantId: actor.tenantId ?? null,
+      actorId: actor.id,
+      actorEmail: actor.email ?? null,
+      ip: actor.ip ?? null,
+      userAgent: actor.userAgent ?? null,
+      // An export is a collection read: there is no single row id to point at.
+      resourceType: EXPORT_RESOURCE_TYPE,
+      resourceId: null,
+      metadata,
+    });
+  } catch (error) {
+    // The bytes are already serialized; an audit outage must not turn the
+    // download into a 500. Only the action code is logged (no PII).
+    services.logger.warn('admin.export.audit_failed', {
+      action: input.action,
+      tenantId: actor.tenantId ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function createAdminControllers(ctx: HttpRouteContext): AdminControllers {
   const { services } = ctx;
 
@@ -94,7 +195,9 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
      *
      * Same filters/tenant scope as `/users`, ordered by `createdAt` ascending,
      * capped at `ADMIN_USERS_EXPORT_MAX_ROWS` (10k). The raw string (not the
-     * JSON envelope) is sent as an attachment.
+     * JSON envelope) is sent as an attachment. The download is audited
+     * (`admin.users.exported`) with the applied filters and the real data-row
+     * count; a failing audit sink only warns and the CSV still ships.
      */
     async exportUsersCsv(request, reply) {
       const tenantId = requireTenantId(request);
@@ -106,12 +209,20 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
         ADMIN_USERS_EXPORT_MAX_ROWS,
       );
 
+      const csv = buildAdminUsersCsv(rows);
+
+      recordExportAudit(services, request, {
+        action: AUDIT_ACTIONS.adminUsersExported,
+        filters: userExportFilters(query),
+        rowCount: countCsvDataRows(csv),
+      });
+
       reply.header('content-type', 'text/csv; charset=utf-8');
       reply.header(
         'content-disposition',
         `attachment; filename=${adminUsersCsvFileName(services.clock.now())}`,
       );
-      return reply.send(buildAdminUsersCsv(rows));
+      return reply.send(csv);
     },
 
     /**
@@ -254,7 +365,9 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
      *
      * Same filters/tenant scope as `/audit-logs`, newest first, capped at
      * `AUDIT_EXPORT_MAX_ROWS` (10k). The raw string (not the JSON envelope) is
-     * sent as an attachment; `metadata` is omitted by design.
+     * sent as an attachment; `metadata` is omitted by design. Reading the trail
+     * is itself audited (`admin.audit.exported`) with the applied filters and
+     * the real data-row count.
      */
     async exportAuditLogsCsv(request, reply) {
       const tenantId = requireTenantId(request);
@@ -266,12 +379,20 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
         AUDIT_EXPORT_MAX_ROWS,
       );
 
+      const csv = buildAuditCsv(rows);
+
+      recordExportAudit(services, request, {
+        action: AUDIT_ACTIONS.adminAuditExported,
+        filters: auditExportFilters(query),
+        rowCount: countCsvDataRows(csv),
+      });
+
       reply.header('content-type', 'text/csv; charset=utf-8');
       reply.header(
         'content-disposition',
         `attachment; filename=${auditCsvFileName(services.clock.now())}`,
       );
-      return reply.send(buildAuditCsv(rows));
+      return reply.send(csv);
     },
   };
 }

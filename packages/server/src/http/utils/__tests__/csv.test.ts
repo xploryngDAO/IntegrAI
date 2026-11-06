@@ -8,6 +8,7 @@ import {
   auditCsvFileName,
   buildAdminUsersCsv,
   buildAuditCsv,
+  countCsvDataRows,
   escapeCsvCell,
 } from '../csv';
 
@@ -168,5 +169,49 @@ describe('adminUsersCsvFileName', () => {
     expect(adminUsersCsvFileName(new Date('2026-01-01T00:00:00.000Z'))).toBe(
       'usuarios-2026-01-01.csv',
     );
+  });
+});
+
+/* ==========================================================================
+ * Export audit row count (`rowCount` of the export event)
+ * ========================================================================== */
+
+describe('countCsvDataRows', () => {
+  it('does not count the header', () => {
+    expect(countCsvDataRows('name,email\r\n')).toBe(0);
+    expect(countCsvDataRows(`${ADMIN_USERS_CSV_COLUMNS.join(',')}\r\n`)).toBe(0);
+    expect(countCsvDataRows(buildAdminUsersCsv([]))).toBe(0);
+    expect(countCsvDataRows(buildAuditCsv([]))).toBe(0);
+  });
+
+  it('counts every data record written by the builders', () => {
+    expect(countCsvDataRows(buildAdminUsersCsv([makeUser()]))).toBe(1);
+    expect(
+      countCsvDataRows(
+        buildAdminUsersCsv([makeUser(), makeUser({ email: 'ana@acme.test' })]),
+      ),
+    ).toBe(2);
+    expect(countCsvDataRows(buildAuditCsv([makeRow()]))).toBe(1);
+  });
+
+  it('ignores blank lines and a trailing line break', () => {
+    expect(countCsvDataRows('')).toBe(0);
+    expect(countCsvDataRows('\r\n')).toBe(0);
+    expect(countCsvDataRows('h1,h2\r\n\r\n')).toBe(0);
+    expect(countCsvDataRows('h1,h2\r\n\r\na,b\r\n\r\nc,d\r\n\r\n')).toBe(2);
+  });
+
+  it('treats a quoted cell with CR/LF as ONE record (RFC 4180)', () => {
+    expect(countCsvDataRows('h1,h2\r\n"a\r\nb",c\r\n')).toBe(1);
+    expect(countCsvDataRows('h1,h2\r\n"a\nb",c\r\n"d\r\ne",f\r\n')).toBe(2);
+  });
+
+  it('does not mistake an escaped quote for the end of the cell', () => {
+    expect(countCsvDataRows('h1,h2\r\n"a""b",c\r\n')).toBe(1);
+    expect(countCsvDataRows('h1,h2\r\n"say ""hi""\r\nthere",c\r\n')).toBe(1);
+  });
+
+  it('counts a final record without a trailing line break', () => {
+    expect(countCsvDataRows('h1,h2\r\n1,2')).toBe(1);
   });
 });

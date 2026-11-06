@@ -59,6 +59,21 @@ export const AUDIT_ACTIONS = {
   adminUserSessionsRevoked: 'admin.user.sessions_revoked',
   /** ADMIN console revoked ONE session of another operator (`/admin/sessions`). */
   adminSessionRevoked: 'admin.session.revoked',
+  /**
+   * ADMIN downloaded the workspace team CSV (`GET /admin/users/export.csv`).
+   *
+   * Accountability/LGPD: the row records WHO exported, WHICH filters were
+   * applied and HOW MANY rows were written — never the exported rows themselves
+   * (the metadata carries no operator e-mail; `search` is redacted).
+   */
+  adminUsersExported: 'admin.users.exported',
+  /**
+   * ADMIN downloaded the audit trail CSV (`GET /admin/audit-logs/export.csv`).
+   *
+   * Reading the trail is itself auditable: the row proves which slice was taken
+   * (`action`/`actorId`/`from`/`to`) and how many events left the system.
+   */
+  adminAuditExported: 'admin.audit.exported',
   tenantSsoUpdated: 'tenant.sso.updated',
   tenantSsoDeleted: 'tenant.sso.deleted',
   billingWebhookProcessed: 'billing.webhook.processed',
@@ -76,6 +91,25 @@ export const AUDIT_DEFAULT_PER_PAGE = 25;
  * response stays memory-safe regardless of the tenant history size.
  */
 export const AUDIT_EXPORT_MAX_ROWS = 10_000;
+
+/**
+ * Metadata of the auditable CSV exports (`admin.users.exported` and
+ * `admin.audit.exported`), written by the download handlers after the CSV is
+ * assembled.
+ *
+ * Contract:
+ *  - `filters` only carries the filters the ADMIN actually applied: an
+ *    unfiltered export omits the key entirely instead of storing `{}`;
+ *  - every filter value is a string (ISO-8601 for `from`/`to`) and a user
+ *    `search` is PII-redacted before it reaches the metadata;
+ *  - `rowCount` is the number of DATA rows written, header excluded;
+ *  - the exported rows themselves are never part of the metadata.
+ */
+export type ExportAuditMetadata = {
+  filters?: Record<string, string>;
+  rowCount: number;
+  format: 'csv';
+};
 
 /* ==========================================================================
  * Audit trail

@@ -8,6 +8,7 @@ import type {
   AdminUserView,
   AuditEventView,
   AuditLogPage,
+  ILogger,
 } from '@sac/shared';
 
 import { buildTestApp } from './http-test-harness';
@@ -191,10 +192,23 @@ describe('admin HTTP routes', () => {
   }));
   const listAuditLogs = vi.fn(async () => AUDIT_PAGE);
   const exportAuditRows = vi.fn(async () => CSV_ROWS);
+  const recordAudit = vi.fn();
+  const warn = vi.fn();
+  const testLogger: ILogger = {
+    child(): ILogger {
+      return testLogger;
+    },
+    trace: (): void => undefined,
+    debug: (): void => undefined,
+    info: (): void => undefined,
+    warn,
+    error: (): void => undefined,
+  };
 
   beforeAll(async () => {
     app = await buildTestApp({
       services: {
+        logger: testLogger,
         agents: { verifyToken },
         adminUsers: {
           overview,
@@ -213,7 +227,7 @@ describe('admin HTTP routes', () => {
         audit: {
           list: listAuditLogs,
           exportRows: exportAuditRows,
-          record: (): void => undefined,
+          record: recordAudit,
           flush: async (): Promise<void> => undefined,
         },
       },
@@ -238,6 +252,9 @@ describe('admin HTTP routes', () => {
     resendInvitation.mockClear();
     listAuditLogs.mockClear();
     exportAuditRows.mockClear();
+    recordAudit.mockClear();
+    warn.mockClear();
+    recordAudit.mockImplementation(() => undefined);
     updateUser.mockImplementation(async () => USER);
     overview.mockImplementation(async () => OVERVIEW);
     listUsers.mockImplementation(async () => ({
@@ -1033,5 +1050,207 @@ describe('admin HTTP routes', () => {
     });
     expect(badActor.statusCode).toBe(422);
     expect(exportAuditRows).not.toHaveBeenCalled();
+  });
+
+  /* ======================================================================
+   * CSV export audit (`admin.users.exported` / `admin.audit.exported`)
+   * ==================================================================== */
+
+  it('GET /admin/users/export.csv audits admin.users.exported with the applied filters and real row count', async () => {
+    exportUsers.mockResolvedValueOnce([
+      USER,
+      { ...USER, id: '66666666-6666-4666-8666-666666666666', email: 'ana@acme.test' },
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv?search=Bob&role=AGENT&status=ACTIVE',
+      headers: { ...auth(ADMIN_TOKEN), 'user-agent': 'Vitest/9.9' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordAudit).toHaveBeenCalledTimes(1);
+    expect(recordAudit).toHaveBeenCalledWith({
+      action: 'admin.users.exported',
+      tenantId: 'tenant-1',
+      actorId: 'admin-1',
+      // The actor e-mail has its own column and is allowed in full.
+      actorEmail: 'admin@acme.test',
+      ip: '127.0.0.1',
+      userAgent: 'Vitest/9.9',
+      resourceType: 'export',
+      resourceId: null,
+      metadata: {
+        filters: { search: 'Bob', role: 'AGENT', status: 'ACTIVE' },
+        rowCount: 2,
+        format: 'csv',
+      },
+    });
+  });
+
+  it('GET /admin/users/export.csv keeps the audit metadata lean when unfiltered', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = recordAudit.mock.calls[0]?.[0] as { metadata: Record<string, unknown> };
+    // No `filters` key at all: an unfiltered export must not invent `{}`.
+    expect(event.metadata).toEqual({ rowCount: 1, format: 'csv' });
+  });
+
+  it('GET /admin/users/export.csv audits rowCount 0 for a header-only CSV', async () => {
+    exportUsers.mockResolvedValueOnce([]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = recordAudit.mock.calls[0]?.[0] as { metadata: Record<string, unknown> };
+    expect(event.metadata).toEqual({ rowCount: 0, format: 'csv' });
+  });
+
+  it('GET /admin/users/export.csv counts a quoted multi-line record as ONE data row', async () => {
+    exportUsers.mockResolvedValueOnce([{ ...USER, name: 'Bob\r\nJr' }]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = recordAudit.mock.calls[0]?.[0] as { metadata: Record<string, unknown> };
+    expect(event.metadata.rowCount).toBe(1);
+  });
+
+  it('GET /admin/users/export.csv redacts an e-mail search in the audit metadata', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv?search=bob%40acme.test',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = recordAudit.mock.calls[0]?.[0] as {
+      metadata: { filters?: Record<string, string> };
+    };
+    expect(event.metadata.filters).toEqual({ search: 'bo***@acme.test' });
+    expect(JSON.stringify(event.metadata)).not.toContain('bob@acme.test');
+  });
+
+  it('GET /admin/audit-logs/export.csv audits admin.audit.exported with ISO filters and row count', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url:
+        '/api/v1/admin/audit-logs/export.csv?action=auth.login.success' +
+        '&actorId=11111111-1111-4111-8111-111111111111' +
+        '&from=2026-11-01T00:00:00.000Z&to=2026-11-30T23:59:59.999Z',
+      headers: { ...auth(ADMIN_TOKEN), 'user-agent': 'Vitest/9.9' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordAudit).toHaveBeenCalledTimes(1);
+    expect(recordAudit).toHaveBeenCalledWith({
+      action: 'admin.audit.exported',
+      tenantId: 'tenant-1',
+      actorId: 'admin-1',
+      actorEmail: 'admin@acme.test',
+      ip: '127.0.0.1',
+      userAgent: 'Vitest/9.9',
+      resourceType: 'export',
+      resourceId: null,
+      metadata: {
+        filters: {
+          action: 'auth.login.success',
+          actorId: '11111111-1111-4111-8111-111111111111',
+          from: '2026-11-01T00:00:00.000Z',
+          to: '2026-11-30T23:59:59.999Z',
+        },
+        rowCount: 1,
+        format: 'csv',
+      },
+    });
+  });
+
+  it('GET /admin/audit-logs/export.csv keeps the audit metadata lean when unfiltered', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = recordAudit.mock.calls[0]?.[0] as { metadata: Record<string, unknown> };
+    expect(event.metadata).toEqual({ rowCount: 1, format: 'csv' });
+  });
+
+  it('does not audit an export before authentication/authorization', async () => {
+    for (const headers of [{}, auth(AGENT_TOKEN), auth(SUPERVISOR_TOKEN), auth(TENANTLESS_ADMIN_TOKEN)]) {
+      const responses = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/api/v1/admin/users/export.csv',
+          headers,
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/api/v1/admin/audit-logs/export.csv',
+          headers,
+        }),
+      ]);
+
+      for (const response of responses) {
+        expect([401, 403]).toContain(response.statusCode);
+      }
+    }
+
+    expect(recordAudit).not.toHaveBeenCalled();
+    expect(exportUsers).not.toHaveBeenCalled();
+    expect(exportAuditRows).not.toHaveBeenCalled();
+  });
+
+  it('still streams the CSV (200) when the audit sink fails', async () => {
+    recordAudit.mockImplementationOnce(() => {
+      throw new Error('audit sink down');
+    });
+
+    const usersResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(usersResponse.statusCode).toBe(200);
+    expect(usersResponse.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(usersResponse.body).toBe(
+      'name,email,role,is_active,last_login_at,created_at,sessions_count\r\n' +
+        'Bob,bob@acme.test,AGENT,true,2026-11-05T10:00:00.000Z,2026-11-01T10:00:00.000Z,2\r\n',
+    );
+    // Best effort: the failure is logged (without PII) and the download goes on.
+    expect(warn).toHaveBeenCalledWith(
+      'admin.export.audit_failed',
+      expect.objectContaining({ action: 'admin.users.exported', tenantId: 'tenant-1' }),
+    );
+
+    recordAudit.mockImplementationOnce(() => {
+      throw new Error('audit sink down');
+    });
+
+    const auditResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/audit-logs/export.csv',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(auditResponse.statusCode).toBe(200);
+    expect(auditResponse.body).toContain(
+      '2026-11-06T12:00:00.000Z,auth.login.success,ana@acme.test,user,',
+    );
   });
 });

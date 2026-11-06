@@ -99,3 +99,58 @@ export function buildAdminUsersCsv(rows: readonly AdminUserView[]): string {
 export function adminUsersCsvFileName(at: Date): string {
   return `usuarios-${at.toISOString().slice(0, 10)}.csv`;
 }
+
+/**
+ * Number of DATA rows of an already-serialized CSV (header excluded).
+ *
+ * Used by the export audit row (`rowCount`), so it must never be a naive
+ * `split('\r\n')`:
+ *  - the header is not a data row;
+ *  - the trailing CRLF (and any blank line) produces no row;
+ *  - a quoted cell may itself contain CR/LF (RFC 4180) and is still ONE row.
+ *
+ * The scan tracks the quote state and only counts record separators that fall
+ * outside a quoted cell. A record made only of separators is skipped, so a CSV
+ * with just the header (or an empty string) answers 0.
+ */
+export function countCsvDataRows(csv: string): number {
+  let records = 0;
+  let inQuotes = false;
+  let recordHasContent = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+
+    if (inQuotes) {
+      if (char === '"') {
+        // `""` inside a quoted cell is an escaped quote, not the closing one.
+        if (csv[index + 1] === '"') index += 1;
+        else inQuotes = false;
+      }
+      if (char !== '\r' && char !== '\n') recordHasContent = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      recordHasContent = true;
+      continue;
+    }
+
+    if (char === '\r' || char === '\n') {
+      // Swallow the LF of a CRLF pair so it does not open a second record.
+      if (char === '\r' && csv[index + 1] === '\n') index += 1;
+      if (recordHasContent) records += 1;
+      recordHasContent = false;
+      continue;
+    }
+
+    recordHasContent = true;
+  }
+
+  // Last record without a trailing line break.
+  if (recordHasContent) records += 1;
+
+  // The first record is the header; a CSV shorter than that has no data rows.
+  return Math.max(0, records - 1);
+}
