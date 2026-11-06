@@ -224,3 +224,12 @@ login seguinte -> 401 TWO_FACTOR_REQUIRED
 cleanup -> tenant inexistente
 13/13 verificacoes
 ```
+
+### 19. Reset administrativo de 2FA
+```
+operador criado por convite + TOTP habilitado (8 recovery codes)
+login antes -> 401 TWO_FACTOR_REQUIRED
+POST /admin/users/:id/reset-2fa -> 200 twoFactorEnabled=false
+login depois -> 200 (fator removido, sessoes revogadas)
+validate:live -> 11/11
+```
