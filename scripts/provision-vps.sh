@@ -59,6 +59,20 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 docker compose version >/dev/null 2>&1 || apt-get install -y -qq docker-compose-v2 >/dev/null
 
+log "Rotação de logs do Docker (50MB x 5)"
+mkdir -p /etc/docker
+if [ ! -f /etc/docker/daemon.json ]; then
+  cat > /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "5" }
+}
+EOF
+  systemctl restart docker
+else
+  echo "[aviso] /etc/docker/daemon.json já existe; garanta log-opts de rotação"
+fi
+
 log "Firewall (22/80/443) e fail2ban"
 ufw allow OpenSSH >/dev/null
 ufw allow 80/tcp >/dev/null
@@ -137,6 +151,28 @@ for i in $(seq 1 60); do
   fi
 done
 
+log "Backup diário do PostgreSQL (14 dias)"
+cat > /usr/local/sbin/integrai-backup <<'BACKUP'
+#!/bin/sh
+set -eu
+ENV_FILE="${ENV_FILE:-/opt/integrai/.env.prod}"
+DIR="${BACKUP_DIR:-/var/backups/integrai}"
+KEEP_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+POSTGRES_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | cut -d= -f2 || true)"
+POSTGRES_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | cut -d= -f2 || true)"
+POSTGRES_USER="${POSTGRES_USER:-sac}"
+POSTGRES_DB="${POSTGRES_DB:-sac_hub}"
+mkdir -p "$DIR"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+cd /opt/integrai
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$DIR/db-$STAMP.sql.gz"
+find "$DIR" -type f -name 'db-*.sql.gz' -mtime +"$KEEP_DAYS" -delete
+BACKUP
+chmod 700 /usr/local/sbin/integrai-backup
+echo '17 3 * * * root /usr/local/sbin/integrai-backup' > /etc/cron.d/integrai-backup
+chmod 644 /etc/cron.d/integrai-backup
+
 cat <<EOF
 
 ==============================================================================
@@ -148,6 +184,6 @@ Próximos passos:
 2. WEB_ORIGIN atual no .env.prod: $WEB_ORIGIN
 3. Crie o primeiro ADMIN pelo signup da SPA (e-mail verificado).
 4. Valide: node scripts/verify-live.mjs https://$DOMAIN ...
-5. Backups: docker compose -f docker-compose.prod.yml exec -T postgres pg_dump ...
+5. Backups: cron diario em /usr/local/sbin/integrai-backup (14 dias em /var/backups/integrai).
 ==============================================================================
 EOF
