@@ -55,6 +55,7 @@ import type { OutboundRouterService } from '../application/OutboundRouterService
  *  - queue.sla.scan: SlaEngine.sweep
  *  - queue.pii.purge: purge expired buyer PII
  *  - queue.tenant.purge: physically delete workspaces soft-deleted 30+ days ago
+ *  - queue.tenant.backup.purge: expire tenant backups past the retention window
  *  - queue.token.refresh: adapter.runMaintenance (tokens)
  *  - queue.shopee.lost-push: adapter.runMaintenance (lost pushes)
  */
@@ -66,6 +67,7 @@ export type WorkerKind =
   | 'sla'
   | 'pii'
   | 'purge'
+  | 'backupPurge'
   | 'token'
   | 'lostPush';
 
@@ -76,6 +78,10 @@ export interface QueueRuntimeConfig {
   shopeeLostPushCron: string;
   /** Daily LGPD purge cron (`0 3 * * *` by default). */
   tenantPurgeCron: string;
+  /** Daily LGPD backup-expiry cron (`0 4 * * *` by default). */
+  backupPurgeCron: string;
+  /** Retention (days) for tenant backups; `0` disables the sweep. */
+  backupRetentionDays: number;
   meliRefreshIntervalSeconds: number;
   shopeeRefreshIntervalSeconds: number;
   concurrency?: Partial<Record<WorkerKind, number>>;
@@ -112,6 +118,7 @@ const DEFAULT_CONCURRENCY: Record<WorkerKind, number> = {
   sla: 1,
   pii: 1,
   purge: 1,
+  backupPurge: 1,
   token: 1,
   lostPush: 1,
 };
@@ -167,6 +174,11 @@ export function createWorkers(deps: WorkerDependencies): Worker[] {
   );
   workers.push(
     buildWorker(deps, QUEUE_NAMES.tenantPurge, 'purge', async () => processTenantPurge(deps)),
+  );
+  workers.push(
+    buildWorker(deps, QUEUE_NAMES.tenantBackupPurge, 'backupPurge', async () =>
+      processTenantBackupPurge(deps),
+    ),
   );
   workers.push(
     buildWorker(deps, QUEUE_NAMES.tokenRefresh, 'token', async (job) =>
@@ -430,6 +442,36 @@ async function processTenantPurge(deps: WorkerDependencies): Promise<Record<stri
     failures: result.failures.length,
     tenantIds: result.purged.slice(0, 20).map((entry) => entry.tenantId),
   };
+}
+
+/**
+ * LGPD Art. 15/16: expires `tenant_backups` rows past the retention window.
+ * `BACKUP_RETENTION_DAYS=0` disables the feature; the worker then returns a
+ * `skipped` result without touching the repository or S3 (defensive: the
+ * scheduler is not even registered in that mode).
+ *
+ * The service already logs each failure and its aggregate; this processor adds
+ * the queue-level structured summary. It does not throw on per-item failures,
+ * so a partially failed sweep is not retried through the DLQ.
+ */
+async function processTenantBackupPurge(
+  deps: WorkerDependencies,
+): Promise<Record<string, unknown>> {
+  const retentionDays = deps.config.backupRetentionDays;
+  if (!(retentionDays > 0)) {
+    deps.logger.info('queue.tenant_backup_purge.disabled', { retentionDays });
+    return { skipped: true, reason: 'RETENTION_DISABLED', retentionDays };
+  }
+
+  const result = await deps.services.tenantBackup.purgeExpired({ retentionDays });
+  deps.logger.info('queue.tenant_backup_purge.completed', {
+    retentionDays,
+    scanned: result.scanned,
+    deleted: result.deleted,
+    objectsDeleted: result.objectsDeleted,
+    failures: result.failures,
+  });
+  return { retentionDays, ...result };
 }
 
 async function processTokenRefresh(
@@ -750,7 +792,7 @@ function summarizeResult(result: unknown): unknown {
   if (typeof result === 'object') {
     const record = result as Record<string, unknown>;
     const summary: Record<string, unknown> = {};
-    for (const key of ['marketplace', 'hydrated', 'created', 'duplicates', 'messageId', 'deliveryStatus', 'purged', 'scanned', 'failures', 'refreshed', 'failed', 'skipped', 'reason']) {
+    for (const key of ['marketplace', 'hydrated', 'created', 'duplicates', 'messageId', 'deliveryStatus', 'purged', 'scanned', 'deleted', 'objectsDeleted', 'failures', 'refreshed', 'failed', 'skipped', 'reason']) {
       if (record[key] !== undefined) summary[key] = record[key];
     }
     return summary;

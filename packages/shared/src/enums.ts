@@ -135,6 +135,7 @@ export type QueueName =
   | 'queue.shopee.lost-push'
   | 'queue.token.refresh'
   | 'queue.tenant.purge'
+  | 'queue.tenant.backup.purge'
   | 'queue.dlq';
 
 export const QUEUE_NAMES: Record<string, QueueName> = {
@@ -149,6 +150,8 @@ export const QUEUE_NAMES: Record<string, QueueName> = {
   tokenRefresh: 'queue.token.refresh',
   /** Fase 4/LGPD: daily physical purge of soft-deleted workspaces. */
   tenantPurge: 'queue.tenant.purge',
+  /** LGPD Art. 15/16: daily expiry of tenant backup artifacts + index rows. */
+  tenantBackupPurge: 'queue.tenant.backup.purge',
   deadLetter: 'queue.dlq',
 };
 

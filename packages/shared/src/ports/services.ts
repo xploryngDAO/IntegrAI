@@ -402,6 +402,41 @@ export interface ITenantPurgeService {
  * ========================================================================== */
 
 /**
+ * LGPD Art. 15/16 (storage limitation): expires backup artifacts older than the
+ * retention window. Called by the daily `queue.tenant.backup.purge` job.
+ */
+export interface TenantBackupPurgeOptions {
+  /**
+   * Retention window in days. `<= 0` disables the sweep: nothing is read,
+   * deleted or logged as a failure (used by `BACKUP_RETENTION_DAYS=0`).
+   */
+  retentionDays: number;
+  /** Max index rows handled per run (default 100). */
+  batchSize?: number;
+  /** Clock override used by tests; defaults to `IClock.now()`. */
+  at?: Date;
+}
+
+/**
+ * Outcome of one bounded backup-expiry sweep.
+ *
+ * `failures` counts rows KEPT because the S3 object could not be removed: the
+ * index row is the only pointer to the artifact (which still holds personal
+ * data), so deleting it would orphan the object and lose the audit trail. The
+ * next daily run retries those rows (S3 delete is idempotent).
+ */
+export interface TenantBackupPurgeResult {
+  /** Rows returned by the expiry query (bounded by `batchSize`). */
+  scanned: number;
+  /** Index rows actually removed from `tenant_backups`. */
+  deleted: number;
+  /** S3 objects confirmed absent (removed now or already missing). */
+  objectsDeleted: number;
+  /** Rows retained because the S3 delete failed. */
+  failures: number;
+}
+
+/**
  * Platform-admin backup and restore.
  *
  *  - `createBackup` writes a complete JSON artifact to
@@ -410,6 +445,8 @@ export interface ITenantPurgeService {
  *  - `restore` creates a NEW workspace from an artifact: never overwrites an
  *    existing tenant, never restores credentials (stores must be reconnected),
  *    and regenerates every agent password (`mustResetPassword`).
+ *  - `purgeExpired` applies the LGPD storage limit (see the option/result
+ *    contracts above).
  */
 export interface ITenantBackupService {
   /** 404 unknown workspace; the artifact carries no credentials. */
@@ -421,6 +458,12 @@ export interface ITenantBackupService {
    * 409 when `newSlug` is already taken.
    */
   restore(command: RestoreTenantCommand, actorId: string): Promise<RestoreTenantResult>;
+  /**
+   * Expires backups older than `retentionDays`: S3 object first, index row
+   * second. Never throws per item; returns aggregate counters. A no-op when
+   * `retentionDays <= 0`.
+   */
+  purgeExpired(options: TenantBackupPurgeOptions): Promise<TenantBackupPurgeResult>;
 }
 
 /* ==========================================================================

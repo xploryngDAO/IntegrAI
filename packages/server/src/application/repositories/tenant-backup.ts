@@ -144,6 +144,29 @@ export class PrismaTenantBackupRepository implements ITenantBackupRepository {
     });
     return records.map(mapTenantBackupRecord);
   }
+
+  /**
+   * LGPD Art. 15/16: strictly older than `cutoff` (`created_at < cutoff`), so
+   * a row created exactly on the boundary is still inside the window. Oldest
+   * first drains the backlog predictably across daily runs.
+   */
+  async listExpired(cutoff: Date, limit: number): Promise<TenantBackupRecord[]> {
+    const records = await this.prisma.tenantBackup.findMany({
+      where: { createdAt: { lt: cutoff } },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+    return records.map(mapTenantBackupRecord);
+  }
+
+  /**
+   * `deleteMany` (not `delete`) keeps the call idempotent: a row removed by a
+   * concurrent sweep yields `count = 0` instead of Prisma P2025.
+   */
+  async deleteById(id: string): Promise<boolean> {
+    const result = await this.prisma.tenantBackup.deleteMany({ where: { id } });
+    return result.count > 0;
+  }
 }
 
 /**

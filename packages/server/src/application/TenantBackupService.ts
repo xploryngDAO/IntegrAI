@@ -27,6 +27,8 @@ import type {
   TenantBackupOrder,
   TenantBackupOutboundAttempt,
   TenantBackupPayload,
+  TenantBackupPurgeOptions,
+  TenantBackupPurgeResult,
   TenantBackupResult,
   TenantBackupSlaPolicy,
   TenantBackupTicket,
@@ -40,6 +42,7 @@ import type {
 import {
   ConflictError,
   NotFoundError,
+  TENANT_BACKUP_PURGE_BATCH_SIZE,
   ValidationError,
   isAppError,
   isTenantPlan,
@@ -64,6 +67,13 @@ import { sanitizeChannelConfig } from './tenant-secrets';
  *   Reads that index. `IObjectStorage` has no ListObjects, so the table is the
  *   single source of truth (and survives bucket listing limitations).
  *
+ * `purgeExpired()` (daily `queue.tenant.backup.purge`, LGPD Art. 15/16)
+ *   Lists `tenant_backups` rows older than the retention window, deletes the S3
+ *   artifact and only then removes the index row. The object holds personal
+ *   data while the row only points to it: if storage fails the row is KEPT so
+ *   the next run can retry and the artifact is never orphaned. See the method
+ *   for the full failure policy.
+ *
  * `POST /platform/tenants/restore`
  *   Reads the artifact back, validates its structure, and asks the repository to
  *   create a BRAND-NEW workspace in one transaction. The source is never
@@ -83,6 +93,9 @@ export const TENANT_BACKUP_FORMAT_VERSION = '1.0';
 
 const BCRYPT_ROUNDS = 12;
 const TEMP_PASSWORD_BYTES = 24;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+/** Upper bound for one sweep even if a caller asks for more. */
+const MAX_PURGE_BATCH_SIZE = 500;
 const MAX_SLUG_LENGTH = 80;
 const MAX_NAME_LENGTH = 160;
 const MAX_BACKUP_KEY_LENGTH = 512;
@@ -216,6 +229,102 @@ export class TenantBackupService implements ITenantBackupService {
       createdBy: row.createdBy,
       createdAt: row.createdAt.toISOString(),
     }));
+  }
+
+  /* ==================================================================== */
+  /* Expiry (LGPD Art. 15/16)                                             */
+  /* ==================================================================== */
+
+  /**
+   * Storage-limitation sweep: expires backups created before
+   * `at - retentionDays`, oldest first, at most `batchSize` rows per run.
+   *
+   * Order: S3 object BEFORE the index row. The artifact is the only copy of
+   * the backed-up data; `tenant_backups` just points to it.
+   *
+   * Failure policy (deliberate):
+   *  - S3 delete failed  -> the row is KEPT (`failures++`). Deleting the pointer
+   *    would orphan an object that still contains personal data and make it
+   *    unreachable for a later erase; keeping the row lets the next daily run
+   *    retry (S3 DELETE is idempotent, a missing key counts as deleted).
+   *  - DB delete failed  -> `failures++` and the loop continues. The object is
+   *    already gone; the next run tolerates the missing key and removes the row.
+   *  - A row already removed by a concurrent sweep (`deleteById === false`) is
+   *    not an error: idempotency is part of the contract.
+   *
+   * Nothing is thrown per item; only a failure of the initial query propagates
+   * (the worker/DLQ handles it). `retentionDays <= 0` is a pure no-op, which is
+   * how `BACKUP_RETENTION_DAYS=0` disables the feature.
+   */
+  async purgeExpired(options: TenantBackupPurgeOptions): Promise<TenantBackupPurgeResult> {
+    const retentionDays = normalizeRetentionWindow(options.retentionDays);
+    if (retentionDays <= 0) {
+      this.logger.info('tenant.backup.purge.disabled', {
+        retentionDays: options.retentionDays,
+      });
+      return { scanned: 0, deleted: 0, objectsDeleted: 0, failures: 0 };
+    }
+
+    const at = options.at ?? this.clock.now();
+    const cutoff = new Date(at.getTime() - retentionDays * DAY_MS);
+    const batchSize = normalizePurgeBatchSize(options.batchSize);
+    const rows = await this.backups.listExpired(cutoff, batchSize);
+
+    this.logger.info('tenant.backup.purge.scan', {
+      candidates: rows.length,
+      batchSize,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    });
+
+    let deleted = 0;
+    let objectsDeleted = 0;
+    let failures = 0;
+
+    for (const row of rows) {
+      try {
+        // Best-effort idempotent delete: `IObjectStorage` treats a missing key
+        // as success. A real failure keeps the row (see class contract).
+        await this.storage.deleteObject(row.backupKey);
+        objectsDeleted += 1;
+      } catch (error) {
+        failures += 1;
+        this.logger.warn('tenant.backup.purge.s3_failed', {
+          backupId: row.id,
+          tenantId: row.tenantId,
+          backupKey: row.backupKey,
+          error: describeError(error),
+        });
+        continue;
+      }
+
+      try {
+        if (await this.backups.deleteById(row.id)) {
+          deleted += 1;
+        } else {
+          // Concurrent sweep won the race: the desired end state is reached.
+          this.logger.debug('tenant.backup.purge.row_already_gone', {
+            backupId: row.id,
+            tenantId: row.tenantId,
+          });
+        }
+      } catch (error) {
+        failures += 1;
+        this.logger.warn('tenant.backup.purge.db_failed', {
+          backupId: row.id,
+          tenantId: row.tenantId,
+          error: describeError(error),
+        });
+      }
+    }
+
+    const result: TenantBackupPurgeResult = { scanned: rows.length, deleted, objectsDeleted, failures };
+    this.logger.info('tenant.backup.purge.completed', {
+      ...result,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    });
+    return result;
   }
 
   /* ==================================================================== */
@@ -712,6 +821,24 @@ export function buildBackupKey(slug: string, at: Date): string {
 
 function generateTemporaryPassword(): string {
   return randomBytes(TEMP_PASSWORD_BYTES).toString('base64url');
+}
+
+/**
+ * `0` (and any non-positive/garbage value) disables the sweep; positive values
+ * are truncated to whole days. Negative input is clamped to 0, never to 1, so
+ * an explicit disable is never turned into a one-day purge.
+ */
+function normalizeRetentionWindow(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+function normalizePurgeBatchSize(value?: number): number {
+  if (value === undefined || !Number.isFinite(value)) return TENANT_BACKUP_PURGE_BATCH_SIZE;
+  return Math.min(MAX_PURGE_BATCH_SIZE, Math.max(1, Math.trunc(value)));
+}
+
+function describeError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 500);
 }
 
 function isoOrNull(date: Date | null | undefined): string | null {

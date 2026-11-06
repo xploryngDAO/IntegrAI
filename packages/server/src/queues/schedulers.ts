@@ -17,6 +17,8 @@ import type { WorkerDependencies } from './workers';
  *  - `queue.sla.scan`        -> config.cron.slaScan        (default every minute)
  *  - `queue.pii.purge`       -> config.cron.piiPurge       (every 6 hours)
  *  - `queue.tenant.purge`    -> config.cron.tenantPurge    (daily, 03:00)
+ *  - `queue.tenant.backup.purge` -> config.backupPurgeCron (daily, 04:00; only
+ *                               when `backupRetentionDays > 0`)
  *  - `queue.shopee.lost-push`-> config.cron.shopeeLostPush (every 5 minutes)
  *  - `queue.token.refresh`   -> marketplace refresh intervals (Meli ~5h45m,
  *                               Shopee 3h30m, per CHANNEL_CONTRACTS)
@@ -44,7 +46,7 @@ export interface SchedulerSpec {
  * unit-testable without a broker.
  */
 export function buildSchedulerSpecs(config: WorkerDependencies['config']): SchedulerSpec[] {
-  return [
+  const specs: SchedulerSpec[] = [
     {
       schedulerId: 'sac:sla-scan',
       queueName: QUEUE_NAMES.slaScan,
@@ -87,6 +89,20 @@ export function buildSchedulerSpecs(config: WorkerDependencies['config']): Sched
       data: { marketplace: 'SHOPEE' },
     },
   ];
+
+  // LGPD Art. 15/16: the backup-expiry schedule only exists when a retention
+  // window is configured. `BACKUP_RETENTION_DAYS=0` disables the feature, so no
+  // queue/job is registered at all (the worker also no-ops defensively).
+  if (config.backupRetentionDays > 0) {
+    specs.push({
+      schedulerId: 'sac:tenant-backup-purge',
+      queueName: QUEUE_NAMES.tenantBackupPurge,
+      jobName: JOB_NAMES.tenantBackupPurge,
+      pattern: config.backupPurgeCron,
+    });
+  }
+
+  return specs;
 }
 
 export async function registerSchedulers(deps: WorkerDependencies): Promise<SchedulerResources> {

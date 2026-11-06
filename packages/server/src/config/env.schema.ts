@@ -241,6 +241,14 @@ export const envSchema = z.object({
    */
   TENANT_PURGE_CRON: stringFromEnv('0 3 * * *'),
   TENANT_PURGE_RETENTION_DAYS: intFromEnv(30, 1, 3_650),
+  /**
+   * LGPD Art. 15/16 (storage limitation): tenant backups older than this many
+   * days are erased by the daily backup-purge job. `0` disables the sweep.
+   * Default 90 days; 0 is accepted on purpose, so the minimum is 0.
+   */
+  BACKUP_RETENTION_DAYS: intFromEnv(90, 0, 3_650),
+  /** Daily backup-expiry cron (default 04:00, after the tenant purge). */
+  BACKUP_PURGE_CRON: stringFromEnv('0 4 * * *'),
 
   /* ---------------------- billing gateway (Fase 4) ------------------------ */
   /**

@@ -123,6 +123,8 @@ export const JOB_NAMES = {
   tokenRefresh: 'token.refresh',
   /** Fase 4/LGPD: physical purge of a workspace soft-deleted > 30 days ago. */
   tenantPurge: 'tenant.purge',
+  /** LGPD Art. 15/16: expires tenant backups older than the retention window. */
+  tenantBackupPurge: 'tenant.backup.purge',
 } as const;
 
 /**
@@ -134,6 +136,18 @@ export const JOB_NAMES = {
 export const TENANT_PURGE_RETENTION_DAYS = 30;
 /** Max tenants purged by a single scheduled run (bounded job duration). */
 export const TENANT_PURGE_BATCH_SIZE = 25;
+
+/**
+ * LGPD Art. 15/16 (storage limitation) - tenant backup expiry.
+ *
+ * `tenant_backups` rows older than the retention window are swept daily: the
+ * S3 artifact is deleted first and only then the index row. Defaults mirror
+ * `BACKUP_RETENTION_DAYS` (90) and the bounded per-run batch (100); the runtime
+ * values always come from `AppConfig`.
+ */
+export const TENANT_BACKUP_RETENTION_DAYS = 90;
+/** Max backup index rows inspected/deleted by a single scheduled run. */
+export const TENANT_BACKUP_PURGE_BATCH_SIZE = 100;
 
 /** Exponential backoff + jitter defaults (base, cap, attempts). */
 export const RETRY_POLICY = {

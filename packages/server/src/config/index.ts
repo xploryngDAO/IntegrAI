@@ -43,6 +43,14 @@ export interface AppConfig extends ChannelRuntimeConfig {
   /** Grace period (days) between LGPD soft delete and physical purge. */
   tenantPurgeRetentionDays: number;
   /**
+   * LGPD Art. 15/16 storage limitation for tenant backups: artifacts older
+   * than this many days are erased by the daily backup-purge job. `0` disables
+   * the sweep entirely.
+   */
+  backupRetentionDays: number;
+  /** Daily backup-expiry cron (default `0 4 * * *`). */
+  backupPurgeCron: string;
+  /**
    * Payment gateway contract (Fase 4). No provider SDK is used: the webhook is
    * authenticated by HMAC and the checkout URL is a template rendered locally.
    * Every field is optional so a deployment without billing still boots; the
@@ -168,6 +176,8 @@ function buildConfig(env: Env): AppConfig {
     logLevel,
     piiRetentionDays: env.PII_RETENTION_DAYS,
     tenantPurgeRetentionDays: env.TENANT_PURGE_RETENTION_DAYS,
+    backupRetentionDays: env.BACKUP_RETENTION_DAYS,
+    backupPurgeCron: env.BACKUP_PURGE_CRON,
     billing: {
       webhookSecret: env.BILLING_WEBHOOK_SECRET,
       checkoutUrlTemplate: env.BILLING_CHECKOUT_URL_TEMPLATE,

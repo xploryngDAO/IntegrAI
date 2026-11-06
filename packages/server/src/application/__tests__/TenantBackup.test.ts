@@ -109,6 +109,20 @@ class FakeBackupRepository implements ITenantBackupRepository {
   async listByTenant(tenantId: string): Promise<TenantBackupRecord[]> {
     return this.records.filter((row) => row.tenantId === tenantId);
   }
+
+  async listExpired(cutoff: Date, limit: number): Promise<TenantBackupRecord[]> {
+    return this.records
+      .filter((row) => row.createdAt.getTime() < cutoff.getTime())
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async deleteById(id: string): Promise<boolean> {
+    const index = this.records.findIndex((row) => row.id === id);
+    if (index < 0) return false;
+    this.records.splice(index, 1);
+    return true;
+  }
 }
 
 class FakeRestoreRepository implements ITenantRestoreRepository {

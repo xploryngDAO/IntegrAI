@@ -570,6 +570,8 @@ export function createContainer(args: ContainerArgs): IAppServices {
     piiPurgeCron: config.cron.piiPurge,
     shopeeLostPushCron: config.cron.shopeeLostPush,
     tenantPurgeCron: config.cron.tenantPurge,
+    backupPurgeCron: config.backupPurgeCron,
+    backupRetentionDays: config.backupRetentionDays,
     meliRefreshIntervalSeconds: config.meli.refreshIntervalSeconds,
     shopeeRefreshIntervalSeconds: config.shopee.refreshIntervalSeconds,
   };

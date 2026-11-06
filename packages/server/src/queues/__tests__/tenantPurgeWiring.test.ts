@@ -19,6 +19,8 @@ const BASE_CONFIG = {
   piiPurgeCron: '0 */6 * * *',
   shopeeLostPushCron: '*/5 * * * *',
   tenantPurgeCron: '0 3 * * *',
+  backupPurgeCron: '0 4 * * *',
+  backupRetentionDays: 90,
   meliRefreshIntervalSeconds: 20_700,
   shopeeRefreshIntervalSeconds: 12_600,
 };
@@ -52,7 +54,7 @@ describe('buildSchedulerSpecs - tenant purge', () => {
 
     const purge = specs.find((spec) => spec.schedulerId === 'sac:tenant-purge');
     expect(purge?.pattern).toBe('30 2 * * 1');
-    expect(specs.filter((spec) => spec.schedulerId !== 'sac:tenant-purge')).toHaveLength(5);
+    expect(specs.filter((spec) => spec.schedulerId !== 'sac:tenant-purge')).toHaveLength(6);
   });
 });
 

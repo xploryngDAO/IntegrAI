@@ -946,6 +946,16 @@ export interface ITenantBackupRepository {
   record(input: RecordTenantBackupInput): Promise<TenantBackupRecord>;
   /** Newest first. */
   listByTenant(tenantId: string): Promise<TenantBackupRecord[]>;
+  /**
+   * LGPD Art. 15/16 expiry: rows with `createdAt` strictly before `cutoff`,
+   * oldest first, bounded by `limit` so one scheduled run stays short.
+   */
+  listExpired(cutoff: Date, limit: number): Promise<TenantBackupRecord[]>;
+  /**
+   * Removes ONE index row. Idempotent: returns `false` when the row is already
+   * gone instead of throwing, so a concurrent sweep cannot fail the job.
+   */
+  deleteById(id: string): Promise<boolean>;
 }
 
 /**

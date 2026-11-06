@@ -166,12 +166,14 @@ O artefato restaurado também é indexado sob o **novo** tenant, então
    senhas.
 5. **Backups contêm dados pessoais operacionais** (e-mail de agente, dados de
    comprador nos tickets). O bucket deve ter acesso restrito e SSE; o console
-   só expõe metadados. `BACKUP_RETENTION_DAYS` (default **30**) é opcional e
-   **apenas documentado**: a expiração do objeto é responsabilidade da
-   lifecycle policy do bucket (o código não agenda expiração).
+   só expõe metadados. `BACKUP_RETENTION_DAYS` (default **90**, `0` desabilita)
+   é aplicado pelo job diário `queue.tenant.backup.purge` (`BACKUP_PURGE_CRON`,
+   default `0 4 * * *`): o objeto S3 é apagado primeiro e só então a linha de
+   `tenant_backups`. Se o S3 falhar, a linha é **mantida** (o ponteiro é a única
+   trilha do objeto que ainda contém dados) e a próxima execução tenta de novo.
 6. **`tenant_backups` tem FK `ON DELETE CASCADE`.** A purga LGPD do tenant
    remove as linhas de índice; os objetos seguem a política de retenção do
-   bucket.
+   bucket e a varredura diária de expiração.
 7. **A purga é irreversível para os dados relacionais.** Um backup anterior
    permite recriar um workspace NOVO (nunca o original), desde que o objeto
    ainda exista no bucket.
@@ -185,9 +187,11 @@ O artefato restaurado também é indexado sob o **novo** tenant, então
   `must_reset_password`, mas não envia e-mail. O operador usa o fluxo existente
   de `forgot-password`/`reset-password` (ou o ADMIN reenvia o convite); entregar
   o link automaticamente no restore é follow-up.
-- **Sem agendamento de expiração.** `BACKUP_RETENTION_DAYS` é apenas
-  documentado; a lifecycle policy do bucket precisa ser configurada
-  externamente.
+- **Retenção coberta por dois mecanismos.** O job diário
+  `queue.tenant.backup.purge` expira `tenant_backups` + objetos pela idade
+  (`BACKUP_RETENTION_DAYS`, default 90; `0` desabilita). A lifecycle policy do
+  bucket continua recomendada como rede de segurança para objetos órfãos de
+  execuções anteriores à criação do job.
 - **Sem restore in-place.** Recuperar o workspace original exigiria apagar ou
   renomear o existente; o contrato atual sempre cria um slug novo.
 
@@ -196,6 +200,11 @@ O artefato restaurado também é indexado sob o **novo** tenant, então
 - `TenantBackup.test.ts` — backup sem segredos/PII bruta, counts, chave/metadata
   do S3 fake, listagem do índice, restore (slug/name normalizados, hashes
   aleatórios, 404 de objeto ausente, 422 de artefato inválido, 409 de slug).
+- `TenantBackupPurge.test.ts` — cutoff estrito, batch (default 100), S3 antes do
+  DB, falha S3 mantém a linha, retenção `0` é no-op e idempotência (segunda
+  execução/linha já removida).
+- `tenantBackupPurgeWiring.test.ts` — nomes de fila/job, cron diário 04:00,
+  defaults/overrides de config e ausência de scheduler com retenção `0`.
 - `repositories/tenant-restore.test.ts` — transação única, tenant novo,
   remapeamento de ids/FKs, agentes com `mustResetPassword`, contas
   `DISCONNECTED` sem tokens e desambiguação de chaves naturais globais.
