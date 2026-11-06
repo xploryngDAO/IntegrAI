@@ -110,6 +110,8 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
 - `nodeVersion` fixado em **22.x** (LTS) via API, alinhado ao CI/local; antes
   estava em 26.x (não-LTS).
 - Runtime-config continua sendo a fonte da API em boot; o deploy só muda o bundle.
+- Envs `VITE_API_BASE_URL`/`VITE_WS_URL` (production) atualizadas em 2026-11-06 para o túnel atual;
+  ao trocar para o VPS, atualizar runtime-config + essas duas envs antes do deploy.
 
 ## Auditoria de infraestrutura (2026-11-06)
 
