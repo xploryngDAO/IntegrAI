@@ -45,4 +45,10 @@ describe('production config safety', () => {
       loadConfig(productionEnv({ S3_ACCESS_KEY_ID: 'minioadmin', S3_SECRET_ACCESS_KEY: 'minioadmin' })),
     ).toThrow(/S3_ACCESS_KEY_ID/);
   });
+
+  it('refuses wildcard CORS origins', () => {
+    expect(() =>
+      loadConfig(productionEnv({ WEB_ORIGIN: 'https://app.integrai.example.com,*' })),
+    ).toThrow(/WEB_ORIGIN/);
+  });
 });

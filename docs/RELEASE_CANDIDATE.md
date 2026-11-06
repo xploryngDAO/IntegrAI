@@ -14,7 +14,7 @@ go-live público condicionado aos itens da seção 6.
 | Admin | Visão geral, usuários (filtros/CSV), convites, sessões, auditoria (filtros/CSV), logs |
 | LGPD | Export/erasure/purge, retenção, mapa de dados, ROPA/gaps, incidente (Res. 15/2024) |
 | Operação | request-id, `/health/ready`, `/metrics`, manutenção, backup/restore, TLS (Caddy), Prometheus/Grafana |
-| Qualidade | 1067 testes, CI (test/security/a11y/imagens), gitleaks, WCAG AA |
+| Qualidade | 1068 testes, CI (test/security/a11y/imagens), gitleaks, WCAG AA |
 
 ## 2. Evidências desta baseline
 
@@ -24,7 +24,7 @@ Comandos executados em 2026-11-06 (todos com exit 0):
 npm run build:shared                         exit 0
 tsc packages/server --noEmit                 exit 0
 tsc apps/web --noEmit                        exit 0
-npx vitest run                               exit 0 — 1067 testes
+npx vitest run                               exit 0 — 1068 testes
 npm run build:server                         exit 0
 npm run build --workspace @sac/web           exit 0
 ```

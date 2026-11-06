@@ -169,6 +169,9 @@ function assertProductionSafety(env: Env): void {
       'S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY: remove the minioadmin defaults before going to production',
     );
   }
+  if (env.WEB_ORIGIN.split(',').some((origin) => origin.trim() === '*')) {
+    issues.push('WEB_ORIGIN: wildcard CORS is not allowed in production; list the exact frontend origins');
+  }
   if (issues.length > 0) {
     throw new ConfigError('Unsafe production secrets', issues);
   }
