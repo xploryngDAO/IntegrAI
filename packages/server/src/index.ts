@@ -47,6 +47,7 @@ async function bootstrap(): Promise<void> {
       clock: infra.clock,
       jwtSecret: config.jwtSecret,
       webOrigin: config.webOrigin,
+      cache: infra.cache,
     });
 
     services = createContainer({ config, infra, realtime: hub.publisher });

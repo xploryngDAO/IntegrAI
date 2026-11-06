@@ -2,7 +2,8 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketServer } from 'socket.io';
 import type { Socket } from 'socket.io';
 import { verify as verifyJwt } from 'jsonwebtoken';
-import { MARKETPLACES } from '@sac/shared';
+import { isAccessTokenDenied } from '../application/auth/access-token-revocation';
+import { MARKETPLACES, type ICache } from '@sac/shared';
 import type {
   AgentPresenceEvent,
   AgentPresenceStatus,
@@ -25,6 +26,7 @@ export interface RealtimeHub {
 
 export interface RealtimeHubOptions {
   logger: ILogger;
+  cache?: ICache;
   clock: IClock;
   jwtSecret: string;
   webOrigin: string;
@@ -174,13 +176,18 @@ export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
     return null;
   };
 
-  const verifyToken = (token: string): SocketClaims | null => {
+  const verifyToken = async (token: string): Promise<SocketClaims | null> => {
     try {
       const decoded = verifyJwt(token, options.jwtSecret, { algorithms: ['HS256'] });
       if (typeof decoded === 'string') return null;
 
       const agentId: unknown = decoded.agentId ?? decoded.sub;
       if (typeof agentId !== 'string' || agentId.length === 0) return null;
+
+      // Access tokens revoked by logout must not open realtime sessions.
+      if (await isAccessTokenDenied({ jti: typeof decoded.jti === 'string' ? decoded.jti : undefined, cache: options.cache, logger: options.logger })) {
+        return null;
+      }
 
       return {
         agentId,
@@ -245,14 +252,14 @@ export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
       maxHttpBufferSize: 1_000_000,
     });
 
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
       const token = extractHandshakeToken(socket);
       if (token === null) {
         next(new Error('AUTHENTICATION_ERROR: missing token'));
         return;
       }
 
-      const claims = verifyToken(token);
+      const claims = await verifyToken(token);
       if (claims === null) {
         next(new Error('AUTHENTICATION_ERROR: invalid or expired token'));
         return;

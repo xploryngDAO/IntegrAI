@@ -75,6 +75,16 @@ GET  /platform/tenants?search=<slug> → 0 (removido fisicamente)
 - `sellercentral.amazon.com.br` → landing de vendedor (sem sessão)
 - Conclusão: criar os apps exige suas contas; a plataforma já entrega valores copiáveis em `/setup` e os comandos `setup:assistant`/`setup:apply`.
 
+### 7.1 Revogação de access token no HTTP e no Socket.IO
+```
+login → GET /auth/me 200
+logout → 204
+GET /auth/me com o mesmo token → 401
+Socket.IO: conecta com token válido → logout → nova conexão com o token antigo
+  → AUTHENTICATION_ERROR: invalid or expired token
+novo login conecta normalmente (5/5 verificações)
+```
+
 ### 8. SSO OIDC ponta a ponta (`npm run test:live-sso`)
 Com um provedor OIDC local de teste (`scripts/oidc-stub.mjs`, RSA/JWKS reais):
 ```
