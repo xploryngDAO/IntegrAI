@@ -199,3 +199,14 @@ Mailpit: "Sua conta foi desativada - IntegrAI"
 auditoria admin.user.role_changed/deactivated mantida; e-mails best-effort
 validate:live -> 11/11
 ```
+
+### 17. Auditoria de exportacoes CSV
+```
+GET /admin/users/export.csv?role=ADMIN&search=admin -> 200
+GET /admin/audit-logs?action=admin.users.exported
+  -> metadata {"format":"csv","filters":{"role":"ADMIN","search":"admin"},"rowCount":1}
+GET /admin/audit-logs/export.csv?action=auth.login.success -> 200
+GET /admin/audit-logs?action=admin.audit.exported
+  -> metadata {"format":"csv","filters":{"action":"auth.login.success"},"rowCount":36}
+actor/IP registrados; validate:live -> 11/11
+```
