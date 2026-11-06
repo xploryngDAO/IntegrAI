@@ -47,7 +47,7 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 | **Admin** | visão geral, usuários (busca/paginação/CSV), convites (reenvio), sessões (revogação), logs/CSV e console de plataforma (backup/exclusão/purga) |
 | **SSO** | OIDC/Entra com `POST /tenants/me/sso/test` + botão **Testar conexão**, `scripts/sso-doctor.mjs` e `scripts/sso-apply.mjs`; falta o App registration real |
 | **Mensageria** | webhooks autenticados (Shopee HMAC, Amazon SES HMAC, Mercado Livre com segredo na Callback URL, billing HMAC) e idempotência |
-| **Qualidade/Segurança** | 1072 testes · CI (actionlint, build/test, gitleaks, npm audit+OSV, isolamento, sonda, a11y em 10 telas claro+escuro, UI smoke, trivy 0 HIGH/CRITICAL) |
+| **Qualidade/Segurança** | 1072 testes · CI (actionlint, build/test, gitleaks, npm audit+OSV, isolamento, sonda, a11y em 17 telas claro+escuro, UI smoke, trivy 0 HIGH/CRITICAL) |
 | **Evidência E2E** | `verify-live`, `validate:live`, `test:live-2fa`, `test:live-2fa-policy`, `test:live-sso`, `test:live-socket`, `test:live-signup`, `test:live-signup-ui`, `test:live-invite-ui`, `isolation-test` |
 
 > Handoff de go-live (o que falta e comandos): [docs/HANDOFF.md](docs/HANDOFF.md).

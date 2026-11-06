@@ -622,3 +622,11 @@ tenant temporario -> PUT /tenants/me/sso (stub) -> /login "Entrar com Microsoft"
 Bug real encontrado: JWKS com mesmo kid apos rotacao -> signature falhava sem refresh.
 Fix: OidcClient refaz o fetch do JWKS uma vez ao falhar a assinatura; teste unitario cobre.
 ```
+
+### 63. A11y em 17 telas (publicas + autenticadas, claro e escuro)
+```
+a11y-audit agora cobre tambem: /signup, /forgot-password, /reset-password (invalido),
+/invite (invalido), /billing/success, /billing/cancel, /auth/sso/callback (erro)
+Resultado local (build hermetico): light 17/17 sem violacoes; dark 17/17 sem violacoes
+CI roda o mesmo script nos dois temas a cada push.
+```

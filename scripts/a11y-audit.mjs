@@ -64,6 +64,27 @@ reports.push(await audit(page, 'landing'));
 await page.goto(`${URL}/login`, { waitUntil: 'networkidle2', timeout: 60_000 });
 reports.push(await audit(page, 'login'));
 
+// Public pages reachable without a session: first-run signup, recovery, the
+// "invalid token" states of invite/reset, billing returns and the SSO callback
+// error state. They are part of the user-visible surface and were not audited
+// before.
+const PUBLIC_PAGES = [
+  ['signup', '/signup'],
+  ['forgot-password', '/forgot-password'],
+  ['reset-invalid', '/reset-password'],
+  ['invite-invalid', '/invite'],
+  ['billing-success', '/billing/success'],
+  ['billing-cancel', '/billing/cancel'],
+  ['sso-callback-error', '/auth/sso/callback'],
+];
+for (const [name, path] of PUBLIC_PAGES) {
+  await page.goto(`${URL}${path}`, { waitUntil: 'networkidle2', timeout: 60_000 });
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  reports.push(await audit(page, name));
+}
+
+await page.goto(`${URL}/login`, { waitUntil: 'networkidle2', timeout: 60_000 });
+
 await page.type('input[type="email"]', EMAIL);
 await page.type('input[type="password"]', PASSWORD);
 await Promise.all([page.click('button[type="submit"]'), new Promise((r) => setTimeout(r, 6000))]);
