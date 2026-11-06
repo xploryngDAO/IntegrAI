@@ -243,3 +243,12 @@ job tenant.backup.purge -> linha removida do banco
 GET S3 do objeto -> 404 (objeto apagado)
 validate:live -> 11/11
 ```
+
+### 21. Refresh automatico e expiracao segura de sessao (Edge limpo)
+```
+login -> token salvo
+corromper access token + reload -> 401 /auth/me
+  -> refresh token valido rotaciona a sessao -> continua autenticado, token trocado
+corromper access E refresh + reload
+  -> refresh falha -> sessao local encerrada -> /login, tokens = null
+```
