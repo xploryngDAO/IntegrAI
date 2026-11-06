@@ -194,7 +194,9 @@ describe('IntegrationSetupService', () => {
     it('derives the webhook URLs from APP_BASE_URL on the root ingress paths', () => {
       const guide = createService().guide();
 
-      expect(channel(guide, 'MERCADO_LIVRE').webhookUrl).toBe(`${API_BASE}/webhooks/mercadolivre`);
+      expect(channel(guide, 'MERCADO_LIVRE').webhookUrl).toBe(
+        `${API_BASE}/webhooks/mercadolivre?secret=meli-webhook-secret`,
+      );
       expect(channel(guide, 'SHOPEE').webhookUrl).toBe(`${API_BASE}/webhooks/shopee`);
       expect(channel(guide, 'AMAZON').webhookUrl).toBe(`${API_BASE}/webhooks/amazon/ses`);
     });
@@ -214,7 +216,9 @@ describe('IntegrationSetupService', () => {
       expect(channel(guide, 'AMAZON').redirectUri).toBe(
         `${API_BASE}/api/v1/accounts/oauth/amazon/callback`,
       );
-      expect(channel(guide, 'MERCADO_LIVRE').webhookUrl).toBe(`${API_BASE}/webhooks/mercadolivre`);
+      expect(channel(guide, 'MERCADO_LIVRE').webhookUrl).toBe(
+        `${API_BASE}/webhooks/mercadolivre?secret=meli-webhook-secret`,
+      );
     });
 
     it('falls back to APP_BASE_URL when a redirect env is empty', () => {
@@ -305,8 +309,8 @@ describe('IntegrationSetupService', () => {
     it('names the signing env var per channel without exposing the value', () => {
       const guide = createService().guide();
 
-      expect(channel(guide, 'MERCADO_LIVRE').webhookSecretEnv).toBeNull();
-      expect(channel(guide, 'MERCADO_LIVRE').webhookSecretHint).toBeNull();
+      expect(channel(guide, 'MERCADO_LIVRE').webhookSecretEnv).toBe('MELI_WEBHOOK_SECRET');
+      expect(channel(guide, 'MERCADO_LIVRE').webhookSecretHint).toContain('MELI_WEBHOOK_SECRET');
       expect(channel(guide, 'SHOPEE').webhookSecretEnv).toBe('SHOPEE_PARTNER_KEY');
       expect(channel(guide, 'SHOPEE').webhookSecretHint).toContain('SHOPEE_PARTNER_KEY');
       expect(channel(guide, 'AMAZON').webhookSecretEnv).toBe(

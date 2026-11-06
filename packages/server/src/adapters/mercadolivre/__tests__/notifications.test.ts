@@ -123,7 +123,7 @@ describe('Meli notification conformance', () => {
       method: 'POST',
       url: 'http://localhost/webhooks/meli',
       headers: {},
-      query: {},
+      query: { secret: 'test-webhook-secret' },
       rawBody,
       receivedAt: new Date('2026-02-05T12:00:00.000Z'),
     });
@@ -168,7 +168,7 @@ describe('Meli notification conformance', () => {
       method: 'POST',
       url: 'http://localhost/webhooks/meli',
       headers: {},
-      query: {},
+      query: { secret: 'test-webhook-secret' },
       rawBody,
       receivedAt: new Date('2026-02-05T12:00:00.000Z'),
     });

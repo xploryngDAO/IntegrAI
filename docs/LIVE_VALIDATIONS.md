@@ -312,3 +312,11 @@ POST /webhooks/shopee com HMAC-SHA256(url|corpo) usando chave vazia (forjavel)
    reason interno WEBHOOK_SECRET_NOT_CONFIGURED
 Em producao a API recusa iniciar sem SHOPEE_PARTNER_KEY (>=16 chars)
 ```
+
+### 28. Webhook do Mercado Livre sem segredo e rejeitado
+```
+POST /webhooks/mercadolivre (sem ?secret=, seller 42 conectado) -> 401 REJECTED
+logs: "meli.webhook.secret_not_configured" · reason WEBHOOK_SECRET_NOT_CONFIGURED
+GET /platform/integration-setup -> Meli configured=false, missing=["MELI_WEBHOOK_SECRET"]
+   webhookSecretEnv=MELI_WEBHOOK_SECRET
+```

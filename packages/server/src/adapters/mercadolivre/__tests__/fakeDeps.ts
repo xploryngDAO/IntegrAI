@@ -236,6 +236,7 @@ export function createFakeDeps(options: FakeDepsOptions = {}): FakeDeps {
         apiBase: 'https://api.mercadolibre.com',
         refreshIntervalSeconds: 20_700,
         webhookTopics: ['questions', 'messages', 'post_purchase'],
+        webhookSecret: 'test-webhook-secret',
       },
       shopee: {},
       smtp: {},

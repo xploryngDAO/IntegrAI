@@ -43,6 +43,12 @@ export interface MeliChannelConfig {
   apiBase: string;
   refreshIntervalSeconds: number;
   webhookTopics: string[];
+  /**
+   * Shared secret appended to the notification URL (`?secret=`). Mercado Livre
+   * does not sign pushes, so this is what proves the call came from the ML app;
+   * empty means every webhook is rejected (fail closed).
+   */
+  webhookSecret?: string;
 }
 
 export interface ShopeeChannelConfig {

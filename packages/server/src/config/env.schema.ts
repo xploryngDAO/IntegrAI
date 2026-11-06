@@ -232,6 +232,12 @@ export const envSchema = z.object({
   /* ----------------------------- Mercado Livre ---------------------------- */
   MELI_CLIENT_ID: stringFromEnv(''),
   MELI_CLIENT_SECRET: stringFromEnv(''),
+  /**
+   * Shared secret appended to the Mercado Livre notification URL (`?secret=`).
+   * ML does not sign pushes: without this, anyone who knows a seller id could
+   * forge events, so the adapter rejects webhooks when it is empty.
+   */
+  MELI_WEBHOOK_SECRET: stringFromEnv(''),
   MELI_REDIRECT_URI: stringFromEnv('http://localhost:4000/api/v1/accounts/oauth/mercadolivre/callback'),
   MELI_API_BASE: stringFromEnv('https://api.mercadolibre.com'),
   MELI_REFRESH_INTERVAL_SECONDS: intFromEnv(20_700, 60),

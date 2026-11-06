@@ -476,7 +476,7 @@ marketplaces contra bloqueio (`infrastructure/ratelimit/token-bucket.ts`,
 |---|---|---|
 | Amazon SES relay | `x-sac-signature: HMAC-SHA256(rawBody, AMAZON_SES_INBOUND_SHARED_SECRET)`, comparação em tempo constante | idempotência por `eventId`/message id + `webhook_events` |
 | Shopee | `Authorization: HMAC-SHA256(webhookUrl + "|" + rawBody, partnerKey)` + timestamp ±300 s | idempotência por `eventId`; `SET NX EX 86400` |
-| Mercado Livre | **sem assinatura criptográfica**; resolve `user_id` para conta conectada | idempotência por `_id`; hidratação via API |
+| Mercado Livre | **sem assinatura criptográfica**: a Callback URL carrega `?secret=MELI_WEBHOOK_SECRET` (comparação em tempo constante); sem o segredo o webhook é rejeitado (`WEBHOOK_SECRET_NOT_CONFIGURED`) | idempotência por `_id`; hidratação via API |
 | Billing | `x-billing-signature: HMAC-SHA256(rawBody, BILLING_WEBHOOK_SECRET)` | unique `billing:<externalId>` |
 
 Regra: o corpo do webhook **nunca** é fonte de verdade de conteúdo; o worker

@@ -246,6 +246,7 @@ function buildConfig(env: Env): AppConfig {
       apiBase: env.MELI_API_BASE,
       refreshIntervalSeconds: env.MELI_REFRESH_INTERVAL_SECONDS,
       webhookTopics: env.MELI_WEBHOOK_TOPICS,
+      webhookSecret: env.MELI_WEBHOOK_SECRET,
     },
     shopee: {
       partnerId: env.SHOPEE_PARTNER_ID,

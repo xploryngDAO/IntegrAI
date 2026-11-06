@@ -56,6 +56,7 @@ const AMAZON_REDIRECT_PATH = '/api/v1/accounts/oauth/amazon/callback';
 /** Webhook signing secrets, by variable NAME (values are never exposed). */
 export const SHOPEE_WEBHOOK_SECRET_ENV = 'SHOPEE_PARTNER_KEY';
 export const AMAZON_WEBHOOK_SECRET_ENV = 'AMAZON_SES_INBOUND_SHARED_SECRET';
+export const MELI_WEBHOOK_SECRET_ENV = 'MELI_WEBHOOK_SECRET';
 
 /**
  * Meli topics shipped by `.env.example` (used only when the deployment did not
@@ -145,13 +146,20 @@ export class IntegrationSetupService implements IIntegrationSetupService {
   private describeMeli(): IntegrationSetupChannel {
     const clientId = readString(this.config.meli.clientId);
     const clientSecret = readString(this.config.meli.clientSecret);
+    const webhookSecret = readString(this.config.meli.webhookSecret);
     const missing: string[] = [];
     if (clientId === null) missing.push('MELI_CLIENT_ID');
     if (clientSecret === null) missing.push('MELI_CLIENT_SECRET');
+    if (webhookSecret === null) missing.push(MELI_WEBHOOK_SECRET_ENV);
 
     const redirectUri =
       readString(this.config.meli.redirectUri) ?? `${this.apiBaseUrl}${MELI_REDIRECT_PATH}`;
-    const webhookUrl = `${this.apiBaseUrl}${MELI_WEBHOOK_PATH}`;
+    // Mercado Livre does not sign pushes: the URL carries the shared secret,
+    // which the adapter compares before accepting the notification.
+    const webhookUrl =
+      webhookSecret === null
+        ? `${this.apiBaseUrl}${MELI_WEBHOOK_PATH}`
+        : `${this.apiBaseUrl}${MELI_WEBHOOK_PATH}?secret=${encodeURIComponent(webhookSecret)}`;
     const topics = effectiveTopics(this.config.meli.webhookTopics, DEFAULT_MELI_TOPICS);
     const steps: string[] = [];
 
@@ -207,10 +215,11 @@ export class IntegrationSetupService implements IIntegrationSetupService {
       portalUrl: MELI_PORTAL_URL,
       docsUrl: MELI_DOCS_URL,
       steps,
-      // Meli pushes are not signed (the account is resolved by the payload
-      // user_id), so there is no webhook secret to configure.
-      webhookSecretEnv: null,
-      webhookSecretHint: null,
+      // Meli pushes are not signed: the callback URL itself must carry the
+      // shared secret (checked by the adapter before accepting the event).
+      webhookSecretEnv: MELI_WEBHOOK_SECRET_ENV,
+      webhookSecretHint:
+        webhookSecret === null ? null : `${MELI_WEBHOOK_SECRET_ENV} já incluído na Callback URL acima`,
     };
   }
 

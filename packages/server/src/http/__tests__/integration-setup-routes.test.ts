@@ -160,7 +160,7 @@ describe('platform integration-setup route', () => {
       missing: [],
       appIdPublic: 'meli-client',
       redirectUri: `${API_BASE}/api/v1/accounts/oauth/mercadolivre/callback`,
-      webhookUrl: `${API_BASE}/webhooks/mercadolivre`,
+      webhookUrl: `${API_BASE}/webhooks/mercadolivre?secret=meli-webhook-secret`,
       portalUrl: 'https://developers.mercadolivre.com.br/devcenter',
     });
     expect(shopee).toMatchObject({

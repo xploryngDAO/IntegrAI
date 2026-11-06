@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import {
   redactPiiForLogs,
   type AccountLookup,
@@ -20,8 +21,7 @@ import {
   type WebhookVerification,
 } from '@sac/shared';
 import { loadMeliAccount } from './account';
-import { MeliAuth } from './client/MeliAuth';
-import { MeliClient } from './client/MeliClient';
+import { MeliAuth } from './client/MeliAuth';import { MeliClient } from './client/MeliClient';
 import { MeliDiagnostics } from './diagnose';
 import { ClaimsHydrator } from './inbound/ClaimsHydrator';
 import { MessagesHydrator } from './inbound/MessagesHydrator';
@@ -42,6 +42,20 @@ import { MeliOutbound } from './outbound/MeliOutbound';
 import type { MeliClaim } from './types';
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+
+/** Constant-time comparison for the notification URL secret. */
+function safeEqualText(expected: string, received: string): boolean {
+  const left = Buffer.from(expected, 'utf8');
+  const right = Buffer.from(received, 'utf8');
+  if (left.length === 0 || left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+function readHeader(headers: Record<string, string | string[] | undefined>, name: string): string | null {
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === 'string' ? value : null;
+}
 
 /**
  * Mercado Livre channel adapter.
@@ -85,8 +99,30 @@ export class MercadoLivreChannelAdapter implements IMarketplaceChannelAdapter {
    * otherwise the event is rejected as `UNKNOWN_SELLER`.
    */
   async verifyInbound(request: RawWebhookRequest): Promise<WebhookVerification> {
-    const payload = parseJsonBody(request.rawBody);
     const baseLookup: AccountLookup = { marketplace: 'MERCADO_LIVRE' };
+    const base: WebhookVerification = {
+      valid: false,
+      reason: 'INVALID_SIGNATURE',
+      accountLookup: baseLookup,
+      payload: {},
+    };
+
+    // Mercado Livre does not sign pushes, so the notification URL carries a
+    // shared secret configured in the ML application. Without it, anyone who
+    // knows a seller id could forge events for that account.
+    const webhookSecret = (this.deps.config.meli.webhookSecret ?? '').trim();
+    if (webhookSecret.length === 0) {
+      this.logger.error('meli.webhook.secret_not_configured', { remoteIp: request.remoteIp });
+      return { ...base, reason: 'WEBHOOK_SECRET_NOT_CONFIGURED' };
+    }
+    const providedRaw = request.query?.secret ?? readHeader(request.headers, 'x-meli-webhook-secret');
+    const provided = Array.isArray(providedRaw) ? providedRaw[0] : providedRaw;
+    if (typeof provided !== 'string' || !safeEqualText(webhookSecret, provided.trim())) {
+      this.logger.warn('meli.webhook.invalid_secret', { remoteIp: request.remoteIp });
+      return base;
+    }
+
+    const payload = parseJsonBody(request.rawBody);
 
     if (!payload) {
       this.logger.warn('meli.webhook.invalid_payload', { remoteIp: request.remoteIp });

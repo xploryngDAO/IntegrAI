@@ -327,6 +327,7 @@ export function testChannelConfig(
       apiBase: 'https://api.mercadolibre.com',
       refreshIntervalSeconds: 20_700,
       webhookTopics: ['questions'],
+      webhookSecret: 'meli-webhook-secret',
     },
     shopee: {
       partnerId: 1_000_000,
