@@ -156,3 +156,13 @@ GET  /admin/audit-logs/export.csv -> 200 text/csv; attachment; filename=audit-lo
   header: created_at,action,actor_email,resource_type,resource_id,ip,user_agent (18 linhas)
 Edge limpo: /admin -> abas Usuários/Convites/Logs; "Exportar CSV" presente (com filtros)
 ```
+
+### 13. Reenvio de convite (API real + Mailpit)
+```
+POST /invitations                        -> PENDING, expira em 7d
+POST /admin/invitations/:id/resend       -> 200 PENDING, nova expiração
+Mailpit                                  -> 2 e-mails para o convite; token novo (64 hex) aceito
+POST /auth/accept-invitation             -> AGENT criado
+POST resend de convite aceito            -> 409 INVITATION_ALREADY_ACCEPTED
+cleanup + validate:live                  -> 11/11
+```
