@@ -685,3 +685,9 @@ node scripts/live-all.mjs --reset-login-limit -> 15/15 etapas OK em 270s
 (verify, validate, isolation, probe, 2FA policy/socket/API, signup+convite,
  signup/convite/reset/2FA/SSO UI, Web Vitals, a11y 21 telas)
 ```
+
+### 73. Estabilidade da suite (3 execucoes consecutivas)
+```
+npx vitest run x3 -> 3/3 exit 0; 1073 testes em ~16s por execucao
+(transform 19-27s, tests 45-48s) sem flakes na mesma maquina
+```
