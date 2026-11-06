@@ -739,3 +739,11 @@ build:server -> API reiniciada com query/Bearer corrigidos
 live-all --reset-login-limit -> 15/15 etapas OK em 267s
 READY=ready; login/Bearer usados em todas as etapas (validacao indireta do parser)
 ```
+
+### 81. Cross-browser com Playwright MCP (GitHub Pages)
+```
+navegador Chromium via Playwright MCP -> https://xploryngdao.github.io/IntegrAI/
+landing completa (h1, secoes, planos, footer), links com base /IntegrAI,
+landmarks banner/main/contentinfo; console errors = 0
+confirma o fallback em engine diferente do Edge/puppeteer usado no CI
+```
