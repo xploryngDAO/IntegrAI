@@ -378,3 +378,13 @@ e-mail entregue no Mailpit; link extraido:
 GET no link -> 200 (SPA do deploy publico serve /reset-password)
 => resolveLinkBase usa o primeiro WEB_ORIGIN (Vercel), nao o host da API
 ```
+
+### 35. Signup completo pela UI publicada (Vercel + tunel + Mailpit)
+```
+signup em https://integrai-dev.vercel.app/signup -> "Verifique seu e-mail"
+e-mail real (Mailpit) com link https://integrai-dev.vercel.app/verify-email?token=...
+verificacao abre a pagina publicada; login pela UI -> /onboarding
+GET /tenants/me (token da sessao) -> slug do workspace criado
+soft delete (202) + purge (200); 0 residuos; sem erros de runtime no console
+8/8 (npm run test:live-signup-ui)
+```
