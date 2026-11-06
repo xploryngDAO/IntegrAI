@@ -75,7 +75,13 @@ GET  /platform/tenants?search=<slug> → 0 (removido fisicamente)
 - `sellercentral.amazon.com.br` → landing de vendedor (sem sessão)
 - Conclusão: criar os apps exige suas contas; a plataforma já entrega valores copiáveis em `/setup` e os comandos `setup:assistant`/`setup:apply`.
 
-### 8. Assistente de configuração (`npm run setup:assistant`)
+### 8. Rate limit observado ao vivo
+Após várias tentativas de login nos testes, a API respondeu `429 RATE_LIMITED` com
+`details.bucket=auth.login` e `retryAfterMs` (~7,5 min restantes) — comportamento esperado.
+No ambiente local as chaves `sac:auth:login:attempts:*` foram limpas no Redis para
+continuar os testes; em produção não se limpam chaves.
+
+### 9. Assistente de configuração (`npm run setup:assistant`)
 Mostra por canal o que está configurado/pendente, os webhooks exatos e o próximo passo com link do portal; `--generate` cria segredos locais ausentes (billing/SES) sem sobrescrever.
 
 ### 6. Estado geral
