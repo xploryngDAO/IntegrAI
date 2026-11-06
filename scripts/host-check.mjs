@@ -68,6 +68,19 @@ async function main() {
     `HTTP ${readyResponse?.status ?? 'n/a'} · status=${ready?.status ?? 'n/a'} · db=${checks.database} · redis=${checks.redis} · storage=${checks.storage}`,
   );
 
+  // Build identity: the host must answer `/version` with a real payload so a
+  // deploy can be pinned to a commit (and rolled back to a known SHA).
+  const versionResponse = await fetch(`${API}/api/v1/version`).catch(() => null);
+  const version = versionResponse === null ? null : await versionResponse.json().catch(() => null);
+  const versionData = version?.data ?? null;
+  check(
+    'GET /api/v1/version (build identity)',
+    versionResponse?.ok === true &&
+      typeof versionData?.version === 'string' &&
+      versionData.version.length > 0,
+    `v${versionData?.version ?? 'n/a'} · commit=${versionData?.commit ?? 'n/a'} · node=${versionData?.node ?? 'n/a'}`,
+  );
+
   const csp = health.response.headers.get('content-security-policy');
   check('CSP do API', typeof csp === 'string' && csp.includes("default-src 'none'"), csp?.slice(0, 80) ?? 'ausente');
   check(

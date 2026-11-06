@@ -691,3 +691,9 @@ node scripts/live-all.mjs --reset-login-limit -> 15/15 etapas OK em 270s
 npx vitest run x3 -> 3/3 exit 0; 1073 testes em ~16s por execucao
 (transform 19-27s, tests 45-48s) sem flakes na mesma maquina
 ```
+
+### 74. host-check valida /version (build identity)
+```
+node scripts/host-check.mjs --api=<host> --web=<spa>
+-> 10/11 obrigatorios + WARN HSTS; inclui "GET /api/v1/version (build identity)"
+```
