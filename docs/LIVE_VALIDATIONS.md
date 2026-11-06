@@ -52,7 +52,15 @@ cleanup do tenant temporário
 11/11 verificações passaram
 ```
 
-### 5. Assistente de configuração (`npm run setup:assistant`)
+### 5. Convite de operador ponta a ponta
+```
+POST /invitations (ADMIN) → e-mail "Convite para operar o IntegrAI" no Mailpit
+→ token extraído do link /invite?token=... → POST /auth/accept-invitation → usuário AGENT criado
+→ login do convidado 200 → GET /invitations com token AGENT → 403 (RBAC)
+cleanup de sessões/convite/usuário
+```
+
+### 6. Assistente de configuração (`npm run setup:assistant`)
 Mostra por canal o que está configurado/pendente, os webhooks exatos e o próximo passo com link do portal; `--generate` cria segredos locais ausentes (billing/SES) sem sobrescrever.
 
 ### 6. Estado geral

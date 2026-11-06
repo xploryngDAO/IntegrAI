@@ -32,6 +32,7 @@
         "doctor": "tsx scripts/doctor.ts",
     "validate:live": "node scripts/validate-live.mjs",
     "setup:assistant": "node scripts/setup-assistant.mjs",
+    "setup:apply": "node scripts/setup-apply.mjs",
     "test:live-2fa": "node scripts/live-2fa-test.mjs",
     "test:isolation": "node scripts/isolation-test.mjs",
         "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
