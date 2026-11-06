@@ -26,6 +26,7 @@ const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 export const SHOPEE_WEBHOOK_REASONS = {
   ok: 'OK',
+  secretMissing: 'WEBHOOK_SECRET_NOT_CONFIGURED',
   invalidSignature: 'INVALID_SIGNATURE',
   missingSignature: 'AUTH_HEADER_MISSING',
   unparseable: 'PAYLOAD_UNPARSEABLE',
@@ -100,6 +101,20 @@ export class ShopeeWebhookParser {
     }
 
     const partnerKey = this.deps.config.shopee.partnerKey;
+    if (partnerKey.trim().length === 0) {
+      // An empty HMAC key is publicly derivable, so a "valid" signature over it
+      // proves nothing. Reject instead of accepting forgeable webhooks (the
+      // production config also refuses to boot without the partner key).
+      this.logger.error('Shopee webhook rejected: partner key not configured', { topic, eventId });
+      return this.invalid(
+        SHOPEE_WEBHOOK_REASONS.secretMissing,
+        baseLookup,
+        payloadShape,
+        eventId,
+        topic,
+        resource,
+      );
+    }
     const expected = computeWebhookSign(request.url, request.rawBody, partnerKey);
     if (!safeEqualHex(expected, signature)) {
       this.logger.warn('Shopee webhook rejected: signature mismatch', { topic, eventId });

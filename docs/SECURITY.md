@@ -992,3 +992,8 @@ pm audit --omit=dev = **0 vulnerabilidades de producao**; restam apenas advisori
 ### Secret scanning no CI
 
 gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .gitleaksignore); o repositorio esta em **no leaks found**.
+
+### Assinatura de webhooks do Shopee
+
+- O webhook exige Authorization com HMAC-SHA256(url|corpo) usando SHOPEE_PARTNER_KEY; o parser **rejeita** quando a chave esta vazia (WEBHOOK_SECRET_NOT_CONFIGURED, 401) porque a assinatura seria forjavel.
+- Em NODE_ENV=production a API **nao inicia** sem SHOPEE_PARTNER_KEY (>= 16 chars) — loadConfig falha com Unsafe production secrets.

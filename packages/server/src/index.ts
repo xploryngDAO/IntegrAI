@@ -221,7 +221,7 @@ async function logStartupBanner(
   logger.info('  SAC HUB API — omnichannel support hub');
   logger.info('==============================================================');
   logger.info(`  env        : ${config.nodeEnv}`);
-  logger.info(`  listening  : http://0.0.0.0:${config.port}`);
+  logger.info(`  listening  : http://${config.host}:${config.port}`);
   logger.info(`  api base   : ${config.appBaseUrl}/api/v1`);
   logger.info(`  web origin : ${config.webOrigin}`);
   logger.info(

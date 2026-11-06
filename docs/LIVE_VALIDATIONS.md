@@ -304,3 +304,11 @@ GET /admin/users/export.csv -> 200 text/csv (header name,email,role,is_active,la
 GET /admin/audit-logs/export.csv -> 200 text/csv (~30 KB, header created_at,action,actor_email,resource_type,resource_id,ip,user_agent)
 POST /webhooks/shopee com assinatura invalida -> 401 (rejeitado, sem 5xx)
 ```
+
+### 27. Webhook do Shopee sem segredo configurado e rejeitado
+```
+POST /webhooks/shopee com HMAC-SHA256(url|corpo) usando chave vazia (forjavel)
+-> 401 REJECTED · log "Shopee webhook rejected: partner key not configured"
+   reason interno WEBHOOK_SECRET_NOT_CONFIGURED
+Em producao a API recusa iniciar sem SHOPEE_PARTNER_KEY (>=16 chars)
+```

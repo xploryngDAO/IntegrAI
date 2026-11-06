@@ -159,6 +159,11 @@ function assertProductionSafety(env: Env): void {
   if (env.ENCRYPTION_MASTER_KEY === 'zJ8kQ2mWv7bT1yN5cR9pLx4hF6dA0gU3sE2iO8qK5wY=') {
     issues.push('ENCRYPTION_MASTER_KEY: remove the development key before going to production');
   }
+  if (env.SHOPEE_PARTNER_KEY.trim().length < 16) {
+    issues.push(
+      'SHOPEE_PARTNER_KEY: required in production (webhooks are signed with it; an empty key is forgeable)',
+    );
+  }
   if (issues.length > 0) {
     throw new ConfigError('Unsafe production secrets', issues);
   }
