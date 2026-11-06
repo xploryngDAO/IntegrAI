@@ -14,7 +14,7 @@ export function BrandMark({ className }: { className?: string }): JSX.Element {
         <div className="font-mono text-[15px] font-semibold leading-tight tracking-[0.16em] text-[var(--cv-color-text)]">
           SAC HUB
         </div>
-        <div className="text-[var(--cv-font-micro)] uppercase leading-snug tracking-[0.1em] text-[var(--cv-color-text-muted)]">
+        <div className="sac-brand__descriptor text-[var(--cv-font-micro)] uppercase leading-snug tracking-[0.1em] text-[var(--cv-color-text-muted)]">
           Central de atendimento omnichannel
         </div>
       </div>

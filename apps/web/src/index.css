@@ -139,55 +139,187 @@ body {
   flex-direction: column;
 }
 
+/* ------------------------------------------------------ credential gate ---- */
+/* Below 480px the descriptor would wrap to two lines beside the wordmark and
+ * turn the lockup into a tutorial banner: keep only the product name there.
+ * From 480px up it is a single small line, never wrapped or clipped. */
+.sac-brand__descriptor {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 479px) {
+  .sac-brand__descriptor {
+    display: none;
+  }
+}
+
+/* "Esqueci minha senha" shares the "Senha" label row. The DS field owns the
+ * label, so the action is anchored to the field wrapper. The padding grows the
+ * pointer target without opening a second, tutorial-like row under the input. */
+.sac-field-action-wrap {
+  position: relative;
+}
+
+.sac-field-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 6px;
+  margin: -4px -6px 0 0;
+  border-radius: var(--cv-radius-small);
+  font-size: var(--cv-font-meta);
+  line-height: 1.6;
+}
+
+/* The global theme switch keeps a 44px touch target on the credential gate. */
+.sac-auth-theme {
+  min-width: var(--cv-size-touch);
+  min-height: var(--cv-size-touch);
+}
+
+/* Four-square corporate-login glyph drawn in CSS (no brand asset): four 5px
+ * squares with a 2px gap. Inherits the button's text colour in both themes. */
+.sac-sso-glyph {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 5px);
+  grid-template-rows: repeat(2, 5px);
+  gap: 2px;
+  width: 12px;
+  height: 12px;
+}
+
+.sac-sso-glyph > span {
+  display: block;
+  border-radius: 1px;
+  background: currentColor;
+}
+
 /* --------------------------------------------------------- maintenance ---- */
 /* Global 503 status strip. It lives in the normal flow at the top of the app
  * column (`flex: none`), so the topbar/landing header below is pushed down
- * instead of covered and the `#sac-main` skip target keeps its position. */
+ * instead of covered and the `#sac-main` skip target keeps its position.
+ *
+ * One compact strip at every breakpoint instead of an alert card plus a loose
+ * button (the old phone layout stacked four bands): danger icon, short noun
+ * title, API message clamped to two lines, countdown and an icon-only dismiss
+ * target inside the same surface. `cv-tone--danger` provides `--tone` and
+ * `--tone-soft` from the DS contract. */
 .sac-maintenance {
   position: relative;
   z-index: 50;
   flex: none;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 20px;
-  background: var(--cv-color-background);
-  border-bottom: 1px solid var(--cv-color-border);
+  background: var(--tone-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--tone) 25%, transparent);
+  color: var(--cv-color-text);
 }
 
-.sac-maintenance .cv-alert {
+.sac-maintenance__icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--tone);
+}
+
+.sac-maintenance__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   flex: 1;
   min-width: 0;
-  padding: 12px 16px;
+}
+
+.sac-maintenance__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sac-maintenance__title {
+  font-size: var(--cv-font-meta);
+  font-weight: var(--cv-font-semibold);
+  line-height: 1.4;
+  color: var(--cv-color-text);
+}
+
+.sac-maintenance__retry {
+  font-family: var(--cv-font-mono);
+  font-size: var(--cv-font-micro);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Deepened danger: `--cv-color-danger` alone is too tight for 10px copy on
+   * the soft danger surface. */
+  color: color-mix(in srgb, var(--tone) 65%, var(--cv-color-text));
 }
 
 .sac-maintenance__message {
   margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.sac-maintenance__retry {
-  margin: 2px 0 0;
   font-size: var(--cv-font-meta);
+  line-height: 1.45;
+  color: var(--cv-color-text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .sac-maintenance__dismiss {
   flex: none;
-  margin-top: 2px;
+  margin-top: -4px;
+  margin-right: -6px;
+  color: var(--cv-color-text);
+}
+
+@media (min-width: 641px) {
+  /* Wide screens keep the same strip on one visual row: title, countdown and
+   * message share a baseline. */
+  .sac-maintenance {
+    align-items: center;
+    padding: 8px 20px;
+  }
+
+  .sac-maintenance__body {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+  }
+
+  .sac-maintenance__head {
+    flex: none;
+  }
+
+  .sac-maintenance__message {
+    flex: 1;
+    min-width: 0;
+    padding-left: 10px;
+    border-left: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  }
+
+  .sac-maintenance__dismiss {
+    margin-top: 0;
+  }
 }
 
 @media (max-width: 640px) {
   .sac-maintenance {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 10px 12px;
+    gap: 8px;
+    padding: 8px 10px 8px 12px;
   }
 
-  /* 44px touch target on the phone breakpoint, right-aligned so the banner
-   * keeps the message as the first thing read. */
+  /* 44px touch target inside the strip; the negative offset keeps the X
+   * optically aligned with the title row instead of pushing the strip down. */
   .sac-maintenance__dismiss {
-    align-self: flex-end;
-    min-height: 44px;
+    min-width: var(--cv-size-touch);
+    min-height: var(--cv-size-touch);
+    margin: -6px -4px 0 0;
   }
 }
 

@@ -655,8 +655,15 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
 
   return (
     <AuthLayout
-      title="Entrar no workspace"
-      description="Acesso restrito à equipe de atendimento. As lojas e permissões vêm do seu usuário."
+      title="Entrar"
+      /* Real product anchor for the operator before the credential form. The
+         marketplace name stays unbreakable on narrow phones. */
+      eyebrow={
+        <>
+          Fila unificada · SLA por canal · Amazon ·{' '}
+          <span className="whitespace-nowrap">Mercado Livre</span> · Shopee
+        </>
+      }
     >
       <form className="mt-1 flex flex-col gap-4" onSubmit={(event) => void handleSubmit(event)}>
         <Input
@@ -673,27 +680,27 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
             setSsoNotice(null);
           }}
           error={emailError ?? undefined}
-          placeholder="voce@suaempresa.com.br"
-          required
-        />
-        <Input
-          label="Senha"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(event) => {
-            setPassword(event.target.value);
-            setNeedsVerification(false);
-            setError(null);
-          }}
+          placeholder="nome@suaempresa.com"
           required
         />
 
-        <div className="-mt-1 flex justify-end">
-          <Link
-            to="/forgot-password"
-            className="cv-link text-[var(--cv-font-meta)] underline"
-          >
+        {/* The recovery link sits on the "Senha" label row: the DS field owns
+            the label, so the link is anchored to the field wrapper instead of
+            opening a second, tutorial-like row under the input. */}
+        <div className="sac-field-action-wrap">
+          <Input
+            label="Senha"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setNeedsVerification(false);
+              setError(null);
+            }}
+            required
+          />
+          <Link to="/forgot-password" className="sac-field-action cv-link">
             Esqueci minha senha
           </Link>
         </div>
@@ -719,24 +726,27 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
           Entrar
         </Button>
 
-        <div className="flex items-center gap-3" role="presentation">
-          <span className="sac-divider flex-1" />
-          <span className="sac-label">ou</span>
-          <span className="sac-divider flex-1" />
-        </div>
+        <div className="sac-divider" role="presentation" aria-hidden="true" />
 
         <div className="flex flex-col gap-2">
           <Button
             type="button"
             variant="secondary"
-            icon="lock"
+            icon={
+              <span className="sac-sso-glyph" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+            }
             loading={ssoLoading}
             fullWidth
             onClick={() => void handleSsoLogin()}
           >
             Entrar com Microsoft
           </Button>
-          <p className="m-0 text-center text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
+          <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
             SSO corporativo · usa o e-mail acima para descobrir o provedor do domínio.
           </p>
         </div>
@@ -750,7 +760,7 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
           </Alert>
         ) : null}
 
-        <p className="m-0 text-center text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
+        <p className="m-0 text-[var(--cv-font-meta)] leading-snug text-[var(--cv-color-text-muted)]">
           Ainda não tem conta?{' '}
           <Link to="/signup" className="cv-link underline">
             Criar conta
