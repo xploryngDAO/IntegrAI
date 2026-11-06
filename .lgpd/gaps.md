@@ -50,3 +50,16 @@
 
 > A plataforma está tecnicamente preparada para os controles acima; a conformidade
 > formal depende dos artefatos legais e da governança do controlador.
+
+## Atualizações 2026-11-06
+
+| ID | Status | Evidência |
+|---|---|---|
+| LG-09 | **Mitigado tecnicamente** | `PII_RETENTION_DAYS` + `PII_PURGE_CRON`; retenção por backup/auditoria e purga do tenant |
+| LG-11 | **Parcial** | registro 5 anos inicializado em `.lgpd/incidents/log.md` (sem incidentes até a data) |
+| LG-12 | **Pendente** | tabletop de incidente ainda não executado (agendar com o encarregado) |
+| LG-13 | **Confirmado não aplicável** | produto não usa marketing/analytics de terceiros; base legal operacional é execução de contrato/legítimo interesse |
+
+Controles técnicos de DSAR, isolamento, cifra, retenção e detecção foram validados
+no go-live (ver `docs/LIVE_VALIDATIONS.md`). Os P0 (governança/legal) seguem
+pendentes de encarregado e revisão jurídica.
