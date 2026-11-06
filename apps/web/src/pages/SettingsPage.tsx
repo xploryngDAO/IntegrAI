@@ -9,6 +9,7 @@ import type { TenantProfile } from '../lib/types';
 import { formatDateTime } from '../lib/labels';
 import { Alert, Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { DeleteWorkspaceDialog } from '../components/settings/DeleteWorkspaceDialog';
+import { RecoveryCodesCard } from '../components/settings/RecoveryCodesCard';
 import { TwoFactorCard } from '../components/settings/TwoFactorCard';
 
 function settingsErrorMessage(error: unknown): string {
@@ -256,6 +257,7 @@ export function SettingsPage(): JSX.Element {
         </div>
 
         <TwoFactorCard />
+        <RecoveryCodesCard />
       </section>
 
       <section className="flex flex-col gap-3" aria-labelledby="lgpd-heading">

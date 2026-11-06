@@ -24,13 +24,15 @@ import { AccountsPage } from './pages/AccountsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { PlatformPage } from './pages/PlatformPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { BillingSuccessPage, BillingCancelPage } from './pages/BillingReturnPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
 /**
  * Session-free routes: the credential gate, the Fase 1 self-service screens
  * (the API mails `/verify-email?token=…`, `/reset-password?token=…` and
- * `/invite?token=…`) and the public availability page (`/status`).
+ * `/invite?token=…`), the public availability page (`/status`) and the hosted
+ * checkout return URLs (`/billing/success`, `/billing/cancel`).
  */
 const PUBLIC_PATHS = new Set([
   '/login',
@@ -40,6 +42,8 @@ const PUBLIC_PATHS = new Set([
   '/reset-password',
   '/invite',
   '/status',
+  '/billing/success',
+  '/billing/cancel',
 ]);
 
 /**
@@ -47,7 +51,8 @@ const PUBLIC_PATHS = new Set([
  * verification/invitation link opened from a mailbox cannot wait on `/auth/me`
  * (and must still work when the API session is unreachable). `/status` is here
  * for the same reason: the page that reports an outage cannot depend on the
- * session that may be failing.
+ * session that may be failing. The checkout return URLs are here too: the
+ * payment provider redirects the buyer to them with no guarantee about the API.
  */
 const NO_PROBE_PATHS = new Set([
   '/signup',
@@ -56,6 +61,8 @@ const NO_PROBE_PATHS = new Set([
   '/reset-password',
   '/invite',
   '/status',
+  '/billing/success',
+  '/billing/cancel',
 ]);
 
 function normalizePath(pathname: string): string {
@@ -210,6 +217,9 @@ export default function App(): JSX.Element {
           <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
           {/* Public availability page: no session, no probe (see NO_PROBE_PATHS). */}
           <Route path="/status" element={<StatusPage />} />
+          {/* Hosted checkout return URLs: public, no probe. */}
+          <Route path="/billing/success" element={<BillingSuccessPage />} />
+          <Route path="/billing/cancel" element={<BillingCancelPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
 

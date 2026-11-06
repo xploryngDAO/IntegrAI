@@ -43,6 +43,7 @@ import { STATUS_LABEL, formatDate, formatDurationMinutes } from '../../lib/label
 import { fieldErrorsFromIssues, isValidEmail, validationIssues } from '../../lib/validation';
 import { useWorkspace } from '../../lib/store';
 import { Alert, Button, Card, FieldRow, Input, Modal, Pill, Select, Skeleton } from '../ui';
+import { TenantCheckoutCard } from './TenantCheckoutCard';
 import { TicketSparkline } from './TicketSparkline';
 
 /** Minimal tenant identity a drill-down needs (row, alert or any future link). */
@@ -595,6 +596,13 @@ export function TenantDetailDialog({
         ) : metrics !== null ? (
           <MetricsView tenant={tenant} metrics={metrics} />
         ) : null}
+
+        <TenantCheckoutCard
+          tenantId={tenant.id}
+          tenantName={tenantHeading(tenant)}
+          plan={effectivePlan}
+          onForbidden={onForbidden}
+        />
 
         <TenantBillingForm tenant={tenant} onSaved={onSaved} onForbidden={onForbidden} />
       </div>

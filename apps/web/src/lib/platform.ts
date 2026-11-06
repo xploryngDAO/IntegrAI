@@ -318,6 +318,58 @@ export function isoToDateInput(value: string | null | undefined): string {
 }
 
 /* ==========================================================================
+ * Billing events (audit trail of the gateway callbacks)
+ * ========================================================================== */
+
+/**
+ * PT-BR label of the normalised gateway event
+ * (`BILLING_WEBHOOK_TYPES` in `@sac/shared`). An unknown type is rendered raw:
+ * an operator debugging a gateway integration needs the exact code.
+ */
+const BILLING_EVENT_TYPE_LABEL: Record<string, string> = {
+  'subscription.activated': 'Assinatura ativada',
+  'subscription.updated': 'Assinatura atualizada',
+  'payment.succeeded': 'Pagamento confirmado',
+  'payment.failed': 'Pagamento recusado',
+  'subscription.canceled': 'Assinatura cancelada',
+};
+
+export function billingEventTypeLabel(type: string | null | undefined): string {
+  const value = (type ?? '').trim();
+  if (value.length === 0) return 'Evento';
+  return BILLING_EVENT_TYPE_LABEL[value.toLowerCase()] ?? value;
+}
+
+/** `webhook_events.status`: RECEIVED | PROCESSED | FAILED (tolerant to new ones). */
+const BILLING_EVENT_STATUS_LABEL: Record<string, string> = {
+  RECEIVED: 'Recebido',
+  PROCESSED: 'Processado',
+  FAILED: 'Falhou',
+  DUPLICATE: 'Duplicado',
+};
+
+export function billingEventStatusLabel(status: string | null | undefined): string {
+  const value = (status ?? '').trim();
+  if (value.length === 0) return '—';
+  return BILLING_EVENT_STATUS_LABEL[value.toUpperCase()] ?? value;
+}
+
+export function billingEventStatusTone(
+  status: string | null | undefined,
+): TenantStatusTone {
+  switch ((status ?? '').trim().toUpperCase()) {
+    case 'PROCESSED':
+      return 'ok';
+    case 'RECEIVED':
+      return 'accent';
+    case 'FAILED':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
+}
+
+/* ==========================================================================
  * Alerts
  * ========================================================================== */
 
@@ -502,4 +554,73 @@ export function tenantActionErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : 'Não foi possível falar com a API. Tente novamente.';
+}
+
+/** `details.missing` of `BILLING_NOT_CONFIGURED` (`['BILLING_CHECKOUT_URL_TEMPLATE']`). */
+function missingBillingVariables(error: ApiClientError): string[] {
+  const details = error.details;
+  if (typeof details !== 'object' || details === null) return [];
+  const missing = (details as { missing?: unknown }).missing;
+  if (!Array.isArray(missing)) return [];
+  return missing.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+}
+
+/**
+ * `details.resource` of a `404 NOT_FOUND` app error (`{ resource: 'Tenant' }`).
+ * A route that is simply not published has no `details`, so both 404 shapes can
+ * be told apart without guessing.
+ */
+function notFoundResource(error: ApiClientError): string {
+  const details = error.details;
+  if (typeof details !== 'object' || details === null) return '';
+  const resource = (details as { resource?: unknown }).resource;
+  return typeof resource === 'string' ? resource : '';
+}
+
+/**
+ * Failure of `POST /platform/tenants/:id/checkout`.
+ *
+ * `503 BILLING_NOT_CONFIGURED` is not an outage: the API is healthy and the
+ * deployment is missing environment variables, so the message names them and
+ * a retry is not offered — the fix belongs to the operator's environment.
+ */
+export function checkoutErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 503 || error.code === 'BILLING_NOT_CONFIGURED') {
+      const missing = missingBillingVariables(error);
+      const list = missing.length > 0 ? ` Faltam: ${missing.join(', ')}.` : '';
+      return `A cobrança ainda não está configurada nesta API (HTTP 503 · BILLING_NOT_CONFIGURED).${list} Defina BILLING_CHECKOUT_URL_TEMPLATE (e BILLING_SUCCESS_URL/BILLING_CANCEL_URL) no ambiente da API para habilitar o checkout; nenhum valor foi alterado e nada foi cobrado.`;
+    }
+    if (error.status === 404) {
+      return notFoundResource(error) === 'Tenant'
+        ? 'Tenant não encontrado (HTTP 404). Feche este painel e atualize a lista de tenants.'
+        : 'O checkout por tenant não está publicado nesta API (HTTP 404).';
+    }
+    if (error.status === 409) {
+      return `${error.message} (HTTP 409). Este workspace não pode iniciar um checkout no estado atual.`;
+    }
+    if (error.status === 403) {
+      return 'Sua conta não tem permissão de platform admin para gerar o checkout deste tenant.';
+    }
+    if (error.status === 422) {
+      return `A API recusou o pedido de checkout (HTTP 422): ${error.message}`;
+    }
+    if (error.status === 405 || error.status === 501) {
+      return 'O checkout por tenant não está publicado nesta API.';
+    }
+  }
+  return platformErrorMessage(error);
+}
+
+/** Failure of `GET /platform/billing/events`. */
+export function billingEventsErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 404 || error.status === 405 || error.status === 501) {
+      return 'A auditoria de eventos de billing não está publicada nesta API.';
+    }
+    if (error.status === 422) {
+      return `A API recusou a consulta de eventos (HTTP 422): ${error.message}`;
+    }
+  }
+  return platformErrorMessage(error);
 }

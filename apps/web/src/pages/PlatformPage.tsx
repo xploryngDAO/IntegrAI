@@ -5,6 +5,7 @@ import type { Marketplace } from '@sac/shared';
 import { api } from '../lib/api';
 import type {
   PlatformAlert,
+  PlatformBillingEvent,
   PlatformBillingSummary,
   PlatformMetrics,
   PlatformTenant,
@@ -13,6 +14,7 @@ import { MARKETPLACE_LABEL, MARKETPLACE_ORDER, formatDate } from '../lib/labels'
 import {
   ENTERPRISE_UNLIMITED,
   asCount,
+  billingEventsErrorMessage,
   isForbiddenError,
   planLabel,
   platformErrorMessage,
@@ -23,6 +25,7 @@ import {
 import { Alert, Button, Card, EmptyState, Pill, SearchField, Skeleton } from '../components/ui';
 import { AlertsPanel } from '../components/platform/AlertsPanel';
 import { BillingCards } from '../components/platform/BillingCards';
+import { BillingEventsCard } from '../components/platform/BillingEventsCard';
 import { EditTenantDialog } from '../components/platform/EditTenantDialog';
 import {
   TenantDetailDialog,
@@ -33,6 +36,8 @@ const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 /** `GET /platform/tenants` caps `pageSize` at 100. */
 const SEARCH_PAGE_SIZE = 100;
+/** `GET /platform/billing/events` default and maximum is 50 per audit list. */
+const BILLING_EVENTS_LIMIT = 50;
 
 /** Accent-insensitive, case-insensitive name/slug match (client-side fallback). */
 function normalizeSearch(value: string): string {
@@ -82,6 +87,11 @@ export function PlatformPage(): JSX.Element {
   const [billing, setBilling] = useState<PlatformBillingSummary | null>(null);
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingError, setBillingError] = useState<string | null>(null);
+
+  const [billingEvents, setBillingEvents] = useState<PlatformBillingEvent[]>([]);
+  const [billingEventsLimit, setBillingEventsLimit] = useState(BILLING_EVENTS_LIMIT);
+  const [billingEventsLoading, setBillingEventsLoading] = useState(true);
+  const [billingEventsError, setBillingEventsError] = useState<string | null>(null);
 
   const [forbidden, setForbidden] = useState(false);
   const [page, setPage] = useState(1);
@@ -262,6 +272,36 @@ export function PlatformPage(): JSX.Element {
     };
   }, [reloadKey]);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadBillingEvents(): Promise<void> {
+      setBillingEventsLoading(true);
+      setBillingEventsError(null);
+      try {
+        const result = await api.platformBillingEvents(BILLING_EVENTS_LIMIT);
+        if (!active) return;
+        setBillingEvents(result.items);
+        setBillingEventsLimit(result.limit);
+      } catch (error) {
+        if (!active) return;
+        if (isForbiddenError(error)) {
+          setForbidden(true);
+          return;
+        }
+        setBillingEvents([]);
+        setBillingEventsError(billingEventsErrorMessage(error));
+      } finally {
+        if (active) setBillingEventsLoading(false);
+      }
+    }
+
+    void loadBillingEvents();
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
   const filteredTenants = useMemo(
     () => (filtering ? tenants.filter((tenant) => matchesSearch(tenant, debouncedSearch)) : tenants),
     [debouncedSearch, filtering, tenants],
@@ -355,7 +395,8 @@ export function PlatformPage(): JSX.Element {
     { key: 'actions', label: 'Ações' },
   ];
 
-  const busy = metricsLoading || tenantsLoading || alertsLoading || billingLoading;
+  const busy =
+    metricsLoading || tenantsLoading || alertsLoading || billingLoading || billingEventsLoading;
 
   if (forbidden) {
     return (
@@ -386,7 +427,7 @@ export function PlatformPage(): JSX.Element {
       <PageHeader
         eyebrow="Plataforma"
         title="Console da plataforma"
-        description="Métricas globais dos tenants, alertas operacionais, cobrança da plataforma e o plano/limites de cada workspace. Clique em um tenant para abrir as métricas e o formulário de cobrança."
+        description="Métricas globais dos tenants, alertas operacionais, cobrança da plataforma e o plano/limites de cada workspace. Clique em um tenant para abrir as métricas, gerar o checkout da assinatura e ajustar a cobrança."
         actions={
           <Button variant="secondary" icon="pulse" loading={busy} onClick={retry}>
             Atualizar
@@ -478,6 +519,14 @@ export function PlatformPage(): JSX.Element {
         summary={billing}
         loading={billingLoading}
         error={billingError}
+        onRetry={retry}
+      />
+
+      <BillingEventsCard
+        events={billingEvents}
+        limit={billingEventsLimit}
+        loading={billingEventsLoading}
+        error={billingEventsError}
         onRetry={retry}
       />
 

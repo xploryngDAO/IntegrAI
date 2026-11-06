@@ -34,7 +34,10 @@ import type {
   DeleteTenantBody,
   PlatformAlert,
   PlatformAlertsResult,
+  PlatformBillingEvent,
+  PlatformBillingEventsResult,
   PlatformBillingSummary,
+  PlatformCheckoutResult,
   PlatformMetrics,
   PlatformTenant,
   PlatformTenantBillingResult,
@@ -43,6 +46,9 @@ import type {
   PlatformTenantQuery,
   PlatformTenantUpdate,
   PolicyCheckBody,
+  RecoveryCodeCountResult,
+  RegenerateRecoveryCodesBody,
+  RegenerateRecoveryCodesResult,
   SendMessageBody,
   SignupBody,
   TenantProfile,
@@ -65,6 +71,8 @@ const API_BASE: string =
 const TOKEN_STORAGE_KEY = 'sac.auth.token';
 const REQUEST_TIMEOUT_MS = 6000;
 const PAGE_SIZE = 40;
+/** `GET /platform/billing/events` default/limit used by the console list. */
+const BILLING_EVENTS_LIMIT = 50;
 
 let authToken: string | null = (() => {
   try {
@@ -164,6 +172,18 @@ export function setAuthToken(token: string | null): void {
   } catch {
     // Storage can be unavailable (private mode) — the in-memory token still works.
   }
+}
+
+/**
+ * Whether the browser holds a session token.
+ *
+ * Public pages that skip the `/auth/me` probe (a checkout return URL opened from
+ * the payment provider) use this to offer `/platform` instead of `/login`
+ * without waiting on — or depending on — the API. It is a hint only: the server
+ * keeps enforcing every route.
+ */
+export function hasAuthToken(): boolean {
+  return authToken !== null;
 }
 
 /* ==========================================================================
@@ -335,6 +355,16 @@ export interface ApiClient {
    * Persists the JWT in the client (like `login()` does).
    */
   twoFactorChallenge(challengeToken: string, code: string): Promise<AuthResponse>;
+  /** `GET /auth/2fa/recovery-codes/count` — unused codes left for this operator. */
+  recoveryCodesCount(): Promise<RecoveryCodeCountResult>;
+  /**
+   * `POST /auth/2fa/recovery-codes/regenerate` — replaces every recovery code.
+   * Requires the account password + a valid TOTP/recovery code; the 8 new
+   * codes are returned exactly once.
+   */
+  regenerateRecoveryCodes(
+    body: RegenerateRecoveryCodesBody,
+  ): Promise<RegenerateRecoveryCodesResult>;
   listTickets(
     filters: WorkspaceFilters,
     page?: number,
@@ -400,6 +430,17 @@ export interface ApiClient {
     id: string,
     body: PlatformTenantBillingUpdate,
   ): Promise<PlatformTenantBillingResult | null>;
+  /**
+   * Hosted checkout URL of one tenant (`POST /platform/tenants/:id/checkout`).
+   * The API only renders the URL from a template: `503 BILLING_NOT_CONFIGURED`
+   * means the deployment has no `BILLING_CHECKOUT_URL_TEMPLATE`.
+   */
+  platformTenantCheckout(id: string): Promise<PlatformCheckoutResult>;
+  /**
+   * Audit trail of the billing gateway callbacks
+   * (`GET /platform/billing/events?limit=`), newest first.
+   */
+  platformBillingEvents(limit?: number): Promise<PlatformBillingEventsResult>;
   /** Revokes the current session server-side (`POST /auth/logout`). */
   logout(): Promise<void>;
   /** Live infrastructure + every connected account (ADMIN). */
@@ -497,6 +538,46 @@ export const api: ApiClient = {
     // The challenge issues a real session: persist it before boot runs.
     setAuthToken(auth.token);
     return auth;
+  },
+
+  async recoveryCodesCount() {
+    // The API serialises counters as numbers, but the console tolerates a
+    // string-serialised count so a proxy/mapper change never hides the value.
+    // No `allowEmpty`: a bodyless 2xx is a contract violation, and showing
+    // "0 codes left" from missing data would be a lie.
+    const payload = await request<unknown>('/auth/2fa/recovery-codes/count', {
+      timeoutMs: 8_000,
+    });
+    const container = (payload ?? null) as { remaining?: unknown } | null;
+    const raw =
+      container !== null && typeof container === 'object' ? container.remaining : undefined;
+    let remaining = 0;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      remaining = Math.max(0, Math.trunc(raw));
+    } else if (typeof raw === 'string' && raw.trim() !== '') {
+      const parsed = Number(raw);
+      remaining = Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+    }
+    return { remaining };
+  },
+
+  async regenerateRecoveryCodes(body) {
+    const payload = await request<RegenerateRecoveryCodesResult | null>(
+      '/auth/2fa/recovery-codes/regenerate',
+      {
+        method: 'POST',
+        body,
+        // bcrypt of the password + TOTP check run inside this request.
+        timeoutMs: 20_000,
+      },
+    );
+    const codes =
+      payload !== null && typeof payload === 'object' && Array.isArray(payload.recoveryCodes)
+        ? payload.recoveryCodes.filter(
+            (code): code is string => typeof code === 'string' && code.trim().length > 0,
+          )
+        : [];
+    return { recoveryCodes: codes };
   },
 
   /* ------------------------------------------------------------------ */
@@ -803,6 +884,47 @@ export const api: ApiClient = {
     );
   },
 
+  async platformTenantCheckout(id) {
+    const payload = await request<PlatformCheckoutResult | null>(
+      `/platform/tenants/${encodeURIComponent(id)}/checkout`,
+      {
+        method: 'POST',
+        // The API only renders the URL from a template (no gateway call), so a
+        // normal timeout is enough; the caller validates the URL before leaving.
+        timeoutMs: 15_000,
+      },
+    );
+    const checkoutUrl =
+      payload !== null && typeof payload === 'object' && typeof payload.checkoutUrl === 'string'
+        ? payload.checkoutUrl
+        : '';
+    return { checkoutUrl };
+  },
+
+  async platformBillingEvents(limit = BILLING_EVENTS_LIMIT) {
+    const payload = await request<PlatformBillingEventsResult | null>(
+      `/platform/billing/events${encodeQuery({ limit })}`,
+      { timeoutMs: 12_000 },
+    );
+    if (payload === null || typeof payload !== 'object') {
+      return { items: [], limit };
+    }
+    // A server deployed ahead of this UI may omit `limit`: the effective value
+    // is only a hint for the subtitle, never a reason to hide real rows.
+    const effectiveLimit =
+      typeof payload.limit === 'number' && Number.isFinite(payload.limit) && payload.limit > 0
+        ? payload.limit
+        : limit;
+    return {
+      items: Array.isArray(payload.items)
+        ? payload.items.filter(
+            (item): item is PlatformBillingEvent => typeof item === 'object' && item !== null,
+          )
+        : [],
+      limit: effectiveLimit,
+    };
+  },
+
   async logout() {
     // No refresh token body: the API revokes every session of this operator.
     await request<unknown>('/auth/logout', {
@@ -841,7 +963,10 @@ export type {
   IAgentSummary,
   PlatformAlert,
   PlatformAlertsResult,
+  PlatformBillingEvent,
+  PlatformBillingEventsResult,
   PlatformBillingSummary,
+  PlatformCheckoutResult,
   PlatformMetrics,
   PlatformTenant,
   PlatformTenantBillingResult,
@@ -852,6 +977,9 @@ export type {
   PolicyCheckBody,
   PolicyEvaluation,
   QueueSnapshot,
+  RecoveryCodeCountResult,
+  RegenerateRecoveryCodesBody,
+  RegenerateRecoveryCodesResult,
   RouteDecision,
   SendMessageBody,
   SystemDiagnosis,

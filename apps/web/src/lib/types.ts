@@ -407,6 +407,60 @@ export interface PlatformTenantBillingResult {
   updatedAt?: string;
 }
 
+/**
+ * Response of `POST /platform/tenants/:id/checkout`.
+ *
+ * The URL is built server-side from `BILLING_CHECKOUT_URL_TEMPLATE`; the API
+ * answers `503 BILLING_NOT_CONFIGURED` while the deployment has no template.
+ */
+export interface PlatformCheckoutResult {
+  /** Absolute http(s) URL of the provider hosted checkout. */
+  checkoutUrl: string;
+}
+
+/** One audit row of `GET /platform/billing/events`. */
+export interface PlatformBillingEvent {
+  id: string;
+  /** Normalised gateway event (`subscription.activated`, `payment.failed`, …). */
+  type: string;
+  tenantId: string;
+  tenantSlug: string;
+  /** `webhook_events.status`: RECEIVED | PROCESSED | FAILED. */
+  status: string;
+  /** ISO instant of the callback. */
+  receivedAt: string;
+}
+
+/** Response of `GET /platform/billing/events?limit=`. */
+export interface PlatformBillingEventsResult {
+  items: PlatformBillingEvent[];
+  /** Effective limit applied by the API (1..100, default 50). */
+  limit: number;
+}
+
+/**
+ * `GET /auth/2fa/recovery-codes/count` — how many unused recovery codes the
+ * operator still has (the count never exposes the codes themselves).
+ */
+export interface RecoveryCodeCountResult {
+  remaining: number;
+}
+
+/** Body of `POST /auth/2fa/recovery-codes/regenerate`. */
+export interface RegenerateRecoveryCodesBody {
+  password: string;
+  /** TOTP (6 digits) or one-time recovery code. */
+  code: string;
+}
+
+/**
+ * Response of `POST /auth/2fa/recovery-codes/regenerate` — the 8 new codes are
+ * returned exactly once; every previously issued code stops working.
+ */
+export interface RegenerateRecoveryCodesResult {
+  recoveryCodes: string[];
+}
+
 /** Body of `PATCH /platform/tenants/:id`. */
 export interface PlatformTenantUpdate {
   plan?: TenantPlan;

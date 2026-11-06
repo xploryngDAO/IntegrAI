@@ -42,6 +42,91 @@ export function recoveryCodesToClipboardText(codes: readonly string[]): string {
   return codes.join('\n');
 }
 
+/* ==========================================================================
+ * Recovery codes (list how many are left / regenerate the whole set)
+ *
+ *   GET  /auth/2fa/recovery-codes/count      -> { remaining }
+ *   POST /auth/2fa/recovery-codes/regenerate -> { recoveryCodes } (8, once)
+ * ========================================================================== */
+
+/** Codes issued per generation (server contract). */
+export const RECOVERY_CODE_COUNT = 8;
+
+/** Only changes how a shared failure is explained. */
+export type RecoveryCodesOperation = 'count' | 'regenerate';
+
+/** `details.retryAfterMs` of a `429 RATE_LIMITED`, when the API sends it. */
+function retryAfterHint(error: ApiClientError): string {
+  const details = error.details;
+  if (typeof details !== 'object' || details === null) return '';
+  const raw = (details as { retryAfterMs?: unknown }).retryAfterMs;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return '';
+  const seconds = Math.max(1, Math.ceil(raw / 1_000));
+  return ` Tente novamente em ~${seconds}s.`;
+}
+
+/**
+ * Operator-facing message for a real failure of the recovery-code endpoints.
+ *
+ * Failures are never swallowed: a 409/400/401/429 keeps the server text and
+ * adds what the operator can do. `404/405/501` means the API predates these
+ * routes, which is reported as "não publicado" instead of "erro interno".
+ */
+export function recoveryCodesErrorMessage(
+  error: unknown,
+  operation: RecoveryCodesOperation,
+): string {
+  if (!(error instanceof ApiClientError)) {
+    return error instanceof Error && error.message
+      ? error.message
+      : 'Não foi possível falar com a API. Verifique a conexão e tente novamente.';
+  }
+
+  switch (error.code) {
+    case 'INVALID_PASSWORD':
+      return 'Senha incorreta. Confira a senha da sua conta e tente novamente.';
+    case 'INVALID_TOTP':
+      return 'Código do app autenticador inválido ou expirado. Gere um novo código e tente novamente.';
+    case 'INVALID_RECOVERY_CODE':
+      return 'Código de recuperação inválido ou já utilizado. Cada código vale uma única vez.';
+    case 'TWO_FACTOR_NOT_ENABLED':
+      return 'A verificação em duas etapas não está ativada nesta conta. Ative o 2FA antes de gerar códigos de recuperação.';
+    case 'TWO_FACTOR_SECRET_UNREADABLE':
+      return 'O secret do 2FA não pôde ser lido pela API. Desative e ative a verificação em duas etapas novamente.';
+    case 'RATE_LIMITED':
+      return `Muitas tentativas em pouco tempo para gerar códigos de recuperação (HTTP 429).${retryAfterHint(error)}`;
+    default:
+      break;
+  }
+
+  if (error.status === 404 || error.status === 405 || error.status === 501) {
+    return operation === 'count'
+      ? 'A contagem de códigos de recuperação não está publicada nesta API.'
+      : 'A geração de novos códigos de recuperação não está publicada nesta API.';
+  }
+  if (error.status === 400) {
+    return `A API recusou o pedido (HTTP 400): ${error.message}`;
+  }
+  if (error.status === 422) {
+    return `A API recusou o pedido (HTTP 422): ${error.message}`;
+  }
+  if (error.status === 401) {
+    return 'Sessão expirada ou credenciais inválidas. Entre novamente e repita a operação.';
+  }
+  if (error.status === 403) {
+    return 'Sua conta não tem permissão para gerenciar os códigos de recuperação.';
+  }
+  if (error.status === 409) {
+    return `${error.message} (HTTP 409). O estado da verificação mudou em outra sessão; feche este painel, atualize a página e tente novamente.`;
+  }
+  if (error.status === 429) {
+    return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+  }
+  if (error.status === 0) return error.message;
+
+  return `${error.message} (HTTP ${error.status})`;
+}
+
 /**
  * Operator-facing message for a real API failure. The server text is preserved
  * when no specific guidance exists (never a generic "algo deu errado").
