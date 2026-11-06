@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from './lib/store';
 import { ApiClientError, hasAuthToken } from './lib/api';
 import { onSessionEnded, probeSession } from './lib/session';
@@ -12,6 +12,7 @@ import {
 } from './lib/onboarding';
 import { isPlatformAdmin } from './lib/platform';
 import { AppShell } from './components/layout/AppShell';
+import { RouteFallback } from './components/layout/RouteFallback';
 import { ToastViewport } from './components/layout/ToastViewport';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
@@ -19,18 +20,8 @@ import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { InvitePage } from './pages/InvitePage';
-import { SsoCallbackPage } from './pages/SsoCallbackPage';
 import { StatusPage } from './pages/StatusPage';
 import { LandingPage } from './pages/LandingPage';
-import { WorkspacePage } from './pages/WorkspacePage';
-import { AccountsPage } from './pages/AccountsPage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { IntegrationSetupPage } from './pages/IntegrationSetupPage';
-import { PlatformPage } from './pages/PlatformPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { AdminPage } from './pages/AdminPage';
-import { BillingSuccessPage, BillingCancelPage } from './pages/BillingReturnPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
@@ -81,6 +72,72 @@ const NO_PROBE_PATHS = new Set([
 function normalizePath(pathname: string): string {
   const lower = pathname.toLowerCase();
   return lower.length > 1 && lower.endsWith('/') ? lower.replace(/\/+$/, '') : lower;
+}
+
+/**
+ * Route-level code splitting.
+ *
+ * The public entry (landing + credential gate) is what an anonymous visitor
+ * downloads first, so it stays eager: `LandingPage`, the credential screens and
+ * `AuthLayout` ship in the entry chunk. Everything an authenticated operator
+ * reaches later — the workspace/tickets/cockpit, admin, profile, settings,
+ * accounts, platform, onboarding, setup, SSO return and checkout return — is a
+ * dynamic import, so Rollup emits one chunk per page instead of folding the
+ * whole app into `index-*.js`.
+ *
+ * The pages use named exports, hence the `.then` mapping. `BillingReturnPage`
+ * exports two pages and is imported twice: Rollup resolves both imports to the
+ * same chunk, so the module is still downloaded once.
+ */
+const WorkspacePage = lazy(() =>
+  import('./pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
+);
+const AccountsPage = lazy(() =>
+  import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })),
+);
+const OnboardingPage = lazy(() =>
+  import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })),
+);
+const IntegrationSetupPage = lazy(() =>
+  import('./pages/IntegrationSetupPage').then((module) => ({ default: module.IntegrationSetupPage })),
+);
+const PlatformPage = lazy(() =>
+  import('./pages/PlatformPage').then((module) => ({ default: module.PlatformPage })),
+);
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })),
+);
+const ProfilePage = lazy(() =>
+  import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })),
+);
+const AdminPage = lazy(() =>
+  import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })),
+);
+const SsoCallbackPage = lazy(() =>
+  import('./pages/SsoCallbackPage').then((module) => ({ default: module.SsoCallbackPage })),
+);
+const BillingSuccessPage = lazy(() =>
+  import('./pages/BillingReturnPage').then((module) => ({ default: module.BillingSuccessPage })),
+);
+const BillingCancelPage = lazy(() =>
+  import('./pages/BillingReturnPage').then((module) => ({ default: module.BillingCancelPage })),
+);
+
+/**
+ * Single Suspense boundary for the routed content.
+ *
+ * It sits *inside* the router tree (under `AppShell` for the workspace, under
+ * the root for the public screens), so only the page area is replaced while a
+ * chunk loads: the shell and the toast viewport stay mounted. There is no cycle
+ * back into the session gate — the lazy module resolves once and React caches
+ * it for every later navigation.
+ */
+function SuspenseOutlet(): JSX.Element {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Outlet />
+    </Suspense>
+  );
 }
 
 /**
@@ -215,28 +272,32 @@ export default function App(): JSX.Element {
     return (
       <>
         <Routes>
-          <Route
-            path="/login"
-            element={
-              <LoginPage onAuthenticated={handleAuthenticated} initialError={sessionError ?? undefined} />
-            }
-          />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
-          {/* Corporate login return URL: public, no probe (see NO_PROBE_PATHS). */}
-          <Route
-            path="/auth/sso/callback"
-            element={<SsoCallbackPage onAuthenticated={handleAuthenticated} />}
-          />
-          {/* Public availability page: no session, no probe (see NO_PROBE_PATHS). */}
-          <Route path="/status" element={<StatusPage />} />
-          {/* Hosted checkout return URLs: public, no probe. */}
-          <Route path="/billing/success" element={<BillingSuccessPage />} />
-          <Route path="/billing/cancel" element={<BillingCancelPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          {/* Suspense lives inside the route tree so the toast surface above
+              keeps rendering while an on-demand page chunk loads. */}
+          <Route element={<SuspenseOutlet />}>
+            <Route
+              path="/login"
+              element={
+                <LoginPage onAuthenticated={handleAuthenticated} initialError={sessionError ?? undefined} />
+              }
+            />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
+            {/* Corporate login return URL: public, no probe (see NO_PROBE_PATHS). */}
+            <Route
+              path="/auth/sso/callback"
+              element={<SsoCallbackPage onAuthenticated={handleAuthenticated} />}
+            />
+            {/* Public availability page: no session, no probe (see NO_PROBE_PATHS). */}
+            <Route path="/status" element={<StatusPage />} />
+            {/* Hosted checkout return URLs: public, no probe. */}
+            <Route path="/billing/success" element={<BillingSuccessPage />} />
+            <Route path="/billing/cancel" element={<BillingCancelPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Route>
         </Routes>
 
         <ToastViewport />
@@ -284,18 +345,22 @@ export default function App(): JSX.Element {
     <>
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/" element={<WorkspacePage />} />
-          <Route path="/accounts" element={<AccountsPage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          {/* Fase 3: app setup screen (platform admin; the API answers 403). */}
-          <Route path="/setup" element={<IntegrationSetupPage />} />
-          {/* Fase 4: both screens are guarded again by the API (403). */}
-          <Route path="/platform" element={<PlatformPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          {/* Conta do operador + administração do workspace (ADMIN; 403 → restrito). */}
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Inside the shell: the rail/topbar stay painted while the page
+              chunk downloads, so only the content column shows the fallback. */}
+          <Route element={<SuspenseOutlet />}>
+            <Route path="/" element={<WorkspacePage />} />
+            <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/onboarding" element={<OnboardingPage />} />
+            {/* Fase 3: app setup screen (platform admin; the API answers 403). */}
+            <Route path="/setup" element={<IntegrationSetupPage />} />
+            {/* Fase 4: both screens are guarded again by the API (403). */}
+            <Route path="/platform" element={<PlatformPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            {/* Conta do operador + administração do workspace (ADMIN; 403 → restrito). */}
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
         </Route>
       </Routes>
 
