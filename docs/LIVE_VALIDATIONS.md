@@ -414,3 +414,12 @@ aceite pela pagina -> sessao criada -> /auth/me role=AGENT
 soft delete (202) + purge (200); 0 residuos; sem erros de runtime
 11/11 (npm run test:live-invite-ui)
 ```
+
+### 39. Exportacao LGPD do workspace (sem credenciais)
+```
+GET /tenants/me/export (ADMIN) -> 200 {meta, tenant, agents, accounts, tickets, messages, events}
+agents[].fields = id,email,name,role,presence,isActive,isPlatformAdmin,emailVerifiedAt,
+                  twoFactorEnabled,lastSeenAt,createdAt  (sem password hash / tokens / 2FA secret)
+meta.notes declara explicitamente que password_hash, *_token_enc e recovery codes ficam fora
+tenant fields sem segredos; 2 agentes exportados no workspace de teste
+```
