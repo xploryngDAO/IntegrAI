@@ -1,5 +1,11 @@
 import type { FastifyError, FastifyInstance, FastifyReply } from 'fastify';
-import { isAppError, type ApiErrorBody, type ILogger } from '@sac/shared';
+import {
+  isAppError,
+  MAINTENANCE_ERROR_CODE,
+  MAINTENANCE_RETRY_AFTER_SECONDS,
+  type ApiErrorBody,
+  type ILogger,
+} from '@sac/shared';
 import { ZodError } from 'zod';
 import { describeZodIssues } from '../schemas/common';
 import { isRecord } from '../utils/guards';
@@ -46,6 +52,15 @@ function readRetryAfterMs(details: unknown): number | null {
   if (!isRecord(details)) return null;
   const value = details['retryAfterMs'];
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Reads `details.retryAfterSeconds` from a `MaintenanceError` payload, if present. */
+function readRetryAfterSeconds(details: unknown): number | null {
+  if (!isRecord(details)) return null;
+  const value = details['retryAfterSeconds'];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.ceil(value)
+    : null;
 }
 
 function describeClientError(error: unknown, statusCode: number): string {
@@ -116,7 +131,11 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
       agentId: request.agent?.id ?? null,
     };
 
-    if (failure.statusCode >= 500) {
+    // A maintenance window is an intentional operational state, not an
+    // incident: answer a rejection line (warn) instead of `http.error` with a
+    // misleading stack trace on every blocked request.
+    const maintenance = failure.code === MAINTENANCE_ERROR_CODE;
+    if (failure.statusCode >= 500 && !maintenance) {
       (request.logContext ?? options.logger).error('http.error', {
         ...meta,
         error: error instanceof Error ? error.message : String(thrown),
@@ -134,6 +153,16 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
       if (retryAfterMs !== null) {
         reply.header('retry-after', String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
       }
+    }
+
+    // Controlled maintenance window: same back-off contract for the 503 (the
+    // value comes from `MaintenanceError.details`, so the HTTP layer stays
+    // policy-free).
+    if (failure.code === MAINTENANCE_ERROR_CODE) {
+      reply.header(
+        'retry-after',
+        String(readRetryAfterSeconds(failure.details) ?? MAINTENANCE_RETRY_AFTER_SECONDS),
+      );
     }
 
     const body: ApiErrorBody = {

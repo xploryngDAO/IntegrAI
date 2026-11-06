@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_MAINTENANCE_MESSAGE } from '@sac/shared';
 
 /**
  * Environment contract for the SAC Hub server.
@@ -131,6 +132,20 @@ function masterKeyFromEnv(fallback: string): z.ZodType<string> {
         });
       }
     });
+}
+
+/**
+ * `MAINTENANCE_MESSAGE`: operator-facing text of the maintenance 503.
+ *
+ * Unset, empty or whitespace-only falls back to the shared default, so the
+ * SPA/support runbook always receives an actionable message.
+ */
+function maintenanceMessageFromEnv(): z.ZodType<string> {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null) return DEFAULT_MAINTENANCE_MESSAGE;
+    const text = String(value).trim();
+    return text.length > 0 ? text : DEFAULT_MAINTENANCE_MESSAGE;
+  }, z.string().min(1));
 }
 
 export const envSchema = z.object({
@@ -272,6 +287,24 @@ export const envSchema = z.object({
   /** Return URLs substituted into the checkout template (optional). */
   BILLING_SUCCESS_URL: optionalString(),
   BILLING_CANCEL_URL: optionalString(),
+
+  /* --------------------- operational maintenance window ------------------- */
+  /**
+   * Controlled maintenance window. While true:
+   *
+   * - every `/api/v1` route answers `503 MAINTENANCE` except the probes
+   *   (`/health`, `/health/ready`), `/status` and the Prometheus scrape
+   *   (`/api/v1/metrics`);
+   * - new Socket.IO handshakes are refused (HTTP 503) instead of polling an API
+   *   that would answer every request with 503;
+   * - marketplace webhooks (`/webhooks/*`, outside `/api/v1`) keep working so
+   *   no push event is lost while the operators are locked out.
+   *
+   * Default `false`; flips are deliberately deploy-time only (env contract).
+   */
+  MAINTENANCE_MODE: boolFromEnv(false),
+  /** Operator-facing 503 text (default: `DEFAULT_MAINTENANCE_MESSAGE`). */
+  MAINTENANCE_MESSAGE: maintenanceMessageFromEnv(),
 
   /* --------------------------- feature flags ------------------------------ */
 });

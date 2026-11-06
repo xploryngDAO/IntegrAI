@@ -48,6 +48,10 @@ async function bootstrap(): Promise<void> {
       jwtSecret: config.jwtSecret,
       webOrigin: config.webOrigin,
       cache: infra.cache,
+      maintenance: {
+        enabled: config.maintenanceMode,
+        message: config.maintenanceMessage,
+      },
     });
 
     services = createContainer({ config, infra, realtime: hub.publisher });
@@ -59,6 +63,8 @@ async function bootstrap(): Promise<void> {
       logger: infra.logger,
       trustProxy: config.trustProxy,
       metricsToken: config.metricsToken,
+      maintenanceMode: config.maintenanceMode,
+      maintenanceMessage: config.maintenanceMessage,
     });
 
     hub.attach(app.server);
@@ -219,6 +225,9 @@ async function logStartupBanner(
   logger.info(
     `  trust proxy: ${Array.isArray(config.trustProxy) ? config.trustProxy.join(', ') : String(config.trustProxy)}`,
   );
+  if (config.maintenanceMode) {
+    logger.warn(`  manutencao : ON — ${config.maintenanceMessage}`);
+  }
   logger.info(`  queues     : 10 (inbound x3, enrichment, outbound, sla, pii, token, lost-push, dlq)`);
   logger.info('  canais     :');
   for (const line of readiness) logger.info(`    - ${line}`);

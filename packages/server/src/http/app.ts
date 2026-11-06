@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
-import { AppError, type IAppServices } from '@sac/shared';
+import { AppError, resolveMaintenanceState, type IAppServices } from '@sac/shared';
 import {
   API_PREFIX,
   DEFAULT_BODY_LIMIT_BYTES,
@@ -18,6 +18,7 @@ import { AuthRateLimiter } from '../application/auth/rate-limit';
 import { registerContentTypeGuard } from './middleware/content-type-guard';
 import { registerErrorHandler } from './middleware/error-handler';
 import { registerRequestContext } from './middleware/request-context';
+import { registerMaintenanceGuard } from './middleware/maintenance';
 import { REQUEST_ID_HEADER, registerRequestId, resolveRequestId } from './middleware/request-id';
 import { MetricsRegistry, registerHttpMetrics } from './metrics/registry';
 import { registerApiRoutes, registerRootRoutes } from './routes';
@@ -280,6 +281,18 @@ export async function buildHttpApp(
   app.addHook('onRequest', async (_request, reply) => {
     reply.header('permissions-policy', PERMISSIONS_POLICY);
   });
+
+  // Controlled maintenance window (`MAINTENANCE_MODE`): every `/api/v1` route
+  // except the probes, `/status` and the Prometheus scrape answers
+  // `503 MAINTENANCE` before the body is parsed, the rate limiter is charged or
+  // auth runs. Registered after CORS/helmet so the rejection still carries the
+  // CORS + security headers, and before the content-type guard/rate limiter so
+  // a blocked request costs nothing. See `middleware/maintenance.ts`.
+  const maintenance = resolveMaintenanceState({
+    enabled: options.maintenanceMode,
+    message: options.maintenanceMessage,
+  });
+  registerMaintenanceGuard(app, { state: maintenance, logger: options.logger });
 
   await app.register(multipart, {
     limits: {

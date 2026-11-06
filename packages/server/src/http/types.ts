@@ -65,6 +65,21 @@ export interface HttpServerOptions {
    * that only sets the environment variable works without extra wiring.
    */
   metricsToken?: string;
+  /**
+   * Controlled maintenance window (`MAINTENANCE_MODE`).
+   *
+   * While true, `buildHttpApp` answers `503 MAINTENANCE` for every `/api/v1`
+   * route except the probes (`/health`, `/health/ready`), `/status` and the
+   * Prometheus scrape (`/api/v1/metrics`). The marketplace webhooks
+   * (`/webhooks/*`, outside the prefix) are never blocked so push events are
+   * not lost. Missing/false keeps normal operation.
+   */
+  maintenanceMode?: boolean;
+  /**
+   * Operator-facing text of the maintenance 503 (`MAINTENANCE_MESSAGE`).
+   * Missing/empty falls back to `DEFAULT_MAINTENANCE_MESSAGE`.
+   */
+  maintenanceMessage?: string;
 }
 
 /** Everything a route module needs; also the Fastify plugin options contract. */

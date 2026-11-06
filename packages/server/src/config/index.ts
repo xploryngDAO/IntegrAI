@@ -31,6 +31,15 @@ export interface AppConfig extends ChannelRuntimeConfig {
    * answers 404; when set, the route requires the bearer/`x-metrics-token`.
    */
   metricsToken?: string;
+  /**
+   * Controlled maintenance window (`MAINTENANCE_MODE` / `MAINTENANCE_MESSAGE`).
+   *
+   * When enabled, every `/api/v1` route except the probes/`/status`/metrics and
+   * every new Socket.IO handshake answer `503 MAINTENANCE`; marketplace webhooks
+   * stay open. See `http/middleware/maintenance.ts`.
+   */
+  maintenanceMode: boolean;
+  maintenanceMessage: string;
   /** base64, 32 bytes */
   encryptionMasterKey: string;
   encryptionKeyId: string;
@@ -175,6 +184,8 @@ function buildConfig(env: Env): AppConfig {
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     trustProxy: env.TRUST_PROXY,
     metricsToken: env.METRICS_TOKEN,
+    maintenanceMode: env.MAINTENANCE_MODE,
+    maintenanceMessage: env.MAINTENANCE_MESSAGE,
     encryptionMasterKey: env.ENCRYPTION_MASTER_KEY,
     encryptionKeyId: env.ENCRYPTION_KEY_ID,
     agentPresenceTtlSeconds: env.AGENT_PRESENCE_TTL,

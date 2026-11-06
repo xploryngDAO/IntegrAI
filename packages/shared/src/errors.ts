@@ -4,6 +4,11 @@
  */
 
 import type { TenantPlan } from './plans';
+import {
+  DEFAULT_MAINTENANCE_MESSAGE,
+  MAINTENANCE_ERROR_CODE,
+  MAINTENANCE_RETRY_AFTER_SECONDS,
+} from './maintenance';
 
 export type AppErrorDetails = Record<string, unknown> | undefined;
 
@@ -135,6 +140,24 @@ export class BillingNotConfiguredError extends AppError {
       503,
       { provider: 'BILLING', missing, remediation },
     );
+  }
+}
+
+/**
+ * Controlled maintenance window (`MAINTENANCE_MODE`) is open.
+ *
+ * `503` because the API is healthy but deliberately refusing operator traffic;
+ * `details.retryAfterSeconds` feeds the `Retry-After` response header in the
+ * global error handler, and `retryable` tells a client that the same request
+ * will succeed once the window closes. The marketplace webhooks are never
+ * rejected with this error (they live outside `/api/v1`).
+ */
+export class MaintenanceError extends AppError {
+  constructor(
+    message = DEFAULT_MAINTENANCE_MESSAGE,
+    retryAfterSeconds = MAINTENANCE_RETRY_AFTER_SECONDS,
+  ) {
+    super(MAINTENANCE_ERROR_CODE, message, 503, { retryAfterSeconds }, true);
   }
 }
 

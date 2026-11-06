@@ -1,4 +1,4 @@
-import type { Server as HttpServer } from 'node:http';
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
 import { Server as SocketServer } from 'socket.io';
 import type { Socket } from 'socket.io';
 import { verify as verifyJwt } from 'jsonwebtoken';
@@ -6,7 +6,12 @@ import {
   isAccessTokenDenied,
   isUserTokenRevoked,
 } from '../application/auth/access-token-revocation';
-import { MARKETPLACES, type ICache } from '@sac/shared';
+import {
+  MAINTENANCE_ERROR_CODE,
+  MAINTENANCE_RETRY_AFTER_SECONDS,
+  MARKETPLACES,
+  type ICache,
+} from '@sac/shared';
 import type {
   AgentPresenceEvent,
   AgentPresenceStatus,
@@ -14,6 +19,7 @@ import type {
   IClock,
   ILogger,
   IRealtimePublisher,
+  MaintenanceState,
   MessageRealtimeEvent,
   TicketRealtimeEvent,
 } from '@sac/shared';
@@ -33,6 +39,14 @@ export interface RealtimeHubOptions {
   clock: IClock;
   jwtSecret: string;
   webOrigin: string;
+  /**
+   * Controlled maintenance window (`MAINTENANCE_MODE`).
+   *
+   * While enabled the Engine.IO handshake is refused with HTTP 503
+   * (`MAINTENANCE` + `Retry-After`), before any token verification, so clients
+   * fail fast instead of polling an API that answers every request with 503.
+   */
+  maintenance?: MaintenanceState;
 }
 
 /* ----------------------------- Socket.IO typing ---------------------------- */
@@ -106,6 +120,13 @@ function isMarketplaceValue(value: unknown): value is string {
  * Events published before `attach()` are intentionally dropped (debug log): the
  * HTTP app is built before the server listens, and buffering stale state would
  * replay obsolete snapshots to the first client.
+ *
+ * Maintenance window (`options.maintenance.enabled`): new handshakes are refused
+ * at the Engine.IO layer with HTTP 503 `MAINTENANCE` + `Retry-After` BEFORE the
+ * token check. Decision: blocking the handshake is safer than accepting a socket
+ * the API would never serve a request for - it stops the polling loop and gives
+ * the SPA an explicit error to render. Sockets already connected when the window
+ * opens are not force-disconnected (the process restarts with the new env).
  */
 export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
   const log = options.logger.child({ component: 'realtime-hub' });
@@ -268,6 +289,32 @@ export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
       pingTimeout: 20_000,
       maxHttpBufferSize: 1_000_000,
     });
+
+    // Controlled maintenance window: refuse the Engine.IO handshake at the HTTP
+    // layer, before any Socket.IO namespace/token work. A client therefore gets
+    // an immediate 503 with the same MAINTENANCE contract as the REST surface
+    // (and a Retry-After hint) instead of holding a polling transport open
+    // against an API that would answer every request with 503.
+    const maintenance = options.maintenance;
+    if (maintenance?.enabled === true) {
+      io.engine.use((_request: IncomingMessage, response: ServerResponse) => {
+        response.writeHead(503, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'retry-after': String(MAINTENANCE_RETRY_AFTER_SECONDS),
+        });
+        response.end(
+          JSON.stringify({
+            error: {
+              code: MAINTENANCE_ERROR_CODE,
+              message: maintenance.message,
+              details: { retryAfterSeconds: MAINTENANCE_RETRY_AFTER_SECONDS },
+            },
+          }),
+        );
+      });
+      log.warn('realtime.maintenance_enabled', { message: maintenance.message });
+    }
 
     io.use(async (socket, next) => {
       const token = extractHandshakeToken(socket);

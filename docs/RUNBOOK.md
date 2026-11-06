@@ -78,6 +78,10 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
   avaliar down migration manual se houver mudança destrutiva).
 - Janela recomendada: baixo tráfego; monitore `health/ready` e erros pós-deploy.
 
+## 6.1 Janela de manutencao
+
+Defina MAINTENANCE_MODE=true no ambiente da API e reinicie: todas as rotas /api/v1 respondem **503 MAINTENANCE** com Retry-After: 60 e equestId; health/ready/status/metrics permanecem disponiveis, webhooks de marketplace continuam processando e o handshake do Socket.IO e recusado. MAINTENANCE_MESSAGE customiza o texto. Desligue (alse) e reinicie para voltar.
+
 ## 7. Incidentes (LGPD + segurança)
 
 1. Contenha: revogar sessões/2FA dos afetados (`/admin/users/:id/revoke-sessions`, reset-2FA),
