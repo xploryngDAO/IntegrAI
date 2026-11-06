@@ -3,6 +3,8 @@
 [![Demo](https://img.shields.io/badge/demo-integrai--dev.vercel.app-6367c9)](https://integrai-dev.vercel.app)
 [![Repo](https://img.shields.io/badge/github-xploryngDAO%2FIntegrAI-181717?logo=github)](https://github.com/xploryngDAO/IntegrAI)
 [![Design System](https://img.shields.io/badge/UI-Convergência-6367c9)](docs/CONVERGENCIA_ADOPTION.md)
+[![CI](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml)
+[![Security](https://github.com/xploryngDAO/IntegrAI/actions/workflows/security.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/security.yml)
 
 > **Status:** integrações 100% reais — **sem modo demonstração e sem dados
 > simulados**. O sistema opera apenas com credenciais reais dos marketplaces.
