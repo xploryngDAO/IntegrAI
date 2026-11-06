@@ -1,4 +1,6 @@
 import type {
+  AdminSessionListFilter,
+  AdminSessionRecord,
   AdminUserListFilter,
   AdminUserRecord,
   AgentRecord,
@@ -13,6 +15,7 @@ import type {
   IAuditEventRepository,
   IAuditService,
   IClock,
+  SessionRecord,
   UserSessionView,
 } from '@sac/shared';
 
@@ -145,18 +148,47 @@ export class RecordingAuditService implements IAuditService {
 
 export class InMemoryAdminUserRepository implements IAdminUserRepository {
   readonly rows: AgentRecord[] = [];
+  /** Session rows addressed by the admin `/admin/sessions` methods. */
+  readonly sessions: SessionRecord[] = [];
+  private sessionSequence = 0;
   /** userId -> live session counter (test-controlled). */
   readonly sessionsCount = new Map<string, number>();
   /** userId -> last session instant (test-controlled). */
   readonly lastLoginAt = new Map<string, Date>();
   /** Last filter received by `listFiltered` (lets tests assert pagination). */
   lastFilter: AdminUserListFilter | null = null;
+  /** Last filter received by `listAtivasByTenant` (pagination assertions). */
+  lastSessionFilter: AdminSessionListFilter | null = null;
 
   constructor(private readonly clock: IClock) {}
 
   seed(overrides: Partial<AgentRecord> = {}): AgentRecord {
     const row = makeAgent(overrides);
     this.rows.push(row);
+    return row;
+  }
+
+  /**
+   * Seeds one session belonging to a previously seeded agent. Mirrors the
+   * production repository: the agent tenant is the source of truth.
+   */
+  seedSession(agentId: string, overrides: Partial<SessionRecord> = {}): SessionRecord {
+    const agent = this.rows.find((row) => row.id === agentId);
+    if (agent === undefined) throw new Error(`Agent not found: ${agentId}`);
+    const row: SessionRecord = {
+      id: overrides.id ?? `session-${(this.sessionSequence += 1)}`,
+      userId: agentId,
+      tenantId: overrides.tenantId ?? agent.tenantId ?? 'tenant-1',
+      refreshTokenHash:
+        overrides.refreshTokenHash ?? `hash-${this.sessionSequence}-${this.sessions.length}`,
+      userAgent: overrides.userAgent ?? null,
+      ip: overrides.ip ?? null,
+      expiresAt: overrides.expiresAt ?? new Date(this.clock.now().getTime() + 86_400_000),
+      revokedAt: overrides.revokedAt ?? null,
+      lastUsedAt: overrides.lastUsedAt ?? null,
+      createdAt: overrides.createdAt ?? this.clock.now(),
+    };
+    this.sessions.push(row);
     return row;
   }
 
@@ -223,6 +255,61 @@ export class InMemoryAdminUserRepository implements IAdminUserRepository {
     ).length;
   }
 
+  async listAtivasByTenant(
+    filter: AdminSessionListFilter,
+    at: Date,
+  ): Promise<{ items: AdminSessionRecord[]; total: number }> {
+    this.lastSessionFilter = filter;
+    const agentsById = new Map(
+      this.rows
+        .filter((row) => row.tenantId === filter.tenantId)
+        .map((row) => [row.id, row] as const),
+    );
+
+    const matched = this.sessions
+      .filter(
+        (row) =>
+          row.tenantId === filter.tenantId &&
+          agentsById.has(row.userId) &&
+          row.revokedAt === null &&
+          row.expiresAt.getTime() > at.getTime(),
+      )
+      .sort(
+        (a, b) =>
+          lastUsedTime(b) - lastUsedTime(a) ||
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          b.id.localeCompare(a.id),
+      );
+
+    return {
+      items: matched
+        .slice(filter.offset, filter.offset + filter.limit)
+        .map((session) => ({ session, agent: agentsById.get(session.userId) as AgentRecord })),
+      total: matched.length,
+    };
+  }
+
+  async revokeById(
+    tenantId: string,
+    id: string,
+    at: Date,
+  ): Promise<AdminSessionRecord | null> {
+    const session = this.sessions.find(
+      (row) =>
+        row.id === id &&
+        row.tenantId === tenantId &&
+        row.revokedAt === null &&
+        row.expiresAt.getTime() > at.getTime(),
+    );
+    if (session === undefined) return null;
+
+    const agent = this.rows.find((row) => row.id === session.userId && row.tenantId === tenantId);
+    if (agent === undefined) return null;
+
+    session.revokedAt = at;
+    return { session: { ...session }, agent };
+  }
+
   private toRecord(agent: AgentRecord): AdminUserRecord {
     return {
       agent,
@@ -240,6 +327,11 @@ function sortByCreatedAt(rows: AgentRecord[]): AgentRecord[] {
       (a, b) =>
         a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
     );
+}
+
+/** `ORDER BY last_used_at DESC NULLS LAST`: never-used rows sort last. */
+function lastUsedTime(row: SessionRecord): number {
+  return row.lastUsedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
 }
 
 /** Minimal session view helper for controller tests (not a repository). */

@@ -7,11 +7,12 @@ import { roleLabel } from '../lib/admin';
 import { Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { AdminInvitationsTab } from '../components/admin/AdminInvitationsTab';
 import { AdminLogsTab } from '../components/admin/AdminLogsTab';
+import { AdminSessionsTab } from '../components/admin/AdminSessionsTab';
 import { AdminUsersTab } from '../components/admin/AdminUsersTab';
 
-type AdminTab = 'users' | 'invitations' | 'logs';
+type AdminTab = 'users' | 'invitations' | 'sessions' | 'logs';
 
-const ADMIN_TABS: readonly AdminTab[] = ['users', 'invitations', 'logs'];
+const ADMIN_TABS: readonly AdminTab[] = ['users', 'invitations', 'sessions', 'logs'];
 
 /** Keeps the tab value inside the union (Radix hands back a plain string). */
 function asAdminTab(value: string): AdminTab {
@@ -21,7 +22,7 @@ function asAdminTab(value: string): AdminTab {
 /**
  * `/admin` — workspace administration for the tenant ADMIN.
  *
- * Three tabs share one page:
+ * Four tabs share one page:
  *  - **Usuários**: the operator roster with server-side filters (name/e-mail,
  *    role, status), server-side pagination and the CSV export of the applied
  *    filters, plus the role/activation/session-revoke actions and the invitation
@@ -30,6 +31,9 @@ function asAdminTab(value: string): AdminTab {
  *  - **Convites**: pending/accepted/expired invitations with revoke for PENDING
  *    rows and re-send for PENDING/EXPIRED rows, never ACCEPTED
  *    (`GET|DELETE /admin/invitations`, `POST /admin/invitations/:id/resend`);
+ *  - **Sessões**: every active session of the workspace with operator, device,
+ *    IP and dates, the "Sessão atual" badge and per-session revoke
+ *    (`GET /admin/sessions`, `DELETE /admin/sessions/:id`);
  *  - **Logs**: the administrative audit trail with action/actor/period filters,
  *    server-side pagination and the CSV export of the applied filters
  *    (`GET /admin/audit-logs`, `GET /admin/audit-logs/export.csv`).
@@ -46,7 +50,7 @@ export function AdminPage(): JSX.Element {
   const [tab, setTab] = useState<AdminTab>('users');
   const [reloadKey, setReloadKey] = useState(0);
   const [forbidden, setForbidden] = useState(false);
-  const [usersBusy, setUsersBusy] = useState(false);
+  const [tabsBusy, setTabsBusy] = useState(false);
 
   const isAdmin = currentAgent !== null && isTenantAdmin(currentAgent);
   const restricted = forbidden || (currentAgent !== null && !isAdmin);
@@ -121,7 +125,7 @@ export function AdminPage(): JSX.Element {
         title="Equipe e auditoria"
         description="Gerencie quem acessa o workspace, o papel de cada operador e o registro das ações administrativas."
         actions={
-          <Button variant="secondary" icon="pulse" loading={usersBusy} onClick={retry}>
+          <Button variant="secondary" icon="pulse" loading={tabsBusy} onClick={retry}>
             Atualizar
           </Button>
         }
@@ -139,7 +143,7 @@ export function AdminPage(): JSX.Element {
               <AdminUsersTab
                 currentAgentId={currentAgent?.id ?? null}
                 refreshKey={reloadKey}
-                onBusyChange={setUsersBusy}
+                onBusyChange={setTabsBusy}
                 onForbidden={handleForbidden}
               />
             ),
@@ -149,6 +153,17 @@ export function AdminPage(): JSX.Element {
             label: 'Convites',
             content: (
               <AdminInvitationsTab onForbidden={handleForbidden} refreshKey={reloadKey} />
+            ),
+          },
+          {
+            value: 'sessions',
+            label: 'Sessões',
+            content: (
+              <AdminSessionsTab
+                onForbidden={handleForbidden}
+                refreshKey={reloadKey}
+                onBusyChange={setTabsBusy}
+              />
             ),
           },
           {

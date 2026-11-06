@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  ADMIN_SESSIONS_DEFAULT_PER_PAGE,
+  ADMIN_SESSIONS_MAX_PER_PAGE,
   ADMIN_USERS_DEFAULT_PER_PAGE,
   ADMIN_USERS_MAX_PER_PAGE,
   ADMIN_USER_SEARCH_MAX_LENGTH,
@@ -71,6 +73,18 @@ export const adminUserListQuerySchema = z.object({
 export const adminUserExportQuerySchema = z.object({ ...adminUserFilterFields });
 
 /**
+ * `GET /admin/sessions` - pagination only (tenant comes from the JWT). The
+ * default page is 50 and a `perPage` above 100 is a 422, exactly like the other
+ * list endpoints.
+ */
+export const adminSessionListQuerySchema = z.object({
+  page: optionalPositiveInt.default(1),
+  perPage: blankAsUndefined(
+    z.coerce.number().int().min(1).max(ADMIN_SESSIONS_MAX_PER_PAGE),
+  ).default(ADMIN_SESSIONS_DEFAULT_PER_PAGE),
+});
+
+/**
  * Filter fields shared by the JSON list and the CSV export. Keeping them in one
  * object means the export validates exactly the same `action`/`actorId`/`from`/
  * `to` contract (the export has no pagination and is capped server-side).
@@ -99,5 +113,6 @@ export type UpdateAdminUserBody = z.infer<typeof updateAdminUserBodySchema>;
 export type AdminUserListQueryInput = z.infer<typeof adminUserListQuerySchema>;
 export type AdminUserExportQueryInput = z.infer<typeof adminUserExportQuerySchema>;
 export type AdminUserStatusInput = z.infer<typeof adminUserStatusSchema>;
+export type AdminSessionListQueryInput = z.infer<typeof adminSessionListQuerySchema>;
 export type AuditLogQueryInput = z.infer<typeof auditLogQuerySchema>;
 export type AuditExportQueryInput = z.infer<typeof auditExportQuerySchema>;

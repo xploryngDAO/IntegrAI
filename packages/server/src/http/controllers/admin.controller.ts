@@ -3,12 +3,14 @@ import { ADMIN_USERS_EXPORT_MAX_ROWS, AUDIT_EXPORT_MAX_ROWS } from '@sac/shared'
 import type { FastifyRequest } from 'fastify';
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
+  adminSessionListQuerySchema,
   adminUserExportQuerySchema,
   adminUserListQuerySchema,
   adminUserParamsSchema,
   auditExportQuerySchema,
   auditLogQuerySchema,
   invitationParamsSchema,
+  sessionParamsSchema,
   updateAdminUserBodySchema,
 } from '../schemas';
 import { parseInput } from '../schemas/common';
@@ -34,6 +36,8 @@ export interface AdminControllers {
   exportUsersCsv: RouteHandler;
   updateUser: RouteHandler;
   revokeUserSessions: RouteHandler;
+  listSessions: RouteHandler;
+  revokeSession: RouteHandler;
   listInvitations: RouteHandler;
   revokeInvitation: RouteHandler;
   resendInvitation: RouteHandler;
@@ -129,6 +133,44 @@ export function createAdminControllers(ctx: HttpRouteContext): AdminControllers 
           params.id,
         ),
       );
+    },
+
+    /**
+     * `GET /admin/sessions` - LIVE sessions of the workspace.
+     *
+     * Tenant always comes from the JWT; `page`/`perPage` are optional (default
+     * 50, max 100). `current` is derived from the access-token `sid` claim, so
+     * the console can mark the caller's own device.
+     */
+    async listSessions(request) {
+      const tenantId = requireTenantId(request);
+      const agent = requireAgent(request);
+      const query = parseInput(adminSessionListQuerySchema, request.query, 'query');
+
+      return ok(await services.adminUsers.listSessions(tenantId, query, agent.sessionId));
+    },
+
+    /**
+     * `DELETE /admin/sessions/:id` - revokes ONE device of the workspace.
+     *
+     * 204 on success, 404 for an unknown/foreign/already-revoked id, 409 when
+     * the id is the caller's own current session (`CANNOT_REVOKE_CURRENT_SESSION`)
+     * and 422 for a malformed id.
+     */
+    async revokeSession(request, reply) {
+      const tenantId = requireTenantId(request);
+      const agent = requireAgent(request);
+      const params = parseInput(sessionParamsSchema, request.params, 'params');
+
+      await services.adminUsers.revokeSession(
+        tenantId,
+        auditActorContext(request),
+        params.id,
+        agent.sessionId,
+      );
+
+      reply.code(204);
+      return undefined;
     },
 
     /** `GET /admin/invitations` - tenant invites, newest first, derived status. */

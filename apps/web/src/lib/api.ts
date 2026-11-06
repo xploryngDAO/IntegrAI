@@ -32,6 +32,9 @@ import type {
   ActionBody,
   AdminInvitation,
   AdminInvitationsResult,
+  AdminSession,
+  AdminSessionsQuery,
+  AdminSessionsResult,
   AdminUser,
   AdminUserUpdate,
   AdminUsersExportQuery,
@@ -757,6 +760,19 @@ export interface ApiClient {
   updateAdminUser(id: string, body: AdminUserUpdate): Promise<AdminUser>;
   /** `POST /admin/users/:id/revoke-sessions` — closes every session of one user. */
   revokeUserSessions(id: string): Promise<{ revoked: number }>;
+  /**
+   * `GET /admin/sessions?page=&perPage=` — one page of the **active sessions**
+   * of the workspace, with the operator that owns each one and the `current`
+   * flag of the session that issued this request.
+   */
+  adminSessions(query?: AdminSessionsQuery): Promise<AdminSessionsResult>;
+  /**
+   * `DELETE /admin/sessions/:id` (204) — revokes one operator session.
+   * `404` means it is already gone and `409 CANNOT_REVOKE_CURRENT_SESSION` that
+   * it is the session of the current request (the API never lets it revoke
+   * itself through this administrative route).
+   */
+  revokeAdminSession(id: string): Promise<void>;
   /** `GET /admin/audit-logs` — filtered, paginated administrative trail. */
   auditLogs(query: AuditLogQuery): Promise<AuditLogPage>;
   /**
@@ -896,6 +912,29 @@ function normalizeAdminUser(raw: unknown): AdminUser | null {
     lastLoginAt: asIsoOrNull(raw.lastLoginAt),
     createdAt: asIsoOrNull(raw.createdAt) ?? '',
     sessionsCount: asCounter(raw.sessionsCount),
+  };
+}
+
+function normalizeAdminSession(raw: unknown): AdminSession | null {
+  if (!isRecord(raw)) return null;
+  const id = asTextOrNull(raw.id);
+  // Without the id the row cannot be revoked, so it is dropped instead of
+  // rendered with an action that would always fail.
+  if (id === null) return null;
+  return {
+    id,
+    agentId: asTextOrNull(raw.agentId),
+    // A missing name/e-mail is rendered as "—"; it never hides the row.
+    name: asTextOrNull(raw.name) ?? '—',
+    email: asTextOrNull(raw.email) ?? '',
+    // An absent role is "—" (`roleLabel('')`), never invented as AGENT.
+    role: asTextOrNull(raw.role) ?? '',
+    ip: asTextOrNull(raw.ip),
+    userAgent: asTextOrNull(raw.userAgent),
+    createdAt: asIsoOrNull(raw.createdAt) ?? '',
+    lastUsedAt: asIsoOrNull(raw.lastUsedAt),
+    // Only the API can say which session issued this request.
+    current: raw.current === true,
   };
 }
 
@@ -1721,6 +1760,54 @@ export const api: ApiClient = {
     return { revoked: isRecord(payload) ? asCounter(payload.revoked) : 0 };
   },
 
+  async adminSessions(query = {}) {
+    const search = encodeQuery({
+      page: query.page,
+      perPage: query.perPage,
+    });
+    const payload = await request<unknown>(`/admin/sessions${search}`, {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
+    // The contract is `{ data: { items, total } }`, already unwrapped by
+    // `request`. A deployment that answers the bare array is still read instead
+    // of surfacing an "unexpected format" error.
+    const container = isRecord(payload) ? payload : {};
+    const rawItems: unknown[] = Array.isArray(payload)
+      ? payload
+      : Array.isArray(container.items)
+        ? container.items
+        : [];
+    const items = rawItems
+      .map((entry) => normalizeAdminSession(entry))
+      .filter((entry): entry is AdminSession => entry !== null);
+    // `total` counts every active session of the tenant, not only this page;
+    // when the API omits it the visible rows are the only truth available.
+    const total =
+      container.total === undefined || container.total === null
+        ? items.length
+        : asCounter(container.total);
+    // The contract does not echo pagination, so the requested page size is the
+    // effective one — unless the deployment returned more rows than asked for
+    // (unpaginated route): then the whole result set is a single page.
+    return {
+      items,
+      total,
+      page: asPositiveInt(container.page, query.page ?? 1),
+      perPage: asPositiveInt(container.perPage, Math.max(query.perPage ?? 50, items.length)),
+    };
+  },
+
+  async revokeAdminSession(id) {
+    // 204 with no body: `request` already treats it as success. A 404/409 keeps
+    // its real code (`CANNOT_REVOKE_CURRENT_SESSION`) so the tab explains it.
+    await request<unknown>(`/admin/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      allowEmpty: true,
+      timeoutMs: 12_000,
+    });
+  },
+
   async auditLogs(query) {
     const search = encodeQuery({
       action: query.action,
@@ -1866,6 +1953,9 @@ export type {
   ActionBody,
   AdminInvitation,
   AdminInvitationsResult,
+  AdminSession,
+  AdminSessionsQuery,
+  AdminSessionsResult,
   AdminUser,
   AdminUserUpdate,
   AdminUsersExportQuery,

@@ -1,4 +1,4 @@
-import type { AgentRecord } from './dto';
+import type { AgentRecord, SessionRecord } from './dto';
 import type { AgentRole } from './enums';
 
 /**
@@ -13,6 +13,8 @@ import type { AgentRole } from './enums';
  *   POST  /api/v1/admin/users/:id/revoke-sessions -> { revoked }
  *   GET   /api/v1/admin/invitations         -> AdminInvitationListResult
  *   DELETE /api/v1/admin/invitations/:id    -> 204
+ *   GET   /api/v1/admin/sessions            -> AdminSessionListResult
+ *   DELETE /api/v1/admin/sessions/:id       -> 204
  *   GET   /api/v1/admin/audit-logs          -> AuditLogPage
  *   GET   /api/v1/admin/audit-logs/export.csv -> text/csv attachment
  *   GET   /api/v1/auth/sessions             -> { items: UserSessionView[] }
@@ -48,6 +50,8 @@ export const AUDIT_ACTIONS = {
   adminUserActivated: 'admin.user.activated',
   adminUserDeactivated: 'admin.user.deactivated',
   adminUserSessionsRevoked: 'admin.user.sessions_revoked',
+  /** ADMIN console revoked ONE session of another operator (`/admin/sessions`). */
+  adminSessionRevoked: 'admin.session.revoked',
   tenantSsoUpdated: 'tenant.sso.updated',
   tenantSsoDeleted: 'tenant.sso.deleted',
   billingWebhookProcessed: 'billing.webhook.processed',
@@ -227,6 +231,16 @@ export const ADMIN_USER_SEARCH_MAX_LENGTH = 120;
  */
 export const ADMIN_USERS_EXPORT_MAX_ROWS = 10_000;
 
+/**
+ * Pagination of `GET /admin/sessions`.
+ *
+ * The console shows every live device of the workspace, so the default page is
+ * larger than the team list (50) while the hard cap stays at 100 (a larger
+ * `perPage` is a 422, never a silent truncation).
+ */
+export const ADMIN_SESSIONS_DEFAULT_PER_PAGE = 50;
+export const ADMIN_SESSIONS_MAX_PER_PAGE = 100;
+
 /** Derived status filter of `GET /admin/users` (maps to `is_active`). */
 export type AdminUserStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -293,6 +307,58 @@ export interface AdminUserRecord {
   lastLoginAt: Date | null;
 }
 
+/* --------------------------------------------------------------------------
+ * Workspace sessions (`/admin/sessions`)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Query of `GET /admin/sessions`: only 1-based pagination, always tenant-scoped
+ * by the JWT. The service re-normalizes/clamps the values so a non-HTTP caller
+ * cannot exceed `ADMIN_SESSIONS_MAX_PER_PAGE`.
+ */
+export interface AdminSessionListQuery {
+  page?: number;
+  perPage?: number;
+}
+
+/** Repository query: tenant is ALWAYS injected from the JWT, never the client. */
+export interface AdminSessionListFilter {
+  tenantId: string;
+  offset: number;
+  limit: number;
+}
+
+/**
+ * One live session joined with the operator that owns it. The Prisma schema has
+ * no relation between `sessions` and `agents`, so the repository resolves the
+ * join explicitly (tenant's agent ids -> live sessions) and returns both rows.
+ */
+export interface AdminSessionRecord {
+  session: SessionRecord;
+  agent: AgentRecord;
+}
+
+/** Wire projection of one row of `GET /admin/sessions` (ISO-8601 instants). */
+export interface AdminSessionView {
+  id: string;
+  agentId: string;
+  name: string;
+  email: string;
+  role: AgentRole;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  /** True for the session that issued the access token of the request (`sid`). */
+  current: boolean;
+}
+
+export interface AdminSessionListResult {
+  items: AdminSessionView[];
+  /** Total LIVE sessions of the workspace (NOT the page length). */
+  total: number;
+}
+
 export interface IAdminUserRepository {
   /** Tenant-scoped, ordered by `created_at` ascending; counters derived here. */
   listByTenant(tenantId: string, at: Date): Promise<AdminUserRecord[]>;
@@ -308,6 +374,21 @@ export interface IAdminUserRepository {
   update(id: string, patch: { role?: AgentRole; isActive?: boolean }): Promise<AgentRecord>;
   /** Active ADMINs of the workspace (last-admin guard). */
   countActiveAdmins(tenantId: string): Promise<number>;
+  /**
+   * LIVE sessions of the workspace joined with their operator, ordered by
+   * `lastUsedAt` DESC NULLS LAST and then `createdAt` DESC. `total` counts the
+   * whole live set (not the page) so the console can paginate.
+   */
+  listAtivasByTenant(
+    filter: AdminSessionListFilter,
+    at: Date,
+  ): Promise<{ items: AdminSessionRecord[]; total: number }>;
+  /**
+   * Revokes ONE live session of the tenant and returns the revoked row joined
+   * with its operator. `null` means "not found": unknown id, another tenant, or
+   * an already revoked/expired session — the service never reveals which.
+   */
+  revokeById(tenantId: string, id: string, at: Date): Promise<AdminSessionRecord | null>;
 }
 
 /**
@@ -347,6 +428,31 @@ export interface IAdminUserService {
     actor: AuditActorContext,
     userId: string,
   ): Promise<{ revoked: number }>;
+  /**
+   * LIVE sessions of the workspace, tenant-scoped and ordered by last use.
+   * `currentSessionId` is the access-token `sid` claim: the matching row is the
+   * only one flagged with `current: true` (a legacy token without `sid` simply
+   * marks no row as current).
+   */
+  listSessions(
+    tenantId: string,
+    query?: AdminSessionListQuery,
+    currentSessionId?: string,
+  ): Promise<AdminSessionListResult>;
+  /**
+   * Revokes ONE session of the workspace.
+   *
+   * 404 for an unknown/foreign/already-revoked session (existence is never
+   * disclosed), 409 `CANNOT_REVOKE_CURRENT_SESSION` when the target is the
+   * session that issued the caller's own access token (logout is the endpoint
+   * for that), and a best-effort `admin.session.revoked` audit row otherwise.
+   */
+  revokeSession(
+    tenantId: string,
+    actor: AuditActorContext,
+    sessionId: string,
+    currentSessionId?: string,
+  ): Promise<void>;
 }
 
 /* ==========================================================================

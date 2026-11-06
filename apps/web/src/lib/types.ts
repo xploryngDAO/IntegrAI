@@ -612,6 +612,8 @@ export interface DeleteTenantBody {
  *   GET   /admin/users/export.csv?search=&role=&status= -> text/csv
  *   PATCH /admin/users/:id            -> AdminUser
  *   POST  /admin/users/:id/revoke-sessions -> { revoked: number }
+ *   GET   /admin/sessions?page=&perPage= -> { items, total }
+ *   DELETE /admin/sessions/:id        -> 204 (409 CANNOT_REVOKE_CURRENT_SESSION)
  *   GET   /admin/audit-logs           -> { items, page, perPage, total }
  *   POST  /invitations                -> { invitationId, email, role, expiresAt }
  *
@@ -698,6 +700,58 @@ export interface AdminUsersResult {
 export interface AdminUserUpdate {
   role?: string;
   isActive?: boolean;
+}
+
+/**
+ * One **active session** of any operator of the workspace
+ * (`GET /admin/sessions`).
+ *
+ * It is the administrative view of `UserSession`: the same refresh-token row,
+ * plus the operator it belongs to. `current` marks the session that issued the
+ * access token of the request that listed it, so the current ADMIN may see it
+ * marked even when browsing from another device — the API is the only source
+ * for that flag, the UI never derives it.
+ */
+export interface AdminSession {
+  id: string;
+  /** Operator that owns the session (null when the API did not send it). */
+  agentId: string | null;
+  name: string;
+  email: string;
+  role: string;
+  ip: string | null;
+  /** Raw browser user-agent (rendered through `describeDevice`). */
+  userAgent: string | null;
+  /** ISO instant the session was opened (empty when the API omitted it). */
+  createdAt: string;
+  /** ISO instant of the last refresh, or null when never used. */
+  lastUsedAt: string | null;
+  /** True for the session that issued the current access token. */
+  current: boolean;
+}
+
+/** Query of `GET /admin/sessions` (server-side pagination). */
+export interface AdminSessionsQuery {
+  /** 1-based page (API default: 1). */
+  page?: number;
+  /** Page size, 1..100 (API default: 50). */
+  perPage?: number;
+}
+
+/**
+ * `GET /admin/sessions` envelope.
+ *
+ * The API answers `{ data: { items, total } }`; the HTTP client unwraps `data`,
+ * so this read model starts at `{ items, total }`. `total` counts every active
+ * session of the tenant (not only the returned page). `page`/`perPage` carry the
+ * effective pagination — echoed by the API when present, otherwise the values
+ * requested — so the tab paginates by what the server actually did.
+ */
+export interface AdminSessionsResult {
+  items: AdminSession[];
+  total: number;
+  page: number;
+  perPage: number;
 }
 
 /** One row of the administrative audit trail (`GET /admin/audit-logs`). */

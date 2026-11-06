@@ -175,6 +175,37 @@ export function adminErrorMessage(error: unknown): string {
     : 'Não foi possível falar com a API. Tente novamente.';
 }
 
+/**
+ * Failure of `DELETE /admin/sessions/:id` (revocation of one operator session).
+ *
+ * `409 CANNOT_REVOKE_CURRENT_SESSION` is the refusal to revoke the session that
+ * issued the current access token: the API's own message is shown first and the
+ * hint says how to end it (the "Sair" action, not this table).
+ */
+export function adminSessionErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 404) {
+      return 'Sessão não encontrada (HTTP 404). Ela pode ter expirado, sido revogada ou ter saído em outro dispositivo; atualize a lista antes de tentar de novo.';
+    }
+    if (error.status === 409) {
+      const message = error.message.trim();
+      const detail = message.length === 0 ? '' : /[.!?]$/.test(message) ? message : `${message}.`;
+      const prefix = detail.length > 0 ? `${detail} ` : '';
+      if (error.code === 'CANNOT_REVOKE_CURRENT_SESSION') {
+        return `${prefix}A sessão atual não pode ser revogada por aqui: use "Sair" no menu da conta para encerrá-la neste navegador.`;
+      }
+      return `${prefix}A sessão mudou em outra aba ou dispositivo (HTTP 409); atualize a lista e tente novamente.`;
+    }
+    if (error.status === 401) {
+      return 'Sua sessão expirou. Entre novamente para administrar as sessões.';
+    }
+    if (error.status === 403) {
+      return 'Somente um ADMIN do workspace pode revogar sessões (HTTP 403).';
+    }
+  }
+  return adminErrorMessage(error);
+}
+
 /** Failure of `DELETE /admin/invitations/:id` (revocation of a pending invite). */
 export function invitationErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {

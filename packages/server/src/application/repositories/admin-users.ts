@@ -1,5 +1,7 @@
 import type { Agent, Prisma, PrismaClient } from '@prisma/client';
 import type {
+  AdminSessionListFilter,
+  AdminSessionRecord,
   AdminUserListFilter,
   AdminUserRecord,
   AgentRecord,
@@ -7,11 +9,23 @@ import type {
   IAdminUserRepository,
 } from '@sac/shared';
 
-import { mapAgent } from './mappers';
+import { mapAgent, mapSession } from './mappers';
 
 const ADMIN_USER_ORDER: Prisma.AgentOrderByWithRelationInput[] = [
   { createdAt: 'asc' },
   { id: 'asc' },
+];
+
+/**
+ * `GET /admin/sessions` order: most recently used device first. `lastUsedAt`
+ * is nullable (never refreshed) and Postgres sorts NULL first on DESC by
+ * default, so `nulls: 'last'` is explicit. `createdAt`/`id` keep the order
+ * deterministic across pages.
+ */
+const ADMIN_SESSION_ORDER: Prisma.SessionOrderByWithRelationInput[] = [
+  { lastUsedAt: { sort: 'desc', nulls: 'last' } },
+  { createdAt: 'desc' },
+  { id: 'desc' },
 ];
 
 /**
@@ -99,6 +113,87 @@ export class PrismaAdminUserRepository implements IAdminUserRepository {
     return this.prisma.agent.count({
       where: { tenantId, role: 'ADMIN', isActive: true },
     });
+  }
+
+  /**
+   * LIVE sessions of one workspace, joined with the operator that owns them.
+   *
+   * `sessions` has no Prisma relation to `agents`, so the join is explicit:
+   * the tenant's agent ids are the source of truth for ownership and only then
+   * the live sessions are read. Both `sessions.tenant_id` and the agent tenant
+   * are enforced, so a stale/mis-scoped session row can never leak across
+   * workspaces. `findMany` and `count` share the exact same `where`, keeping
+   * `total` aligned with the live set.
+   */
+  async listAtivasByTenant(
+    filter: AdminSessionListFilter,
+    at: Date,
+  ): Promise<{ items: AdminSessionRecord[]; total: number }> {
+    const agents = await this.prisma.agent.findMany({
+      where: { tenantId: filter.tenantId },
+    });
+    if (agents.length === 0) return { items: [], total: 0 };
+
+    const agentsById = new Map<string, AgentRecord>(
+      agents.map((agent) => [agent.id, mapAgent(agent)]),
+    );
+
+    const where: Prisma.SessionWhereInput = {
+      userId: { in: [...agentsById.keys()] },
+      tenantId: filter.tenantId,
+      revokedAt: null,
+      expiresAt: { gt: at },
+    };
+
+    const [records, total] = await Promise.all([
+      this.prisma.session.findMany({
+        where,
+        orderBy: ADMIN_SESSION_ORDER,
+        skip: filter.offset,
+        take: filter.limit,
+      }),
+      this.prisma.session.count({ where }),
+    ]);
+
+    const items: AdminSessionRecord[] = [];
+    for (const record of records) {
+      const agent = agentsById.get(record.userId);
+      // Defensive: a session whose owner vanished from the tenant is skipped.
+      if (agent !== undefined) items.push({ session: mapSession(record), agent });
+    }
+
+    return { items, total };
+  }
+
+  /**
+   * Revokes ONE live session of the tenant and returns the revoked row + owner.
+   *
+   * `null` is the single 404 answer for unknown, foreign, already revoked and
+   * expired ids, so the caller never learns whether a foreign row exists. The
+   * write is a conditional `updateMany` (`revoked_at IS NULL`), which makes two
+   * concurrent revokes of the same device race-safe.
+   */
+  async revokeById(tenantId: string, id: string, at: Date): Promise<AdminSessionRecord | null> {
+    const record = await this.prisma.session.findFirst({
+      where: { id, tenantId, expiresAt: { gt: at } },
+    });
+    if (record === null) return null;
+
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: record.userId, tenantId },
+    });
+    if (agent === null) return null;
+
+    const updated = await this.prisma.session.updateMany({
+      where: { id, tenantId, revokedAt: null, expiresAt: { gt: at } },
+      data: { revokedAt: at },
+    });
+    if (updated.count === 0) return null;
+
+    return {
+      session: { ...mapSession(record), revokedAt: at },
+      agent: mapAgent(agent),
+    };
   }
 
   /** Agent rows + the two derived counters (two grouped queries, no N+1). */

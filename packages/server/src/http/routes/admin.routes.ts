@@ -39,6 +39,9 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
     { preHandler: adminOnly },
     controllers.revokeInvitation,
   );
+  // Live session inventory of the workspace (one row per signed-in device).
+  app.get('/sessions', { preHandler: adminOnly }, controllers.listSessions);
+  app.delete('/sessions/:id', { preHandler: adminOnly }, controllers.revokeSession);
   app.get('/audit-logs', { preHandler: adminOnly }, controllers.listAuditLogs);
   // Declared after `/audit-logs`: the static children never shadow the parent.
   app.get(

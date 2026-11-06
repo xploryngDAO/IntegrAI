@@ -2266,6 +2266,28 @@ body {
   gap: 2px;
 }
 
+/* Session row: operator + the device label with its "Sessão atual" badge. */
+.sac-admin-session-operator .sac-admin-email {
+  max-width: 170px;
+}
+
+.sac-admin-session-device {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 260px;
+}
+
+.sac-admin-session-device__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--cv-font-medium);
+}
+
 .sac-admin-filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

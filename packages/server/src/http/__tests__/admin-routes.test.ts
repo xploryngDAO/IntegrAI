@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, AuthenticationError, NotFoundError } from '@sac/shared';
 import type {
   AdminInvitationListResult,
+  AdminSessionListResult,
   AdminUserView,
   AuditEventView,
   AuditLogPage,
@@ -31,6 +32,8 @@ const PRINCIPALS: Record<string, Record<string, unknown>> = {
     role: 'ADMIN',
     tenantId: 'tenant-1',
     isPlatformAdmin: false,
+    // Access-token `sid` claim: `current` on `/admin/sessions` compares to it.
+    sessionId: '44444444-4444-4444-8444-444444444444',
   },
   [AGENT_TOKEN]: {
     agentId: 'agent-2',
@@ -60,6 +63,25 @@ const PRINCIPALS: Record<string, Record<string, unknown>> = {
 
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const INVITATION_ID = '33333333-3333-4333-8333-333333333333';
+const SESSION_ID = '55555555-5555-4555-8555-555555555555';
+
+const SESSIONS: AdminSessionListResult = {
+  items: [
+    {
+      id: SESSION_ID,
+      agentId: 'agent-2',
+      name: 'Bob',
+      email: 'bob@acme.test',
+      role: 'AGENT',
+      ip: '203.0.113.9',
+      userAgent: 'Firefox',
+      createdAt: '2026-11-06T10:00:00.000Z',
+      lastUsedAt: null,
+      current: false,
+    },
+  ],
+  total: 1,
+};
 
 const INVITATION_LIST: AdminInvitationListResult = {
   items: [
@@ -141,6 +163,8 @@ describe('admin HTTP routes', () => {
   const exportUsers = vi.fn(async () => [USER]);
   const updateUser = vi.fn(async () => USER);
   const revokeSessions = vi.fn(async () => ({ revoked: 3 }));
+  const listSessions = vi.fn(async () => SESSIONS);
+  const revokeSession = vi.fn(async () => undefined);
   const listInvitations = vi.fn(async () => INVITATION_LIST);
   const revokeInvitation = vi.fn(async () => undefined);
   const resendInvitation = vi.fn(async () => ({
@@ -162,6 +186,8 @@ describe('admin HTTP routes', () => {
           exportRows: exportUsers,
           update: updateUser,
           revokeSessions,
+          listSessions,
+          revokeSession,
         },
         invitations: {
           listForAdmin: listInvitations,
@@ -188,6 +214,8 @@ describe('admin HTTP routes', () => {
     exportUsers.mockClear();
     updateUser.mockClear();
     revokeSessions.mockClear();
+    listSessions.mockClear();
+    revokeSession.mockClear();
     listInvitations.mockClear();
     revokeInvitation.mockClear();
     resendInvitation.mockClear();
@@ -202,6 +230,8 @@ describe('admin HTTP routes', () => {
     }));
     exportUsers.mockImplementation(async () => [USER]);
     revokeSessions.mockImplementation(async () => ({ revoked: 3 }));
+    listSessions.mockImplementation(async () => SESSIONS);
+    revokeSession.mockImplementation(async () => undefined);
     listInvitations.mockImplementation(async () => INVITATION_LIST);
     revokeInvitation.mockImplementation(async () => undefined);
     resendInvitation.mockImplementation(async () => ({
@@ -231,6 +261,8 @@ describe('admin HTTP routes', () => {
         url: `/api/v1/admin/invitations/${INVITATION_ID}/resend`,
       },
       { method: 'DELETE' as const, url: `/api/v1/admin/invitations/${INVITATION_ID}` },
+      { method: 'GET' as const, url: '/api/v1/admin/sessions' },
+      { method: 'DELETE' as const, url: `/api/v1/admin/sessions/${SESSION_ID}` },
       { method: 'GET' as const, url: '/api/v1/admin/audit-logs' },
       { method: 'GET' as const, url: '/api/v1/admin/audit-logs/export.csv' },
     ];
@@ -273,6 +305,12 @@ describe('admin HTTP routes', () => {
           url: `/api/v1/admin/invitations/${INVITATION_ID}`,
           headers: auth(token),
         }),
+        app.inject({ method: 'GET', url: '/api/v1/admin/sessions', headers: auth(token) }),
+        app.inject({
+          method: 'DELETE',
+          url: `/api/v1/admin/sessions/${SESSION_ID}`,
+          headers: auth(token),
+        }),
         app.inject({ method: 'GET', url: '/api/v1/admin/audit-logs', headers: auth(token) }),
         app.inject({
           method: 'GET',
@@ -308,6 +346,17 @@ describe('admin HTTP routes', () => {
       error: { code: 'AUTHORIZATION_ERROR' },
     });
     expect(exportUsers).not.toHaveBeenCalled();
+
+    const sessionsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions',
+      headers: auth(TENANTLESS_ADMIN_TOKEN),
+    });
+    expect(sessionsResponse.statusCode).toBe(403);
+    expect(sessionsResponse.json()).toMatchObject({
+      error: { code: 'AUTHORIZATION_ERROR' },
+    });
+    expect(listSessions).not.toHaveBeenCalled();
   });
 
   it('GET /admin/users returns the tenant team inside the data envelope', async () => {
@@ -548,6 +597,113 @@ describe('admin HTTP routes', () => {
       headers: auth(ADMIN_TOKEN),
     });
     expect(conflict.statusCode).toBe(409);
+  });
+
+  it('GET /admin/sessions returns the tenant live sessions with the JWT sid as current', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: SESSIONS });
+    // Tenant comes from the JWT, `current` from the access-token `sid` claim.
+    expect(listSessions).toHaveBeenCalledWith(
+      'tenant-1',
+      { page: 1, perPage: 50 },
+      '44444444-4444-4444-8444-444444444444',
+    );
+  });
+
+  it('GET /admin/sessions parses page/perPage and rejects values above the cap', async () => {
+    listSessions.mockResolvedValueOnce({ items: [], total: 0 });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/sessions?page=2&perPage=10',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listSessions).toHaveBeenCalledWith(
+      'tenant-1',
+      { page: 2, perPage: 10 },
+      '44444444-4444-4444-8444-444444444444',
+    );
+
+    listSessions.mockClear();
+    for (const url of [
+      '/api/v1/admin/sessions?page=0',
+      '/api/v1/admin/sessions?page=abc',
+      '/api/v1/admin/sessions?perPage=101',
+    ]) {
+      const invalid = await app.inject({
+        method: 'GET',
+        url,
+        headers: auth(ADMIN_TOKEN),
+      });
+      expect(invalid.statusCode).toBe(422);
+      expect(invalid.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
+    expect(listSessions).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /admin/sessions/:id answers 204 and forwards tenant + actor + sid', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${SESSION_ID}`,
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe('');
+    expect(revokeSession).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        id: 'admin-1',
+        email: 'admin@acme.test',
+        tenantId: 'tenant-1',
+      }),
+      SESSION_ID,
+      '44444444-4444-4444-8444-444444444444',
+    );
+  });
+
+  it('DELETE /admin/sessions/:id propagates 404 (foreign/unknown) and 409 (current)', async () => {
+    revokeSession.mockRejectedValueOnce(new NotFoundError('Session', SESSION_ID));
+    const notFound = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${SESSION_ID}`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(notFound.statusCode).toBe(404);
+    expect(notFound.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+
+    revokeSession.mockRejectedValueOnce(
+      new AppError('CANNOT_REVOKE_CURRENT_SESSION', 'current', 409),
+    );
+    const conflict = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/sessions/${SESSION_ID}`,
+      headers: auth(ADMIN_TOKEN),
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: { code: 'CANNOT_REVOKE_CURRENT_SESSION' },
+    });
+  });
+
+  it('DELETE /admin/sessions/:id answers 422 for a malformed id', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/admin/sessions/not-a-uuid',
+      headers: auth(ADMIN_TOKEN),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(revokeSession).not.toHaveBeenCalled();
   });
 
   it('GET /admin/audit-logs parses filters/dates/pagination and scopes by JWT tenant', async () => {

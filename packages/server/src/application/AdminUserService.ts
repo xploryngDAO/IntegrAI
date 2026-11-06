@@ -1,5 +1,9 @@
 import type {
   AgentRecord,
+  AdminSessionListQuery,
+  AdminSessionListResult,
+  AdminSessionRecord,
+  AdminSessionView,
   AdminUserListFilter,
   AdminUserListQuery,
   AdminUserRecord,
@@ -16,12 +20,15 @@ import type {
   UpdateAdminUserCommand,
 } from '@sac/shared';
 import {
+  ADMIN_SESSIONS_DEFAULT_PER_PAGE,
+  ADMIN_SESSIONS_MAX_PER_PAGE,
   ADMIN_USERS_DEFAULT_PER_PAGE,
   ADMIN_USERS_EXPORT_MAX_ROWS,
   ADMIN_USERS_MAX_PER_PAGE,
   AppError,
   AUDIT_ACTIONS,
   NotFoundError,
+  redactPiiForLogs,
 } from '@sac/shared';
 
 import { setUserRevocationWatermark } from './auth/access-token-revocation';
@@ -42,6 +49,9 @@ import { setUserRevocationWatermark } from './auth/access-token-revocation';
  *  - an ADMIN cannot bulk-revoke its own sessions
  *    (`409 CANNOT_REVOKE_OWN_SESSIONS`) — `POST /auth/logout` is the endpoint
  *    for that, and it also closes the current refresh session;
+ *  - an ADMIN cannot revoke the exact session that issued its own access token
+ *    (`409 CANNOT_REVOKE_CURRENT_SESSION`) — same reason, and the console list
+ *    flags that row with `current: true`;
  *  - `revokeSessions` revokes the refresh sessions AND stamps the per-user
  *    access-token watermark, so live JWTs of the target die immediately.
  *
@@ -52,6 +62,7 @@ export const ADMIN_USER_ERROR_CODES = {
   cannotModifySelf: 'CANNOT_MODIFY_SELF',
   lastAdminProtected: 'LAST_ADMIN_PROTECTED',
   cannotRevokeOwnSessions: 'CANNOT_REVOKE_OWN_SESSIONS',
+  cannotRevokeCurrentSession: 'CANNOT_REVOKE_CURRENT_SESSION',
 } as const;
 
 export interface AdminUserServiceDependencies {
@@ -283,6 +294,90 @@ export class AdminUserService implements IAdminUserService {
   }
 
   /* ==================================================================== */
+  /* Workspace sessions                                                   */
+  /* ==================================================================== */
+
+  /**
+   * LIVE sessions of the workspace (`revokedAt IS NULL` and `expiresAt > now`),
+   * tenant-scoped by the JWT and ordered by last use (nulls last) then creation.
+   *
+   * `total` is the live set, not the page. `current` is derived from the
+   * access-token `sid` claim: a legacy token without `sid` marks no row.
+   */
+  async listSessions(
+    tenantId: string,
+    query: AdminSessionListQuery = {},
+    currentSessionId?: string,
+  ): Promise<AdminSessionListResult> {
+    const page = clampInteger(query.page, 1, Number.MAX_SAFE_INTEGER, 1);
+    const perPage = clampInteger(
+      query.perPage,
+      1,
+      ADMIN_SESSIONS_MAX_PER_PAGE,
+      ADMIN_SESSIONS_DEFAULT_PER_PAGE,
+    );
+
+    const { items, total } = await this.adminUsers.listAtivasByTenant(
+      { tenantId, offset: (page - 1) * perPage, limit: perPage },
+      this.clock.now(),
+    );
+
+    return { items: items.map((row) => toAdminSessionView(row, currentSessionId)), total };
+  }
+
+  /**
+   * Revokes ONE session of the workspace.
+   *
+   * The current session is refused BEFORE touching the store: closing the
+   * device that issued the caller's own access token is a logout, not an
+   * administrative action, and doing it here would leave a valid JWT behind.
+   * Every other target is revoked conditionally (`revokedAt IS NULL`), so an
+   * already-revoked/unknown/foreign row is the same 404.
+   */
+  async revokeSession(
+    tenantId: string,
+    actor: AuditActorContext,
+    sessionId: string,
+    currentSessionId?: string,
+  ): Promise<void> {
+    if (currentSessionId !== undefined && sessionId === currentSessionId) {
+      throw new AppError(
+        ADMIN_USER_ERROR_CODES.cannotRevokeCurrentSession,
+        'Use the logout/session endpoints to end your own current session',
+        409,
+        { sessionId },
+      );
+    }
+
+    const target = await this.adminUsers.revokeById(tenantId, sessionId, this.clock.now());
+    if (target === null) throw new NotFoundError('Session', sessionId);
+
+    // The operator e-mail is PII: it is masked here AND scrubbed again by
+    // `AuditService` before the metadata reaches the database/logs.
+    this.audit?.record({
+      action: AUDIT_ACTIONS.adminSessionRevoked,
+      tenantId,
+      actorId: actor.id,
+      actorEmail: actor.email ?? null,
+      ip: actor.ip ?? null,
+      userAgent: actor.userAgent ?? null,
+      resourceType: 'session',
+      resourceId: target.session.id,
+      metadata: {
+        agentEmail: redactPiiForLogs(target.agent.email),
+        targetAgentId: target.agent.id,
+      },
+    });
+
+    this.logger.info('admin.session.revoked', {
+      tenantId,
+      actorId: actor.id,
+      sessionId: target.session.id,
+      targetAgentId: target.agent.id,
+    });
+  }
+
+  /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
 
@@ -314,6 +409,24 @@ function toAdminUserView(row: AdminUserRecord): AdminUserView {
     lastLoginAt: row.lastLoginAt !== null ? row.lastLoginAt.toISOString() : null,
     createdAt: row.agent.createdAt.toISOString(),
     sessionsCount: row.sessionsCount,
+  };
+}
+
+function toAdminSessionView(
+  row: AdminSessionRecord,
+  currentSessionId?: string,
+): AdminSessionView {
+  return {
+    id: row.session.id,
+    agentId: row.agent.id,
+    name: row.agent.name,
+    email: row.agent.email,
+    role: row.agent.role,
+    ip: row.session.ip,
+    userAgent: row.session.userAgent,
+    createdAt: row.session.createdAt.toISOString(),
+    lastUsedAt: row.session.lastUsedAt !== null ? row.session.lastUsedAt.toISOString() : null,
+    current: currentSessionId !== undefined && row.session.id === currentSessionId,
   };
 }
 
