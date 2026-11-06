@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type {
   ICache,
@@ -13,10 +13,14 @@ import { AgentService } from '../AgentService';
 import { signAccessToken } from '../auth/access-token';
 import {
   ACCESS_TOKEN_DENY_FALLBACK_TTL_SECONDS,
+  USER_REVOCATION_WATERMARK_TTL_SECONDS,
   accessTokenDenyKey,
   denyAccessToken,
   isAccessTokenDenied,
+  isUserTokenRevoked,
   resolveAccessTokenDenyTtlSeconds,
+  setUserRevocationWatermark,
+  userRevocationWatermarkKey,
 } from '../auth/access-token-revocation';
 import { FrozenClock } from './accountFakes';
 import { StubAgentRepository } from './platformFakes';
@@ -64,9 +68,11 @@ class RecordingCache implements ICache {
   readonly entries = new Map<string, unknown>();
   readonly ttls = new Map<string, number>();
   failExists = false;
+  failGet = false;
   failSet = false;
 
   async get<T>(key: string): Promise<T | null> {
+    if (this.failGet) throw new Error('redis unavailable');
     return (this.entries.get(key) as T | undefined) ?? null;
   }
   async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
@@ -402,5 +408,233 @@ describe('isAccessTokenDenied', () => {
     expect(logs.some((entry) => entry.message === 'auth.access_token.denylist_unavailable')).toBe(
       true,
     );
+  });
+});
+
+/* ==========================================================================
+ * 5. Per-user revocation watermark (bulk revocation)
+ * ========================================================================== */
+
+function signFor(agent: ReturnType<typeof createHarness>['agent']): string {
+  return signAccessToken({ subject: agent, secret: JWT_SECRET, expiresIn: '1h' });
+}
+
+describe('setUserRevocationWatermark', () => {
+  it('stores unix seconds in the namespaced key with the default TTL', async () => {
+    const cache = new RecordingCache();
+    const at = new Date('2026-11-05T12:34:56.789Z');
+    const logs: LogEntry[] = [];
+
+    const written = await setUserRevocationWatermark({
+      userId: 'agent-1',
+      cache,
+      logger: collectingLogger(logs),
+      at,
+    });
+
+    const key = userRevocationWatermarkKey('agent-1');
+    expect(written).toBe(true);
+    expect(key).toBe('sac:auth:user:revoked:agent-1');
+    expect(cache.entries.get(key)).toBe(Math.floor(at.getTime() / 1000));
+    expect(cache.ttls.get(key)).toBe(USER_REVOCATION_WATERMARK_TTL_SECONDS);
+    expect(logs.some((entry) => entry.message === 'auth.user_revocation.watermark_set')).toBe(
+      true,
+    );
+  });
+
+  it('never moves the watermark backwards (monotonic)', async () => {
+    const cache = new RecordingCache();
+    const key = userRevocationWatermarkKey('agent-1');
+    const later = new Date('2026-11-05T12:00:00.000Z');
+
+    await setUserRevocationWatermark({ userId: 'agent-1', cache, at: later });
+    const written = await setUserRevocationWatermark({
+      userId: 'agent-1',
+      cache,
+      at: new Date(later.getTime() - 60_000),
+    });
+
+    expect(written).toBe(true);
+    expect(cache.entries.get(key)).toBe(Math.floor(later.getTime() / 1000));
+  });
+
+  it('is best effort: a cache failure resolves false and never throws', async () => {
+    const cache = new RecordingCache();
+    cache.failSet = true;
+    const logs: LogEntry[] = [];
+
+    await expect(
+      setUserRevocationWatermark({
+        userId: 'agent-1',
+        cache,
+        logger: collectingLogger(logs),
+        at: new Date('2026-11-05T12:00:00.000Z'),
+      }),
+    ).resolves.toBe(false);
+
+    expect(
+      logs.some((entry) => entry.message === 'auth.user_revocation.watermark_write_failed'),
+    ).toBe(true);
+  });
+
+  it('warns and resolves false without a cache', async () => {
+    const logs: LogEntry[] = [];
+
+    await expect(
+      setUserRevocationWatermark({
+        userId: 'agent-1',
+        cache: undefined,
+        logger: collectingLogger(logs),
+      }),
+    ).resolves.toBe(false);
+    expect(
+      logs.some(
+        (entry) =>
+          entry.message === 'auth.user_revocation.watermark_unavailable' &&
+          entry.meta?.['reason'] === 'cache_not_configured',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('isUserTokenRevoked', () => {
+  it('revokes tokens issued at or before the watermark and keeps newer ones', async () => {
+    const cache = new RecordingCache();
+    await cache.set(userRevocationWatermarkKey('agent-1'), 1_700_000_000, 60);
+
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: 1_699_999_999, cache }),
+    ).resolves.toBe(true);
+    // Exactly at the watermark: revoked (second-resolution `iat`).
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: 1_700_000_000, cache }),
+    ).resolves.toBe(true);
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: 1_700_000_001, cache }),
+    ).resolves.toBe(false);
+  });
+
+  it('accepts when the user has no watermark, no iat or no user id', async () => {
+    const cache = new RecordingCache();
+
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: 1_700_000_000, cache }),
+    ).resolves.toBe(false);
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: undefined, cache }),
+    ).resolves.toBe(false);
+    await expect(
+      isUserTokenRevoked({ userId: undefined, issuedAt: 1_700_000_000, cache }),
+    ).resolves.toBe(false);
+  });
+
+  it('tolerates a plain-string value written outside the cache helper', async () => {
+    const cache = new RecordingCache();
+    // Pre-feature/legacy writers may not JSON-encode the value.
+    cache.entries.set(userRevocationWatermarkKey('agent-1'), '1700000000');
+
+    await expect(
+      isUserTokenRevoked({ userId: 'agent-1', issuedAt: 1_699_999_999, cache }),
+    ).resolves.toBe(true);
+  });
+});
+
+describe('AgentService.verifyToken: per-user watermark', () => {
+  it('rejects a token minted before the watermark and accepts one minted after', async () => {
+    const h = createHarness();
+    const base = new Date('2026-11-05T12:00:00.000Z');
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(base);
+      const before = signFor(h.agent);
+
+      // Revocation two seconds later: `iat` is strictly older.
+      vi.setSystemTime(new Date(base.getTime() + 2_000));
+      await setUserRevocationWatermark({
+        userId: h.agent.id,
+        cache: h.cache,
+        at: new Date(base.getTime() + 2_000),
+      });
+
+      await expect(h.service.verifyToken(before)).rejects.toMatchObject({
+        code: 'AUTHENTICATION_ERROR',
+        httpStatus: 401,
+      });
+      expect(
+        h.logs.some(
+          (entry) =>
+            entry.message === 'agent.session.access_token_revoked' &&
+            entry.meta?.['reason'] === 'user_watermark',
+        ),
+      ).toBe(true);
+
+      // Same second as the watermark also counts as revoked (`iat <= watermark`).
+      const atWatermark = signFor(h.agent);
+      await expect(h.service.verifyToken(atWatermark)).rejects.toMatchObject({
+        code: 'AUTHENTICATION_ERROR',
+        httpStatus: 401,
+      });
+
+      // One second after the watermark the token is accepted again.
+      vi.setSystemTime(new Date(base.getTime() + 3_000));
+      const after = signFor(h.agent);
+      await expect(h.service.verifyToken(after)).resolves.toMatchObject({
+        agentId: h.agent.id,
+        tenantId: 'tenant-1',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('FAILS OPEN on a watermark cache outage: warns and accepts the token', async () => {
+    const h = createHarness();
+    const token = await loginToken(h);
+    h.cache.failGet = true;
+
+    await expect(h.service.verifyToken(token)).resolves.toMatchObject({
+      agentId: h.agent.id,
+    });
+
+    const warning = h.logs.find(
+      (entry) =>
+        entry.message === 'auth.user_revocation.watermark_unavailable' &&
+        entry.meta?.['reason'] === 'cache_read_failed',
+    );
+    expect(warning?.level).toBe('warn');
+    expect(warning?.meta).toMatchObject({ userId: h.agent.id });
+  });
+
+  it('accepts a legacy token without iat even when a watermark exists', async () => {
+    const h = createHarness();
+    await setUserRevocationWatermark({
+      userId: h.agent.id,
+      cache: h.cache,
+      at: new Date('2026-11-05T12:00:00.000Z'),
+    });
+
+    const legacy = jwt.sign(
+      {
+        email: 'admin@acme.test',
+        name: 'Ana Admin',
+        role: 'ADMIN',
+        tenantId: 'tenant-1',
+        isPlatformAdmin: false,
+      },
+      JWT_SECRET,
+      {
+        algorithm: 'HS256',
+        expiresIn: '1h',
+        issuer: 'sac-hub',
+        audience: 'sac-web',
+        subject: h.agent.id,
+        noTimestamp: true,
+      },
+    );
+
+    await expect(h.service.verifyToken(legacy)).resolves.toMatchObject({
+      agentId: h.agent.id,
+    });
   });
 });

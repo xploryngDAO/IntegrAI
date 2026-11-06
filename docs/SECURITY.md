@@ -112,7 +112,7 @@ anti-CSRF (double-submit ou sincronizador). Sem isso, **não** introduzir cookie
 | OAuth de marketplace | `state` assinado, com nonce, TTL 10 min, cache server-side, **single-use** (queimado antes do exchange) | `application/AccountService.ts` (`consumeState`) |
 | SSO OIDC | `state` assinado + cache single-use, `nonce` no ID token, PKCE S256 | `application/SsoAuthService.ts`, `application/sso/*` |
 | Refresh token | rotação com revogação atômica; replay de token revogado = 401 | `application/AuthSessionService.ts` |
-| Access JWT | denylist por `jti` no Redis: logout grava `sac:auth:deny:<jti>` com TTL = restante do token e `verifyToken` rejeita o replay (401) | `application/auth/access-token-revocation.ts` |
+| Access JWT | denylist por `jti` no Redis: logout grava `sac:auth:deny:<jti>` com TTL = restante do token e `verifyToken` rejeita o replay (401); revogação em massa por usuário via watermark `sac:auth:user:revoked:<userId>` (reset de senha e "logout everywhere") | `application/auth/access-token-revocation.ts` |
 
 ### 3.3 Enumeração de contas
 
@@ -233,6 +233,16 @@ destinatário no console (somente fora de produção). Ver seção 14.
   **fail-open** (warn + aceita) para uma indisponibilidade do Redis não
   derrubar a API; tokens antigos **sem `jti`** continuam válidos até `exp` e não
   são revogáveis individualmente (`application/auth/access-token-revocation.ts`).
+- **Revogação em massa (`reset` de senha e "logout everywhere"):** além do
+  denylist por `jti`, o Redis guarda um watermark por usuário
+  (`sac:auth:user:revoked:<userId>`, unix seconds, TTL 30 dias). `POST
+  /auth/reset-password` (após trocar a senha e revogar as sessões) e
+  `POST /auth/logout` **sem** `refreshToken` gravam `now`; `verifyToken` e o
+  handshake do socket rejeitam qualquer access token com `iat <= watermark`
+  (401), em todos os devices. `iat` tem resolução de 1 s: um login no mesmo
+  segundo da revogação é tratado como revogado (retry). A leitura também é
+  **fail-open** (warn + aceita até `exp`) e a escrita é best effort — o reset
+  nunca falha por causa do Redis (`application/auth/access-token-revocation.ts`).
 
 ### 3.9 Phishing de OAuth / SSO
 

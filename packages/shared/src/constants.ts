@@ -65,6 +65,14 @@ export const CACHE_KEYS = {
    * claim is a UUID minted by `signAccessToken`.
    */
   authAccessTokenDeny: (jti: string): string => `sac:auth:deny:${jti}`,
+  /**
+   * Per-user revocation watermark (unix seconds): every access token whose
+   * `iat` is at or before it is rejected, whichever device minted it. Written
+   * by `POST /auth/reset-password` and by "logout everywhere" (logout without a
+   * `refreshToken`). Checked by `AgentService.verifyToken` and by the realtime
+   * handshake. See `application/auth/access-token-revocation.ts`.
+   */
+  authUserRevocation: (userId: string): string => `sac:auth:user:revoked:${userId}`,
   /*
    * Enterprise SSO (OpenID Connect).
    *

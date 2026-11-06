@@ -27,7 +27,10 @@ import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
 import { requireAgent } from '../middleware/auth';
 import { toAgentRole } from '../mappers';
-import { denyAccessToken } from '../../application/auth/access-token-revocation';
+import {
+  denyAccessToken,
+  setUserRevocationWatermark,
+} from '../../application/auth/access-token-revocation';
 
 export interface AuthControllers {
   login: RouteHandler;
@@ -268,15 +271,18 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
     /**
      * `POST /auth/logout` - JWT required.
      *
-     * Revokes the session carried in the body, or every session of the operator
-     * when the body omits `refreshToken` ("logout everywhere"). It ALSO revokes
-     * the access token of the current request (P0): the JWT is stateless, so its
-     * `jti` is added to the Redis denylist for the remaining lifetime of the
-     * token, otherwise the presented bearer would keep working until `exp`.
+     * With `refreshToken` in the body: revokes only that session (current
+     * device) plus the access token of this request, whose `jti` is added to
+     * the Redis denylist for the remaining lifetime of the token.
+     *
+     * WITHOUT `refreshToken`: "logout everywhere". Revokes every refresh session
+     * of the operator and stamps the per-user revocation watermark (every access
+     * token minted before now is rejected on its next request, on every device),
+     * in addition to the `jti` denylist of the presented token.
      *
      * Always 204: an unknown session token is not an error, and a Redis failure
-     * on the denylist write is best effort (the refresh sessions are still
-     * revoked and the access token then survives only until its own `exp`).
+     * on either write is best effort (the refresh sessions are still revoked and
+     * the access tokens then survive only until their own `exp`).
      */
     async logout(request, reply) {
       const agent = requireAgent(request);
@@ -286,6 +292,14 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         await services.sessions.revoke(body.refreshToken, agent.id);
       } else {
         await services.sessions.revokeAllForUser(agent.id);
+
+        // Best effort by contract: `setUserRevocationWatermark` never throws.
+        await setUserRevocationWatermark({
+          userId: agent.id,
+          cache: services.cache,
+          logger: services.logger,
+          at: services.clock.now(),
+        });
       }
 
       // Best effort by contract: `denyAccessToken` never throws.

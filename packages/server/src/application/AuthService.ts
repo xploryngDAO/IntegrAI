@@ -20,6 +20,7 @@ import type {
 import { AppError, ConflictError, ValidationError } from '@sac/shared';
 
 import { hashToken, randomToken } from './auth/access-token';
+import { setUserRevocationWatermark } from './auth/access-token-revocation';
 import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { isUniqueConstraintViolation } from './repositories/errors';
 
@@ -42,7 +43,9 @@ import { isUniqueConstraintViolation } from './repositories/errors';
  *    invalidates previous reset tokens, stores SHA-256 with a 30 min TTL and
  *    mails the link; also limited to 3 requests / 15 min per e-mail (429).
  *  - `resetPassword`: validates hash + TTL + single use, re-hashes the password
- *    with bcrypt cost 12 and revokes every live session of the operator.
+ *    with bcrypt cost 12, revokes every live refresh session of the operator AND
+ *    stamps the per-user revocation watermark, so access tokens already issued
+ *    on any device die immediately instead of surviving until `exp`.
  *
  * Hashing/verification never leaks the password and every failure path returns
  * a stable `AppError.code` for the UI.
@@ -330,9 +333,23 @@ export class AuthService implements IAuthService {
     await this.passwordResets.invalidateUnused(agent.id, now);
     const revokedSessions = await this.sessions.revokeAllForUser(agent.id, now);
 
+    // Bulk access-token revocation: the refresh sessions above are only half of
+    // it - a stateless JWT would otherwise stay usable until `exp` on every
+    // device. The watermark is stamped with the instant of the revocation (not
+    // the request start: `bcrypt.hash` above can take a while) and is best
+    // effort by contract (`setUserRevocationWatermark` never throws).
+    const revocationAt = this.clock.now();
+    const watermarkSet = await setUserRevocationWatermark({
+      userId: agent.id,
+      cache: this.cache,
+      logger: this.logger,
+      at: revocationAt,
+    });
+
     this.logger.info('auth.password.reset_completed', {
       userId: agent.id,
       revokedSessions,
+      watermarkSet,
     });
   }
 

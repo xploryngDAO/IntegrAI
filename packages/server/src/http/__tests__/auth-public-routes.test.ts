@@ -4,6 +4,7 @@ import type { IAuthService, IAuthSessionService, ICache, ILogger } from '@sac/sh
 import { AppError } from '@sac/shared';
 
 import type { HttpRouteContext } from '../types';
+import { USER_REVOCATION_WATERMARK_TTL_SECONDS } from '../../application/auth/access-token-revocation';
 import { createAuthControllers } from '../controllers/auth.controller';
 import { isPublicRoute } from '../middleware/auth';
 
@@ -403,7 +404,7 @@ describe('public auth routes', () => {
     expect(revoke).toHaveBeenCalledWith('9'.repeat(96), 'agent-1');
   });
 
-  it('does not write the denylist for a legacy token without jti', async () => {
+  it('does not write the jti denylist for a legacy token without jti', async () => {
     const cache = new RecordingCache();
     const controllers = buildControllers(
       {} as IAuthService,
@@ -424,7 +425,77 @@ describe('public auth routes', () => {
     );
 
     expect(reply.statusCode).toBe(204);
-    expect(cache.entries.size).toBe(0);
+    // No `jti` to deny - but logout everywhere still stamps the user watermark.
+    expect([...cache.entries.keys()].some((key) => key.startsWith('sac:auth:deny:'))).toBe(false);
+    expect(cache.entries.get('sac:auth:user:revoked:agent-1')).toBe(
+      Math.floor(NOW.getTime() / 1000),
+    );
+  });
+
+  /* ====================================================================== */
+  /* Bulk revocation: logout without refreshToken is "logout everywhere"    */
+  /* ====================================================================== */
+
+  it('stamps the per-user watermark on logout everywhere (no refreshToken)', async () => {
+    const cache = new RecordingCache();
+    const revokeAllForUser = vi.fn(async () => 2);
+    const controllers = buildControllers(
+      {} as IAuthService,
+      { revoke: vi.fn(async () => true), revokeAllForUser } as unknown as IAuthSessionService,
+      cache,
+    );
+    const reply = fakeReply();
+
+    await controllers.logout(
+      fakeRequest(null, {
+        id: 'agent-1',
+        email: 'ana@acme.test',
+        name: 'Ana',
+        role: 'ADMIN',
+        tenantId: 'tenant-1',
+      }),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(revokeAllForUser).toHaveBeenCalledWith('agent-1');
+
+    const watermarkKey = 'sac:auth:user:revoked:agent-1';
+    expect(cache.entries.get(watermarkKey)).toBe(Math.floor(NOW.getTime() / 1000));
+    expect(cache.ttls.get(watermarkKey)).toBe(USER_REVOCATION_WATERMARK_TTL_SECONDS);
+  });
+
+  it('does NOT stamp the watermark when a refreshToken is present (single device)', async () => {
+    const cache = new RecordingCache();
+    const revoke = vi.fn(async () => true);
+    const controllers = buildControllers(
+      {} as IAuthService,
+      { revoke, revokeAllForUser: vi.fn(async () => 0) } as unknown as IAuthSessionService,
+      cache,
+    );
+    const reply = fakeReply();
+
+    await controllers.logout(
+      fakeRequest(
+        { refreshToken: '9'.repeat(96) },
+        {
+          id: 'agent-1',
+          email: 'ana@acme.test',
+          name: 'Ana',
+          role: 'ADMIN',
+          tenantId: 'tenant-1',
+          jti: 'jti-1',
+          tokenExpiresAt: Math.floor(NOW.getTime() / 1000) + 900,
+        },
+      ),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(revoke).toHaveBeenCalledWith('9'.repeat(96), 'agent-1');
+    // Only this token's jti is denied: other devices keep their access tokens.
+    expect(cache.entries.has('sac:auth:deny:jti-1')).toBe(true);
+    expect(cache.entries.has('sac:auth:user:revoked:agent-1')).toBe(false);
   });
 
   it('keeps logout 204 when the denylist write fails (best effort)', async () => {

@@ -195,12 +195,22 @@ function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-/** `forgotPassword`/`resetPassword` never touch the cache or the tenant repo. */
+/**
+ * `forgotPassword`/`resetPassword` only touch the cache to stamp the per-user
+ * revocation watermark, so this double records those writes and reads nothing
+ * back (a missing entry is exactly what the helper expects on the first reset).
+ */
 class NoopCache implements ICache {
+  readonly entries = new Map<string, unknown>();
+  failSet = false;
+
   async get<T>(): Promise<T | null> {
     return null;
   }
-  async set(): Promise<void> {}
+  async set(key: string, value: unknown): Promise<void> {
+    if (this.failSet) throw new Error('redis unavailable');
+    this.entries.set(key, value);
+  }
   async setNx(): Promise<boolean> {
     return true;
   }
@@ -259,6 +269,7 @@ function extractToken(link: string): string {
 
 function buildHarness() {
   const clock = new FakeClock(new Date('2026-03-01T09:00:00.000Z'));
+  const cache = new NoopCache();
   const agents = new InMemoryAgentRepository(clock);
   const passwordResets = new InMemoryPasswordResetRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
@@ -267,7 +278,7 @@ function buildHarness() {
   const auth = new AuthService({
     logger,
     clock,
-    cache: new NoopCache(),
+    cache,
     email,
     config: { webOrigin: 'https://app.test, http://localhost:5173', appBaseUrl: 'https://api.test' },
     repos: {
@@ -294,7 +305,7 @@ function buildHarness() {
     tenantId: 'tenant-1',
   });
 
-  return { clock, agents, passwordResets, sessions, email, auth, authSessions, agent };
+  return { clock, cache, agents, passwordResets, sessions, email, auth, authSessions, agent };
 }
 
 /* ==========================================================================
@@ -410,6 +421,29 @@ describe('AuthService.resetPassword', () => {
     for (const session of h.sessions.rows) {
       expect(session.revokedAt).toEqual(h.clock.now());
     }
+  });
+
+  it('stamps the per-user revocation watermark, killing access tokens from every device', async () => {
+    const h = buildHarness();
+    const token = await requestedReset(h);
+
+    h.clock.advance(5_000);
+    await h.auth.resetPassword(token, NEW_PASSWORD);
+
+    expect(h.cache.entries.get(`sac:auth:user:revoked:${h.agent.id}`)).toBe(
+      Math.floor(h.clock.now().getTime() / 1000),
+    );
+  });
+
+  it('keeps the reset successful when the watermark write fails (best effort)', async () => {
+    const h = buildHarness();
+    const token = await requestedReset(h);
+    h.cache.failSet = true;
+
+    await expect(h.auth.resetPassword(token, NEW_PASSWORD)).resolves.toBeUndefined();
+
+    // The password was changed and the sessions revoked despite the Redis error.
+    await expect(bcrypt.compare(NEW_PASSWORD, h.agents.rows[0].passwordHash)).resolves.toBe(true);
   });
 
   it('rejects an unknown token with 400 INVALID_RESET_TOKEN', async () => {

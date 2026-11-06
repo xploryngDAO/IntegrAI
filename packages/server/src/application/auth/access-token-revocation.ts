@@ -26,10 +26,46 @@ import type { ICache, ILogger } from '@sac/shared';
  * A token minted before this feature has no `jti`; it is accepted until `exp`
  * (rejecting it would log every operator out on deploy) but neither denied nor
  * revocable individually.
+ *
+ * ----------------------------------------------------------------------------
+ * Bulk revocation: per-user watermark (logout everywhere / password reset)
+ * ----------------------------------------------------------------------------
+ *
+ * The `jti` denylist covers one token. "Logout everywhere" and a password reset
+ * must invalidate every access token of an operator, including tokens on other
+ * devices whose `jti` was never presented to the API. For that we keep a single
+ * watermark per user (`sac:auth:user:revoked:<userId>`, unix seconds): any
+ * access token with `iat <= watermark` is rejected, tokens minted afterwards
+ * are accepted.
+ *
+ * Failure policy mirrors the denylist:
+ *
+ *  - WRITE: best effort. A Redis failure never fails the reset/logout (the
+ *    password was already changed and the refresh sessions were already
+ *    revoked); it is logged as `auth.user_revocation.watermark_write_failed`.
+ *  - READ: FAIL-OPEN. If the watermark cannot be read we log
+ *    `auth.user_revocation.watermark_unavailable` and accept the token until its
+ *    own `exp`. A Redis outage therefore widens the window in which a revoked
+ *    token is still usable; it never locks the whole API out (same reasoning as
+ *    the `jti` denylist and the login rate limiter).
+ *
+ * `iat` has one-second resolution: two tokens issued within the same second as
+ * the revocation are indistinguishable, and `iat <= watermark` deliberately
+ * resolves that ambiguity towards revocation (a login that lands in the same
+ * second may have to be retried). Accepting them would leave a one-second
+ * window in which a token minted just before the reset survives.
  */
 
 /** Only presence matters; the value is fixed so monitoring can assert it. */
 const DENY_VALUE = '1';
+
+/**
+ * How long the per-user watermark survives. It must outlive every access token
+ * it invalidates; 30 days (the refresh-token TTL) comfortably exceeds the
+ * access-token lifetime (`JWT_EXPIRES_IN`, default 1 h), so an expiring marker
+ * can never resurrect a token that is still alive.
+ */
+export const USER_REVOCATION_WATERMARK_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**
  * TTL used when the token has no `exp` claim. Tokens minted by
@@ -41,6 +77,11 @@ export const ACCESS_TOKEN_DENY_FALLBACK_TTL_SECONDS = 60 * 60;
 /** Redis key of the denylist entry for one access token. */
 export function accessTokenDenyKey(jti: string): string {
   return CACHE_KEYS.authAccessTokenDeny(jti);
+}
+
+/** Redis key of the per-user revocation watermark (unix seconds). */
+export function userRevocationWatermarkKey(userId: string): string {
+  return CACHE_KEYS.authUserRevocation(userId);
 }
 
 /**
@@ -143,6 +184,156 @@ function normalizeJti(value: string | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
   const jti = value.trim();
   return jti.length > 0 ? jti : undefined;
+}
+
+/* ==========================================================================
+ * Per-user watermark ("logout everywhere" / password reset)
+ * ========================================================================== */
+
+export interface SetUserRevocationWatermarkInput {
+  /** Operator whose access tokens are being invalidated. */
+  userId: string;
+  cache: ICache | undefined;
+  logger?: ILogger | undefined;
+  /** Revocation instant; defaults to `new Date()`, stored at second precision. */
+  at?: Date | undefined;
+  /** Override the marker TTL (tests/ops); defaults to 30 days. */
+  ttlSeconds?: number | undefined;
+}
+
+/**
+ * Stores "every access token of this user with `iat <= at` is revoked".
+ *
+ * Best effort: never throws. The watermark is best-effort monotonic - a write
+ * that would move it backwards (clock skew, an older revocation racing a newer
+ * one) is a no-op, so a completed reset can never un-revoke an earlier one.
+ * Under a true write race the two instants are within milliseconds of each
+ * other, so the window is negligible.
+ *
+ * @returns `true` only when the marker is at or ahead of the requested instant.
+ */
+export async function setUserRevocationWatermark(
+  input: SetUserRevocationWatermarkInput,
+): Promise<boolean> {
+  const userId = normalizeUserId(input.userId);
+  if (userId === undefined) return false;
+
+  const watermark = toUnixSeconds(input.at ?? new Date());
+  if (watermark === null) return false;
+
+  if (input.cache === undefined) {
+    input.logger?.warn('auth.user_revocation.watermark_unavailable', {
+      reason: 'cache_not_configured',
+      userId,
+    });
+    return false;
+  }
+
+  const key = userRevocationWatermarkKey(userId);
+  const ttlSeconds =
+    input.ttlSeconds !== undefined && input.ttlSeconds > 0
+      ? Math.ceil(input.ttlSeconds)
+      : USER_REVOCATION_WATERMARK_TTL_SECONDS;
+
+  try {
+    // Monotonic read-then-write. A read that fails is treated as a failed
+    // write (the marker is only useful when Redis is healthy).
+    const current = toUnixSeconds(await input.cache.get<number | string>(key));
+    if (current !== null && current >= watermark) {
+      input.logger?.info('auth.user_revocation.watermark_unchanged', {
+        userId,
+        watermark: current,
+      });
+      return true;
+    }
+
+    await input.cache.set(key, watermark, ttlSeconds);
+    input.logger?.info('auth.user_revocation.watermark_set', {
+      userId,
+      watermark,
+      ttlSeconds,
+    });
+    return true;
+  } catch (error) {
+    input.logger?.warn('auth.user_revocation.watermark_write_failed', {
+      userId,
+      watermark,
+      error: describeError(error),
+    });
+    return false;
+  }
+}
+
+export interface IsUserTokenRevokedInput {
+  /** `sub` (agent id) of the token being verified. */
+  userId: string | undefined;
+  /** `iat` claim in Unix seconds; absent on legacy/malformed tokens. */
+  issuedAt: number | undefined;
+  cache: ICache | undefined;
+  logger?: ILogger | undefined;
+}
+
+/**
+ * True when an access token was issued at or before the user's watermark.
+ *
+ * FAIL-OPEN on a cache error (see the module docs): the outage is logged and
+ * the token is accepted until its own `exp`. A token without `iat`, or a user
+ * without a watermark, is accepted.
+ */
+export async function isUserTokenRevoked(input: IsUserTokenRevokedInput): Promise<boolean> {
+  const userId = normalizeUserId(input.userId);
+  if (userId === undefined) return false;
+
+  const issuedAt = toUnixSeconds(input.issuedAt);
+  // A legacy token without `iat` cannot be compared: accept it until `exp`.
+  if (issuedAt === null) return false;
+
+  if (input.cache === undefined) {
+    input.logger?.warn('auth.user_revocation.watermark_unavailable', {
+      reason: 'cache_not_configured',
+      userId,
+    });
+    return false;
+  }
+
+  try {
+    const watermark = toUnixSeconds(
+      await input.cache.get<number | string>(userRevocationWatermarkKey(userId)),
+    );
+    if (watermark === null) return false;
+    return issuedAt <= watermark;
+  } catch (error) {
+    input.logger?.warn('auth.user_revocation.watermark_unavailable', {
+      reason: 'cache_read_failed',
+      userId,
+      error: describeError(error),
+    });
+    return false;
+  }
+}
+
+function normalizeUserId(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const userId = value.trim();
+  return userId.length > 0 ? userId : undefined;
+}
+
+/**
+ * Unix seconds from a `Date`/number/numeric string. Values written by older
+ * deployments (plain string instead of JSON) are tolerated; anything that is
+ * not a finite number is `null`.
+ */
+function toUnixSeconds(value: Date | number | string | null | undefined): number | null {
+  if (value instanceof Date) {
+    const millis = value.getTime();
+    return Number.isFinite(millis) ? Math.floor(millis / 1000) : null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value);
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? Math.floor(parsed) : null;
+  }
+  return null;
 }
 
 function describeError(error: unknown): string {

@@ -211,7 +211,7 @@ describe('access-token revocation (HTTP)', () => {
     }
   });
 
-  it('a token from a DIFFERENT session is not revoked by that logout', async () => {
+  it('logout WITH a refreshToken does not revoke the access token of another session', async () => {
     const h = await buildHarness();
     try {
       const first = await h.login();
@@ -224,9 +224,12 @@ describe('access-token revocation (HTTP)', () => {
         method: 'POST',
         url: '/api/v1/auth/logout',
         headers: { authorization: `Bearer ${first}`, 'content-type': 'application/json' },
-        payload: {},
+        // Single-device logout: no user watermark, only this session + this jti.
+        payload: { refreshToken: 'a'.repeat(96) },
       });
       expect(logout.statusCode).toBe(204);
+      expect(h.sessions.revoke).toHaveBeenCalledWith('a'.repeat(96), h.agentId);
+      expect(h.sessions.revokeAllForUser).not.toHaveBeenCalled();
 
       const revoked = await h.app.inject({
         method: 'GET',

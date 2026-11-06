@@ -2,7 +2,10 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketServer } from 'socket.io';
 import type { Socket } from 'socket.io';
 import { verify as verifyJwt } from 'jsonwebtoken';
-import { isAccessTokenDenied } from '../application/auth/access-token-revocation';
+import {
+  isAccessTokenDenied,
+  isUserTokenRevoked,
+} from '../application/auth/access-token-revocation';
 import { MARKETPLACES, type ICache } from '@sac/shared';
 import type {
   AgentPresenceEvent,
@@ -186,6 +189,20 @@ export function createRealtimeHub(options: RealtimeHubOptions): RealtimeHub {
 
       // Access tokens revoked by logout must not open realtime sessions.
       if (await isAccessTokenDenied({ jti: typeof decoded.jti === 'string' ? decoded.jti : undefined, cache: options.cache, logger: options.logger })) {
+        return null;
+      }
+
+      // Same per-user watermark as `AgentService.verifyToken`: "logout
+      // everywhere" and password reset also close realtime sessions opened with
+      // an older access token, not just new HTTP requests.
+      if (
+        await isUserTokenRevoked({
+          userId: agentId,
+          issuedAt: typeof decoded.iat === 'number' ? decoded.iat : undefined,
+          cache: options.cache,
+          logger: options.logger,
+        })
+      ) {
         return null;
       }
 

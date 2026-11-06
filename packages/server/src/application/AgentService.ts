@@ -32,7 +32,10 @@ import {
 } from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
-import { isAccessTokenDenied } from './auth/access-token-revocation';
+import {
+  isAccessTokenDenied,
+  isUserTokenRevoked,
+} from './auth/access-token-revocation';
 import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { signTwoFactorChallengeToken } from './auth/two-factor-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
@@ -313,6 +316,29 @@ export class AgentService implements IAgentService {
         this.logger.warn('agent.session.access_token_revoked', {
           agentId: decoded.sub,
           jti,
+        });
+        throw new AuthenticationError('Access token has been revoked');
+      }
+
+      // Bulk revocation (password reset / "logout everywhere"): one watermark
+      // per user invalidates every access token minted at or before it,
+      // including tokens from devices whose `jti` was never presented to the
+      // API. `iat <= watermark` is intentional: a token minted in the same
+      // second as the revocation is treated as revoked. Same FAIL-OPEN policy
+      // as the denylist when Redis is unavailable (see
+      // `access-token-revocation.ts`); a legacy token without `iat` is accepted
+      // until `exp`.
+      const userRevoked = await isUserTokenRevoked({
+        userId: decoded.sub,
+        issuedAt: typeof decoded.iat === 'number' ? decoded.iat : undefined,
+        cache: this.cache,
+        logger: this.logger,
+      });
+      if (userRevoked) {
+        this.logger.warn('agent.session.access_token_revoked', {
+          agentId: decoded.sub,
+          reason: 'user_watermark',
+          ...(typeof decoded.iat === 'number' ? { issuedAt: decoded.iat } : {}),
         });
         throw new AuthenticationError('Access token has been revoked');
       }
