@@ -132,12 +132,13 @@ Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação 
 
 ## Demo alternativa (GitHub Pages)
 
-O branch **`gh-pages`** está publicado com o build atual (`index-7e5sbE_A.js`, base `/IntegrAI/`, router com
-`basename` e API resolvida em runtime). Para ativar (uma vez): **Settings → Pages → Source:
-Deploy from a branch → `gh-pages` / root**. URL: <https://xploryngdao.github.io/IntegrAI/>.
-O CORS da API já autoriza essa origem. Validado localmente servindo o build em `/IntegrAI/`
-(landing renderiza, assets carregam, sem erros de página). O caminho principal continua sendo o
-deploy da Vercel + stack self-hosted.
+**Ativo e automático**: <https://xploryngdao.github.io/IntegrAI/>. O GitHub Pages
+está configurado como **Deploy from a branch → `gh-pages`**, e o workflow
+`Pages demo` republica esse branch **a cada push na main** (base `/IntegrAI/`,
+router com `basename`, API resolvida em runtime). Bundle atual
+`index-71ZH7xD_.js`; Lighthouse 98/100/100/100, axe 21/21 e login validado na
+origem do Pages (CORS já autorizado). O caminho principal continua sendo a
+Vercel + stack self-hosted.
 
 ## Performance
 
