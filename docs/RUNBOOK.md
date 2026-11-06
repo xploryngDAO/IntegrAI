@@ -109,3 +109,60 @@ Defina MAINTENANCE_MODE=true no ambiente da API e reinicie: todas as rotas /api/
 - [ ] Mensal: drill de restore; `npm audit --omit=dev`; revisão de acessos ADMIN
 - [ ] Trimestral: rotação de segredos; revisão de DPAs/ROPA (LGPD)
 - [ ] Anual: pentest; tabletop de incidente
+
+## 10. Publicação do SPA e runtime-config
+
+- **Deploy normal:** `npx vercel --prod --yes` (cota free: 100 deploys/24 h).
+  Quando a cota bloqueia (`Resource is limited`), o SPA atual continua no ar;
+  use o fallback `gh-pages` ou agende o redeploy.
+- **Sem redeploy:** o SPA resolve a API em boot por
+  `apps/web/runtime-config.json` (raw GitHub). Trocar API/túnel:
+  `node scripts/tunnel-sync.mjs <https://api>` → commit do JSON. O bundle
+  publicado passa a usar o novo host no próximo carregamento.
+- **Quem está no ar:** `curl -s https://<spa>/ | grep assets/index-` e
+  `GET /api/v1/version` (commit via `GIT_SHA`).
+- **Validação rápida:** `node scripts/host-check.mjs --api=... --web=...` e
+  Lighthouse nas páginas públicas; `npm run test:live:all` para bateria completa.
+
+## 11. Rate limit durante validações (429 falso)
+
+A bateria `test:live:all` dispara muitos logins do mesmo operador/IP; a API
+(corretamente) responde 429 no meio. Em ambiente local/dev:
+
+```bash
+# limpar buckets (login, 2FA e desafios)
+docker exec sac-redis sh -c "redis-cli --scan --pattern 'sac:auth:*attempts*' | while read k; do redis-cli DEL \"$k\"; done"
+
+# A própria bateria limpa entre etapas:
+node scripts/live-all.mjs --reset-login-limit
+```
+
+Em produção, espere a janela de 15 min. Nunca desative o rate limit para
+"fazer o teste passar": ele é controle anti-bruteforce.
+
+## 12. SSO: rotação de JWKS com o mesmo `kid`
+
+Sintoma: callback do SSO volta com `?error=SSO_TOKEN_INVALID` e o log traz
+`auth.sso.id_token.rejected {"reason":"signature"}`. Alguns IdPs (e o stub de
+teste ao reiniciar) rotacionam a chave **mantendo o mesmo `kid`**.
+
+O `OidcClient` já refaz o fetch do JWKS **uma vez** quando a assinatura falha
+(correção validada por teste unitário e E2E de SSO pela UI). Se persistir:
+
+1. confira `jwks_uri`/`issuer` no discovery do IdP;
+2. confira o `kid` do token contra o JWKS publicado;
+3. como último recurso, reinicie a API para limpar o cache de JWKS.
+
+## 13. Gitleaks: falso positivo novo
+
+O scan usa o histórico completo; um texto de documentação/teste pode casar com
+`generic-api-key`. Procedimento:
+
+```bash
+docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect \
+  --source /repo --gitleaks-ignore-path /repo --exit-code 0 \
+  --report-format json --report-path /repo/.gitleaks-report.json
+# adicione <commit>:<file>:<rule>:<line> ao .gitleaksignore e reescaneie
+```
+
+Só ignore após confirmar que o valor é fixture/documentação, nunca um segredo real.
