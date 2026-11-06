@@ -14,7 +14,7 @@ jobs:
         run: |
           curl -fsSLO https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_linux_amd64.tar.gz
           tar xzf actionlint_1.7.11_linux_amd64.tar.gz actionlint
-          ./actionlint -color never .github/workflows/*.yml
+          ./actionlint .github/workflows/*.yml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
