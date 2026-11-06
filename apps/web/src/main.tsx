@@ -30,9 +30,13 @@ async function bootstrap(): Promise<void> {
   await loadRuntimeConfig();
   applyRuntimeApiBase();
 
+  // GitHub Pages serves the SPA under `/IntegrAI/`; Vite exposes that as
+  // BASE_URL, so the router must strip it before matching routes.
+  const basename = import.meta.env.BASE_URL.replace(/\/+$/, '') || '/';
+
   ReactDOM.createRoot(container).render(
     <React.StrictMode>
-      <BrowserRouter>
+      <BrowserRouter basename={basename}>
         <ThemeRoot>
           <App />
         </ThemeRoot>

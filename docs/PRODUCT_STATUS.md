@@ -132,7 +132,12 @@ Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação 
 
 ## Demo alternativa (GitHub Pages)
 
-Enquanto a cota free da Vercel estiver esgotada, o workflow Pages demo publica o SPA em https://xploryngdao.github.io/IntegrAI/ (base /IntegrAI/, API via envs). Requer habilitar uma vez em **Settings -> Pages -> Source: GitHub Actions** e rodar o workflow manualmente (o token do Actions nao consegue habilitar Pages sozinho). O caminho principal de producao continua sendo o stack self-hosted.
+O branch **`gh-pages`** já está publicado com o build mais recente (base `/IntegrAI/`, router com
+`basename` e API resolvida em runtime). Para ativar (uma vez): **Settings → Pages → Source:
+Deploy from a branch → `gh-pages` / root**. URL: <https://xploryngdao.github.io/IntegrAI/>.
+O CORS da API já autoriza essa origem. Validado localmente servindo o build em `/IntegrAI/`
+(landing renderiza, assets carregam, sem erros de página). O caminho principal continua sendo o
+deploy da Vercel + stack self-hosted.
 
 ## Performance
 
