@@ -1,27 +1,45 @@
 name: Pages demo
 
-# Publica o SPA no GitHub Pages como demo temporária enquanto a Vercel está
-# limitada por cota. O backend continua no túnel/API configurado nas envs.
+# Publica o SPA no GitHub Pages (branch gh-pages) a cada push na main. O Pages
+# está configurado como "Deploy from a branch" -> gh-pages; este workflow só
+# mantém o branch com o bundle atual (o backend continua na API/túnel).
+#
+# Roda também manualmente (workflow_dispatch).
 
 on:
-  # Manual only: GitHub Pages must be enabled once in Settings → Pages →
-  # Source "GitHub Actions" (the workflow token cannot enable it reliably).
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
+# Force-push do branch gh-pages exige contents: write.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: pages-demo
   cancel-in-progress: true
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Endpoints públicos atuais. O SPA também lê runtime-config.json no boot;
+      # estes valores são o fallback *bakeado* para o domínio do Pages.
+      VITE_BASE_PATH: /IntegrAI/
+      VITE_API_BASE_URL: https://growth-voters-independent-rca.trycloudflare.com/api/v1
+      VITE_WS_URL: https://growth-voters-independent-rca.trycloudflare.com
     steps:
       - uses: actions/checkout@v7
+        with:
+          # O push do gh-pages roda no mesmo repositório.
+          persist-credentials: true
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -29,28 +47,27 @@ jobs:
       - run: npm ci
       - run: npm run build:shared
       - name: Build SPA for /IntegrAI/
-        env:
-          VITE_BASE_PATH: /IntegrAI/
-          VITE_API_BASE_URL: https://growth-voters-independent-rca.trycloudflare.com/api/v1
-          VITE_WS_URL: https://growth-voters-independent-rca.trycloudflare.com
         run: npm run build --workspace @sac/web
       - name: SPA fallback for Pages
         run: |
           cp apps/web/dist/index.html apps/web/dist/404.html
           touch apps/web/dist/.nojekyll
-      - uses: actions/configure-pages@v6
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: apps/web/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Publish gh-pages branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf /tmp/pages
+          mkdir -p /tmp/pages
+          cp -a apps/web/dist/. /tmp/pages/
+          git checkout --orphan gh-pages
+          git rm -rf . >/dev/null 2>&1 || true
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -a /tmp/pages/. .
+          git add -A -f
+          if git diff --cached --quiet; then
+            echo "gh-pages já está atualizado"
+            exit 0
+          fi
+          git commit -m "deploy: SPA GitHub Pages (${GITHUB_SHA::7})"
+          git push --force origin gh-pages
