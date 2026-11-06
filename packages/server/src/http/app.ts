@@ -329,7 +329,11 @@ export async function buildHttpApp(
     const path = request.url.split('?')[0] ?? '';
     if (isGlobalRateLimitExemptPath(path)) return;
     await globalLimiter.assertAllowed(
-      { bucket: 'http.global', limit: 600, windowSeconds: 60 },
+      {
+        bucket: 'http.global',
+        limit: options.rateLimitGlobalPerMinute ?? 1_800,
+        windowSeconds: 60,
+      },
       `sac:http:global:${request.ip}`,
     );
   });

@@ -1022,7 +1022,16 @@ gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .git
 - semgrep --config=p/security-audit em packages/server/src (2026-11-06): **14 achados, todos em arquivos de teste** (segredos JWT de fixture); **0 em codigo de producao**.
 - Regra relevante: jwt-hardcode — fixtures usam valores explicitos de proposito (nunca segredos reais); o gitleaks cobre vazamentos no historico.
 
-## 16. Code scanning (CodeQL)
+## 16. Rate limit global (`RATE_LIMIT_GLOBAL_PER_MINUTE`)
+
+O escudo por IP roda em toda rota exceto probes/`status`/metrics. Default
+**1800 req/min** (~30/s): escritórios atrás de um NAT único não tomam 429 em
+bursts normais; login/2FA/SSO continuam com buckets próprios bem mais estritos.
+Ajuste por ambiente em `docker-compose.prod.yml` (`.env.prod`):
+`RATE_LIMIT_GLOBAL_PER_MINUTE=1800`. Medição: ver `PERFORMANCE.md`
+(1763 requests, 0 respostas 429, p99 130 ms).
+
+## 17. Code scanning (CodeQL)
 
 Workflow `codeql.yml` (semanal + workflow_dispatch) analisa `javascript-typescript`
 com `security-extended`. Triagem inicial (2026-11-06): **30 alertas**, sendo:

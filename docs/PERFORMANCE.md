@@ -106,3 +106,16 @@ Resultado no GitHub Pages: **Performance 100 · A11y 100 · BP 100 · SEO 100**.
 
 3/3 dentro do alvo (LCP ≤ 2,5 s · CLS ≤ 0,1). O TTFB maior vem do CDN do
 Pages; o cache de vendor + imagens WebP mantêm o LCP abaixo de 1 s.
+
+## Carga autenticada (2026-11-06)
+
+`autocannon -c 10 -d 10` em `GET /api/v1/tickets?page=1&perPage=20` com Bearer:
+
+| Limite global por IP | RPS | p99 | 200 | 429 |
+|---|---|---|---|---|
+| 600/min (anterior) | 233 | 104 ms | 599 | 1731 |
+| **1800/min (novo default)** | **176** | **130 ms** | **1763** | **0** |
+
+O limite de 600/min (10 req/s) derrubava um time atrás do mesmo NAT; o novo
+default (`RATE_LIMIT_GLOBAL_PER_MINUTE=1800`, ~30 req/s) absorve o burst sem
+429, mantendo os buckets estritos nos endpoints de autenticação.

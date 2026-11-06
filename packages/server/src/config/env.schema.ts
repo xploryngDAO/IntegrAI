@@ -267,6 +267,13 @@ export const envSchema = z.object({
   RL_AMAZON_RDT_PER_SECOND: numberFromEnv(1),
   RL_MELI_PER_SECOND: numberFromEnv(10),
   RL_SHOPEE_PER_SECOND: numberFromEnv(5),
+  /**
+   * Global per-IP HTTP shield (all routes except probes/status/metrics).
+   * Default 1800/min (~30 req/s) — a support team behind one corporate NAT can
+   * legitimately burst above the old 600/min. Auth endpoints keep their own
+   * stricter buckets on top of this.
+   */
+  RATE_LIMIT_GLOBAL_PER_MINUTE: intFromEnv(1_800, 60, 100_000),
 
   /* ---------------------------- SLA / retention --------------------------- */
   SLA_SCAN_CRON: stringFromEnv('*/1 * * * *'),

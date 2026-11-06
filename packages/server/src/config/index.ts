@@ -29,6 +29,12 @@ export interface AppConfig extends ChannelRuntimeConfig {
    */
   trustProxy: TrustProxySetting;
   /**
+   * Global per-IP HTTP shield in requests/minute (`RATE_LIMIT_GLOBAL_PER_MINUTE`,
+   * default 1800). Keeps offices behind a single NAT from tripping the shield
+   * while auth routes keep their stricter buckets.
+   */
+  rateLimitGlobalPerMinute: number;
+  /**
    * Prometheus scrape secret (`METRICS_TOKEN`). When unset, `GET /api/v1/metrics`
    * answers 404; when set, the route requires the bearer/`x-metrics-token`.
    */
@@ -204,6 +210,7 @@ function buildConfig(env: Env): AppConfig {
     jwtSecret: env.JWT_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     trustProxy: env.TRUST_PROXY,
+    rateLimitGlobalPerMinute: env.RATE_LIMIT_GLOBAL_PER_MINUTE,
     metricsToken: env.METRICS_TOKEN,
     maintenanceMode: env.MAINTENANCE_MODE,
     maintenanceMessage: env.MAINTENANCE_MESSAGE,

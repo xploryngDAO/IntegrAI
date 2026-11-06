@@ -57,6 +57,13 @@ export interface HttpServerOptions {
    */
   trustProxy?: boolean | string[];
   /**
+   * Global per-IP HTTP shield in requests/minute (all routes except the
+   * probes/status/metrics). Defaults to 1800 (~30 req/s), so an office behind
+   * one corporate NAT does not trip the shield during normal bursts; the auth
+   * routes keep their own stricter buckets on top of it.
+   */
+  rateLimitGlobalPerMinute?: number;
+  /**
    * Prometheus scrape token (`METRICS_TOKEN`).
    *
    * `undefined`/empty disables `GET /api/v1/metrics` (404). When set, the route

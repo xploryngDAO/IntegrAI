@@ -62,6 +62,7 @@ async function bootstrap(): Promise<void> {
       appBaseUrl: config.appBaseUrl,
       logger: infra.logger,
       trustProxy: config.trustProxy,
+      rateLimitGlobalPerMinute: config.rateLimitGlobalPerMinute,
       metricsToken: config.metricsToken,
       maintenanceMode: config.maintenanceMode,
       maintenanceMessage: config.maintenanceMessage,
