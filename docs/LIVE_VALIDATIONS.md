@@ -713,3 +713,11 @@ repo split chunks (react/convergencia/icons) -> bundle principal ~243 KiB
 https://xploryngdao.github.io/IntegrAI/ -> PERF 100 · A11Y 100 · BP 100 · SEO 100
 Pages demo + pages build and deployment automaticos a cada push na main
 ```
+
+### 78. Ciclo de alerta do monitor de uptime (fim a fim)
+```
+issue de teste "[ops] Produção indisponível" criada (issue #12)
+workflow_dispatch do uptime.yml -> run success
+monitor: producao 200 -> comentou a recuperacao e fechou a issue automaticamente
+estado final: #12 closed, 1 comentario; nenhum incidente pendente
+```
