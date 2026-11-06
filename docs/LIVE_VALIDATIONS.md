@@ -596,3 +596,11 @@ signup+convite API, signup/convite/reset/2FA pela UI, a11y 10 telas)
 Flags: limpa sac:auth:*attempts* via docker (Redis local) para evitar 429 falso entre etapas
 Mailpit: scripts consultam limit=250 (volume de testes) e o policy-test limpa tenant no catch
 ```
+
+### 60. Deploy do boot anonimo: Lighthouse 100/100/100/100
+```
+Production: https://integrai-dtqahc16w-xploryngdaos-projects.vercel.app
+Alias:      https://integrai-dev.vercel.app (bundle assets/index-Bu0J8DDm.js)
+Lighthouse: Performance 100 · A11y 100 · Best-practices 100 · SEO 100
+errors-in-console: 0 itens (sem 401 anonimo); a11y axe: 10/10 telas; verify-live exit 0
+```
