@@ -79,7 +79,7 @@ jobs:
       - name: Start API
         run: |
           nohup node packages/server/dist/index.js > api.log 2>&1 &
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4000/api/v1/health > /dev/null; then
               echo "API ready"; exit 0
             fi
@@ -102,7 +102,7 @@ jobs:
         run: |
           cd apps/web
           nohup npx vite preview --host 127.0.0.1 --port 4173 --strictPort > ../web.log 2>&1 &
-          for i in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then
               echo "web ready"; exit 0
             fi
