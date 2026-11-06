@@ -1,0 +1,19 @@
+# HTTPS automático (Let's Encrypt) para o stack self-hosted.
+# Requer DOMAIN apontando para o host e portas 80/443 abertas.
+# Suba com: docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tls up -d
+{$DOMAIN} {
+	encode gzip
+
+	# Mesmo contrato de segurança dos outros edge (SPA + proxy same-origin).
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# A SPA e o proxy /api, /socket.io e /webhooks vivem no serviço web (nginx).
+	reverse_proxy web:80
+}
