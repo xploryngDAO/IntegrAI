@@ -11,9 +11,14 @@ concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: probes and scans only read the repository.
+permissions:
+  contents: read
+
 jobs:
   security-probe:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
