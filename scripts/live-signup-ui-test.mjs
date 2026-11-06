@@ -95,6 +95,33 @@ async function main() {
   }));
   check('login do novo ADMIN pela UI', typeof session.token === 'string' && session.token.length > 100, session.url);
 
+  // The signup flow must land on the guided onboarding (first-run experience).
+  try {
+    await page.waitForFunction(
+      () =>
+        /boas-vindas/i.test(document.body.innerText) && /conecte as lojas/i.test(document.body.innerText),
+      { timeout: 20_000 },
+    );
+  } catch {
+    /* assertion below reports the failure */
+  }
+  const onboarding = await page.evaluate(() => ({
+    steps: /boas-vindas/i.test(document.body.innerText) && /conecte as lojas/i.test(document.body.innerText),
+    firstStep: /primeiros passos/i.test(document.body.innerText),
+    text: document.body.innerText.slice(0, 400),
+    overflow: document.documentElement.scrollWidth > window.innerWidth,
+  }));
+  check(
+    'onboarding de primeiro acesso',
+    onboarding.steps && onboarding.firstStep,
+    `${session.url} · steps=${onboarding.steps} first=${onboarding.firstStep} text=${String(onboarding.text ?? '').replace(/\s+/g, ' ').slice(0, 120)}`,
+  );
+  check('onboarding sem overflow horizontal', !onboarding.overflow);
+  await page.setViewport({ width: 390, height: 844 });
+  await sleep(1200);
+  await page.screenshot({ path: 'screenshots/onboarding-step1.png' });
+  await page.setViewport({ width: 1440, height: 900 });
+
   // Cleanup through the API (same account): tenant profile, soft delete, purge.
   const profile = await page.evaluate(async (api, token) => {
     const response = await fetch(`${api}/api/v1/tenants/me`, { headers: { authorization: `Bearer ${token}` } });

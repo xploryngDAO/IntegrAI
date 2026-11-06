@@ -383,10 +383,10 @@ GET no link -> 200 (SPA do deploy publico serve /reset-password)
 ```
 signup em https://integrai-dev.vercel.app/signup -> "Verifique seu e-mail"
 e-mail real (Mailpit) com link https://integrai-dev.vercel.app/verify-email?token=...
-verificacao abre a pagina publicada; login pela UI -> /onboarding
+verificacao abre a pagina publicada; login pela UI -> /onboarding ("Primeiros passos", passo 1, "Conecte as lojas")
 GET /tenants/me (token da sessao) -> slug do workspace criado
 soft delete (202) + purge (200); 0 residuos; sem erros de runtime no console
-8/8 (npm run test:live-signup-ui)
+10/10 (npm run test:live-signup-ui; inclui onboarding do primeiro acesso)
 ```
 
 ### 36. Console e settings na producao (bundle publicado)
