@@ -983,3 +983,8 @@ npm run build:server
 - Documentos internos: `docs/PHASE1_AUTH.md` (rate limits e sessões),
   `docs/PHASE4_BACKUP_RESTORE.md` (backups com PII), `docs/API_CONTRACT.md`
   (webhooks), `docs/SETUP_PRODUCTION.md` (variáveis e deploy).
+
+### Prisma 7 (06/11/2026)
+
+Migrado para **Prisma 7.10.1** (prisma.config.ts, generator prisma-client, driver adapter @prisma/adapter-pg). Resultado: 
+pm audit --omit=dev = **0 vulnerabilidades de producao**; restam apenas advisories dev-only na cadeia de testes (vitest/vite/s3rver).
