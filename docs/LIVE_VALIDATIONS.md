@@ -75,7 +75,21 @@ GET  /platform/tenants?search=<slug> → 0 (removido fisicamente)
 - `sellercentral.amazon.com.br` → landing de vendedor (sem sessão)
 - Conclusão: criar os apps exige suas contas; a plataforma já entrega valores copiáveis em `/setup` e os comandos `setup:assistant`/`setup:apply`.
 
-### 8. Rate limit observado ao vivo
+### 8. SSO OIDC ponta a ponta (`npm run test:live-sso`)
+Com um provedor OIDC local de teste (`scripts/oidc-stub.mjs`, RSA/JWKS reais):
+```
+PUT /tenants/me/sso (issuer local, client stub, domínio integrai.test)
+discover → 200 · start → 302 IdP · authorize → 302 callback
+callback → 302 SPA com code one-time · exchange → 200 (JIT role AGENT)
+replay do code → 401 · usuário no tenant correto · cleanup
+10/10 verificações passaram
+```
+
+### 9. Rate limit global por IP (HTTP)
+605 requisições rápidas a uma rota inexistente: `{"401":598,"429":7}` — bloqueio após
+600/min por IP; chaves de teste limpas no Redis local; `/health` e `/status` isentos.
+
+### 10. Rate limit observado ao vivo
 Após várias tentativas de login nos testes, a API respondeu `429 RATE_LIMITED` com
 `details.bucket=auth.login` e `retryAfterMs` (~7,5 min restantes) — comportamento esperado.
 No ambiente local as chaves `sac:auth:login:attempts:*` foram limpas no Redis para
