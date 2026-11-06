@@ -1493,7 +1493,11 @@ body {
 .sac-user__item:hover,
 .sac-user__item:focus-visible {
   background: var(--cv-color-surface-subtle);
-  outline: none;
+}
+
+.sac-user__item:focus-visible {
+  outline: 2px solid var(--cv-color-accent);
+  outline-offset: -2px;
 }
 
 .sac-user__item[data-danger='true'] {
@@ -2479,7 +2483,11 @@ body {
 .sac-quiet-link:hover,
 .sac-quiet-link:focus-visible {
   background: var(--cv-color-surface-subtle);
-  outline: none;
+}
+
+.sac-quiet-link:focus-visible {
+  outline: 2px solid var(--cv-color-accent);
+  outline-offset: -2px;
 }
 
 .sac-quiet-link .cv-icon {

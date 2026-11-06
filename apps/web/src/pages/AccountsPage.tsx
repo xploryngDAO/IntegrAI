@@ -273,7 +273,7 @@ export function AccountsPage(): JSX.Element {
                         setModalMarketplace(marketplace);
                         setConnectMenuOpen(false);
                       }}
-                      className="flex w-full items-center gap-2 rounded-[var(--cv-radius-small)] px-2.5 py-2 text-left text-[var(--cv-font-meta)] hover:bg-[var(--cv-color-surface-subtle)] focus-visible:outline-none"
+                      className="flex w-full items-center gap-2 rounded-[var(--cv-radius-small)] px-2.5 py-2 text-left text-[var(--cv-font-meta)] hover:bg-[var(--cv-color-surface-subtle)] focus-visible:bg-[var(--cv-color-surface-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                     >
                       <span
                         className="h-2 w-2 rounded-full"

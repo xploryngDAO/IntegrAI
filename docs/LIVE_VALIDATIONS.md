@@ -483,3 +483,11 @@ Removidos s3rver (nao usado) e vitest2/vite5; agora vitest 4.1.12 + vite 6.4.5 (
 fonte: GET /version publico; falha na consulta nao esconde o snapshot de disponibilidade
 a11y: 10/10 telas com 0 violacoes apos a mudanca
 ```
+
+### 47. Revisao Web Interface Guidelines (foco, viewport, theme-color)
+```
+Focus visivel: itens de menu (usuario/quiet link) e "Conectar loja" com outline/ring
+   em :focus-visible (antes outline:none sem substituto)
+viewport-fit=cover + theme-color claro (#f3f5fc) e escuro (#182039) por prefers-color-scheme
+a11y 10/10 telas com 0 violacoes; tsc/build 0
+```
