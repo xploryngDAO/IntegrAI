@@ -578,3 +578,11 @@ login com nova senha -> sessao; senha antiga -> 401
 cleanup: soft delete 202 + purge 200; 0 residuos; sem erros de runtime
 10/10 (npm run test:live-reset-ui)
 ```
+
+### 57. Landing anonima sem chamadas 401 (console limpo)
+```
+Boot anonimo: probeSession nao chama /auth/me quando nao ha token/refresh; App nao roda
+boot() (agents/accounts/health/me) sem sessao -> 0 erros de console na landing
+Lighthouse local: a11y 100, best-practices 100, console items 0
+Auth continua ok: a11y 10/10 + UI smoke 7/7 (build hermetico)
+```

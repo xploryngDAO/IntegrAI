@@ -7,6 +7,7 @@ import {
   MAINTENANCE_ERROR_CODE,
   MAINTENANCE_EVENT,
   MAINTENANCE_RETRY_AFTER_SECONDS,
+  currentRefreshToken,
   hasAuthToken,
   type MaintenanceEventDetail,
 } from './lib/api';
@@ -231,6 +232,12 @@ export default function App(): JSX.Element {
     async function resolveSession(): Promise<void> {
       try {
         await probeSession();
+        // Anonymous visitor: no session to restore, so do not call the
+        // authenticated workspace endpoints (they would 401 in the console).
+        if (!hasAuthToken() && currentRefreshToken() === null) {
+          if (active) setAuthState('anonymous');
+          return;
+        }
         await boot();
         if (active) setAuthState('authenticated');
       } catch (error) {

@@ -14,7 +14,7 @@
  */
 import { flushSync } from 'react-dom';
 
-import { api, ApiClientError, clearSessionTokens, currentRefreshToken } from './api';
+import { api, ApiClientError, clearSessionTokens, currentRefreshToken, hasAuthToken } from './api';
 import { resetWorkspaceSession, useWorkspace } from './store';
 
 /* ==========================================================================
@@ -31,6 +31,13 @@ let sessionProbe: Promise<void> | null = null;
  */
 export function probeSession(): Promise<void> {
   if (sessionProbe === null) {
+    // Anonymous visitor: there is nothing to probe. Calling `/auth/me` anyway
+    // would log a failed 401 resource in the console on the public landing,
+    // which pollutes the console (and Lighthouse best-practices).
+    if (!hasAuthToken() && currentRefreshToken() === null) {
+      sessionProbe = Promise.resolve();
+      return sessionProbe;
+    }
     sessionProbe = api.me().then((agent) => {
       useWorkspace.setState({ currentAgent: agent });
     });
