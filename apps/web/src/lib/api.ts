@@ -61,9 +61,12 @@ import type {
   PlatformCheckoutResult,
   PlatformMetrics,
   PlatformTenant,
+  PlatformTenantBackup,
   PlatformTenantBillingResult,
   PlatformTenantBillingUpdate,
+  PlatformTenantDeleteResult,
   PlatformTenantMetrics,
+  PlatformTenantPurgeResult,
   PlatformTenantQuery,
   PlatformTenantUpdate,
   PolicyCheckBody,
@@ -1033,6 +1036,35 @@ export interface ApiClient {
   ): Promise<PlatformTenant | null>;
   /** Per-tenant metrics of the console (`GET /platform/tenants/:id/metrics`). */
   platformTenantMetrics(id: string): Promise<PlatformTenantMetrics>;
+  /**
+   * `POST /platform/tenants/:id/backup` (platform admin) — collects the whole
+   * workspace, writes the JSON artifact to S3 and answers its pointer, size and
+   * per-table counts. The artifact never carries credentials/tokens.
+   *
+   * `502` is a storage failure (the index row is only written after the object
+   * is stored), `404` an unknown tenant and `409` a workspace whose state does
+   * not allow a backup.
+   */
+  createPlatformTenantBackup(id: string): Promise<PlatformTenantBackup>;
+  /**
+   * `GET /platform/tenants/:id/backups` (platform admin) — index rows, newest
+   * first. Entries that are not objects are dropped; the UI renders at most the
+   * 5 most recent ones.
+   */
+  listPlatformTenantBackups(id: string): Promise<PlatformTenantBackup[]>;
+  /**
+   * `DELETE /platform/tenants/:id` (platform admin) — soft delete with no
+   * password: revokes every session and marks the workspace `DELETED`.
+   * `409 TENANT_ALREADY_DELETED` means there is nothing left to delete.
+   * Physical deletion is a separate `purgePlatformTenant` call.
+   */
+  deletePlatformTenant(id: string): Promise<PlatformTenantDeleteResult>;
+  /**
+   * `POST /platform/tenants/:id/purge` (platform admin) — physical LGPD delete,
+   * allowed only for an already soft-deleted workspace. Answers the per-table
+   * counts of the rows removed (and the S3 objects handled).
+   */
+  purgePlatformTenant(id: string): Promise<PlatformTenantPurgeResult>;
   /** Active operational alerts (`GET /platform/alerts`). */
   platformAlerts(): Promise<PlatformAlert[]>;
   /** Platform billing summary (`GET /platform/billing/summary`). */
@@ -1512,6 +1544,97 @@ function normalizeEnrollVerify(payload: unknown): TwoFactorEnrollResult {
     token: asTextOrNull(session.token) ?? '',
     refreshToken: asTextOrNull(session.refreshToken) ?? undefined,
     recoveryCodes: textList(raw.recoveryCodes),
+  };
+}
+
+/* ==========================================================================
+ * Platform operations (backup / soft delete / purge)
+ *
+ * The routes are newer than some deployments the SPA may talk to, so every
+ * field is read defensively: absent/invalid values become `null` (rendered as
+ * "—") and an unknown `counts` shape becomes `{}`. Nothing is invented.
+ * ========================================================================== */
+
+/** Non-negative integer or `null` — absent/invalid stays unknown, never `0`. */
+function asOptionalCounter(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : null;
+  }
+  return null;
+}
+
+/**
+ * Per-table counters of a backup/purge.
+ *
+ * The keys are server-defined, so they are kept as returned (a newer API may
+ * count more tables); only entries that are not a non-negative integer are
+ * dropped. A non-object `counts` answers `{}` instead of a fabricated number.
+ */
+function normalizeCountMap(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  const counts: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const count = asOptionalCounter(entry);
+    if (count !== null) counts[key] = count;
+  }
+  return counts;
+}
+
+/** `POST /platform/tenants/:id/backup` / one row of `GET …/backups`. */
+function normalizePlatformTenantBackup(payload: unknown): PlatformTenantBackup {
+  const raw = isRecord(payload) ? payload : {};
+  return {
+    id: asTextOrNull(raw.id),
+    tenantId: asTextOrNull(raw.tenantId),
+    backupKey: asTextOrNull(raw.backupKey),
+    sizeBytes: asOptionalCounter(raw.sizeBytes),
+    counts: normalizeCountMap(raw.counts),
+    createdBy: asTextOrNull(raw.createdBy),
+    createdAt: asIsoOrNull(raw.createdAt),
+  };
+}
+
+/**
+ * `DELETE /platform/tenants/:id`.
+ *
+ * The requested id is the fallback for `tenantId`: a bodyless 2xx still means
+ * the workspace named by the caller was deleted, so the result can name it.
+ * `purge.scheduled` stays `null` when the API did not publish the flag.
+ */
+function normalizePlatformTenantDelete(
+  payload: unknown,
+  fallbackTenantId: string,
+): PlatformTenantDeleteResult {
+  const raw = isRecord(payload) ? payload : {};
+  const purge = isRecord(raw.purge) ? raw.purge : {};
+  return {
+    tenantId: asTextOrNull(raw.tenantId) ?? fallbackTenantId,
+    slug: asTextOrNull(raw.slug),
+    status: asTextOrNull(raw.status),
+    deletedAt: asIsoOrNull(raw.deletedAt),
+    purge: {
+      scheduled: typeof purge.scheduled === 'boolean' ? purge.scheduled : null,
+      note: asTextOrNull(purge.note),
+    },
+  };
+}
+
+/** `POST /platform/tenants/:id/purge`. */
+function normalizePlatformTenantPurge(
+  payload: unknown,
+  fallbackTenantId: string,
+): PlatformTenantPurgeResult {
+  const raw = isRecord(payload) ? payload : {};
+  return {
+    tenantId: asTextOrNull(raw.tenantId) ?? fallbackTenantId,
+    slug: asTextOrNull(raw.slug),
+    counts: normalizeCountMap(raw.counts),
+    manual: typeof raw.manual === 'boolean' ? raw.manual : null,
+    purgedAt: asIsoOrNull(raw.purgedAt),
+    s3ObjectsDeleted: asOptionalCounter(raw.s3ObjectsDeleted),
+    s3Failed: asOptionalCounter(raw.s3Failed),
   };
 }
 
@@ -2098,6 +2221,57 @@ export const api: ApiClient = {
     });
   },
 
+  async createPlatformTenantBackup(id) {
+    const payload = await request<unknown>(
+      `/platform/tenants/${encodeURIComponent(id)}/backup`,
+      {
+        method: 'POST',
+        // The whole workspace is collected and written to S3 inside this
+        // request, so it gets headroom over a plain console read.
+        timeoutMs: 60_000,
+      },
+    );
+    return normalizePlatformTenantBackup(payload);
+  },
+
+  async listPlatformTenantBackups(id) {
+    // `no-store`: a backup created a second ago must appear on the refresh.
+    const payload = await request<unknown>(
+      `/platform/tenants/${encodeURIComponent(id)}/backups`,
+      { cache: 'no-store', timeoutMs: 15_000 },
+    );
+    // The contract is a bare array. A deployment that wraps it in `{ items }`
+    // is still read; anything else is an empty list (never invented rows).
+    const rawList = Array.isArray(payload)
+      ? payload
+      : isRecord(payload) && Array.isArray(payload.items)
+        ? payload.items
+        : [];
+    return rawList
+      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+      .map((entry) => normalizePlatformTenantBackup(entry));
+  },
+
+  async deletePlatformTenant(id) {
+    const payload = await request<unknown>(`/platform/tenants/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      // No body: the platform caller does not need the workspace password. A
+      // 204/empty 2xx is still a confirmed deletion, hence `allowEmpty`.
+      allowEmpty: true,
+      timeoutMs: 30_000,
+    });
+    return normalizePlatformTenantDelete(payload, id);
+  },
+
+  async purgePlatformTenant(id) {
+    const payload = await request<unknown>(`/platform/tenants/${encodeURIComponent(id)}/purge`, {
+      method: 'POST',
+      // The physical delete walks every table (and S3) inside this request.
+      timeoutMs: 60_000,
+    });
+    return normalizePlatformTenantPurge(payload, id);
+  },
+
   async platformAlerts() {
     // The published API answers `{ generatedAt, total, alerts }`; the initial
     // contract was a bare array. Normalise both so the panel stays agnostic.
@@ -2593,9 +2767,12 @@ export type {
   PlatformCheckoutResult,
   PlatformMetrics,
   PlatformTenant,
+  PlatformTenantBackup,
   PlatformTenantBillingResult,
   PlatformTenantBillingUpdate,
+  PlatformTenantDeleteResult,
   PlatformTenantMetrics,
+  PlatformTenantPurgeResult,
   PlatformTenantQuery,
   PlatformTenantUpdate,
   PolicyCheckBody,

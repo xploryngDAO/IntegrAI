@@ -368,6 +368,10 @@ export interface TenantSsoTestResult {
  *   GET   /platform/metrics          -> PlatformMetrics
  *   GET   /platform/tenants?page…    -> Paginated<PlatformTenant>
  *   PATCH /platform/tenants/:id      -> PlatformTenant
+ *   POST  /platform/tenants/:id/backup  -> PlatformTenantBackup
+ *   GET   /platform/tenants/:id/backups -> PlatformTenantBackup[]
+ *   DELETE/platform/tenants/:id         -> PlatformTenantDeleteResult
+ *   POST  /platform/tenants/:id/purge   -> PlatformTenantPurgeResult
  *   GET   /tenants/me/export         -> JSON payload (raw artifact, no envelope)
  *   DELETE /tenants/me               -> 202 + DeleteTenantResult
  *
@@ -666,6 +670,76 @@ export interface PlatformTenantQuery {
   pageSize?: number;
   /** Sent for forward compatibility; the current API filters client-side. */
   search?: string;
+}
+
+/* ==========================================================================
+ * Operações do console da plataforma (backup / exclusão / purga)
+ *
+ *   POST   /platform/tenants/:id/backup  -> PlatformTenantBackup
+ *   GET    /platform/tenants/:id/backups -> PlatformTenantBackup[]
+ *   DELETE /platform/tenants/:id         -> PlatformTenantDeleteResult
+ *   POST   /platform/tenants/:id/purge   -> PlatformTenantPurgeResult
+ *
+ * Every field that the API may omit is nullable on purpose: `null` means "the
+ * deployment did not publish this value" and is rendered as "—", never as an
+ * invented number/status. `counts` is a server-defined table→rows map so a
+ * newer API can add tables without a client change; an absent/opaque map
+ * normalises to `{}`.
+ * ========================================================================== */
+
+/** Server-defined per-table row counters (backup artifact or physical purge). */
+export type PlatformTenantCountMap = Record<string, number>;
+
+/** One backup artifact of a workspace (`tenant_backups` index + creation echo). */
+export interface PlatformTenantBackup {
+  /** Index id; `null` on `POST …/backup`, which echoes no id. */
+  id: string | null;
+  /** Workspace id; `null` when the response did not echo it. */
+  tenantId: string | null;
+  /** S3 key (`backups/<slug>/<timestamp>.json`); `null` when not returned. */
+  backupKey: string | null;
+  /** Artifact size in bytes; `null` when absent/invalid. */
+  sizeBytes: number | null;
+  /** Per-table row counts; unknown/absent counts are an empty object. */
+  counts: PlatformTenantCountMap;
+  /** Operator id that created the artifact; `null` when not returned. */
+  createdBy: string | null;
+  /** ISO instant of the creation; `null` when absent/invalid. */
+  createdAt: string | null;
+}
+
+/** Automatic LGPD purge scheduled by the soft delete. */
+export interface PlatformTenantPurgeSchedule {
+  /** `true` = the daily job will run; `null` = the API did not say. */
+  scheduled: boolean | null;
+  /** Human-readable note about the retention window, when published. */
+  note: string | null;
+}
+
+/** Response of `DELETE /platform/tenants/:id` (platform soft delete). */
+export interface PlatformTenantDeleteResult {
+  tenantId: string;
+  /** Slug as echoed by the API; `null` when the body omitted it. */
+  slug: string | null;
+  /** Normally `DELETED`; `null` when the API confirmed without a body. */
+  status: string | null;
+  deletedAt: string | null;
+  purge: PlatformTenantPurgeSchedule;
+}
+
+/** Response of `POST /platform/tenants/:id/purge` (physical LGPD delete). */
+export interface PlatformTenantPurgeResult {
+  tenantId: string;
+  slug: string | null;
+  /** Rows removed per table; unknown/absent counts are an empty object. */
+  counts: PlatformTenantCountMap;
+  /** `true` when a platform administrator ran it manually; `null` if unpublished. */
+  manual: boolean | null;
+  purgedAt: string | null;
+  /** S3 objects removed before the transactional delete. */
+  s3ObjectsDeleted: number | null;
+  /** S3 objects that could not be removed (the DB purge still ran). */
+  s3Failed: number | null;
 }
 
 /** Body of `DELETE /tenants/me` (double confirmation: password + slug). */

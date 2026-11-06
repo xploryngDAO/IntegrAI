@@ -1,10 +1,12 @@
 /**
- * Tenant drill-down of `/platform` — metrics + billing in one surface.
+ * Tenant drill-down of `/platform` — metrics, billing and workspace operations.
  *
  * `GET /platform/tenants/:id/metrics` feeds the cards and the 14-day sparkline;
  * `PATCH /platform/tenants/:id/billing` saves only the billing fields the
- * operator actually changed. The dialog is a Convergência `Dialog`: centered
- * above 640px and a bottom sheet on phones, so the same markup works at 390px.
+ * operator actually changed. The "Operações" card (backup, soft delete and
+ * physical purge) lives in `TenantOperationsCard`. The dialog is a Convergência
+ * `Dialog`: centered above 640px and a bottom sheet on phones, so the same
+ * markup works at 390px.
  *
  * Failure policy: 403 escalates to the page-level "sem permissão" screen (the
  * console is gone for this operator), 404/422 keep the dialog open with the real
@@ -44,6 +46,7 @@ import { fieldErrorsFromIssues, isValidEmail, validationIssues } from '../../lib
 import { useWorkspace } from '../../lib/store';
 import { Alert, Button, Card, FieldRow, Input, Modal, Pill, Select, Skeleton } from '../ui';
 import { TenantCheckoutCard } from './TenantCheckoutCard';
+import { TenantOperationsCard } from './TenantOperationsCard';
 import { TicketSparkline } from './TicketSparkline';
 
 /** Minimal tenant identity a drill-down needs (row, alert or any future link). */
@@ -61,7 +64,10 @@ export interface TenantTarget {
 export interface TenantDetailDialogProps {
   tenant: TenantTarget;
   onClose: () => void;
-  /** Notifies the page that a billing PATCH succeeded (refresh counters/lists). */
+  /**
+   * Notifies the page that a tenant mutation succeeded (billing, soft delete
+   * or purge): counters and the tenant list are re-read.
+   */
   onSaved: () => void;
   /** 403 anywhere inside the drawer: the page takes over with its own state. */
   onForbidden: () => void;
@@ -512,6 +518,19 @@ export function TenantDetailDialog({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  /**
+   * Effective status of the open detail.
+   *
+   * The row captured by the page is a snapshot: after the platform soft delete
+   * (`DELETE /platform/tenants/:id`) the drawer must turn the pill into
+   * "Excluído" and unlock the purge step without closing. The API answer is
+   * adopted locally; a later prop with a different status (page refresh) resets
+   * it to the authoritative value.
+   */
+  const [status, setStatus] = useState<string | null>(tenant.status ?? null);
+  useEffect(() => {
+    setStatus(tenant.status ?? null);
+  }, [tenant.status]);
 
   useEffect(() => {
     let active = true;
@@ -541,8 +560,8 @@ export function TenantDetailDialog({
   }, [tenant.id, reloadKey, onForbidden]);
 
   const effectivePlan = metrics?.plan ?? tenant.plan;
-  const statusPill: ReactNode = tenant.status ? (
-    <Pill tone={tenantStatusTone(tenant.status)}>{tenantStatusLabel(tenant.status)}</Pill>
+  const statusPill: ReactNode = status ? (
+    <Pill tone={tenantStatusTone(status)}>{tenantStatusLabel(status)}</Pill>
   ) : null;
   const billingPill: ReactNode =
     tenant.billingStatus !== null && tenant.billingStatus !== undefined && tenant.billingStatus !== '' ? (
@@ -556,7 +575,7 @@ export function TenantDetailDialog({
       open
       onClose={onClose}
       title="Detalhes do tenant"
-      description={`Métricas operacionais e cobrança de ${tenantHeading(tenant)}.`}
+      description={`Métricas operacionais, cobrança e operações (backup, exclusão e purga) de ${tenantHeading(tenant)}.`}
       footer={
         <>
           <Button
@@ -605,6 +624,18 @@ export function TenantDetailDialog({
         />
 
         <TenantBillingForm tenant={tenant} onSaved={onSaved} onForbidden={onForbidden} />
+
+        <TenantOperationsCard
+          tenantId={tenant.id}
+          tenantName={
+            tenant.name.trim().length > 0 ? tenant.name.trim() : tenant.slug.trim() || tenant.id
+          }
+          slug={tenant.slug}
+          status={status}
+          onStatusChange={setStatus}
+          onChanged={onSaved}
+          onForbidden={onForbidden}
+        />
       </div>
     </Modal>
   );

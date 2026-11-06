@@ -14,7 +14,7 @@
 import type { IAgentSummary } from '@sac/shared';
 
 import { ApiClientError } from './api';
-import type { PlatformTenantLimits, TenantPlan } from './types';
+import type { PlatformTenantCountMap, PlatformTenantLimits, TenantPlan } from './types';
 
 /** Fields a newer `/auth/me` may carry without changing the shared contract. */
 type AgentWithPlatformFlags = IAgentSummary & {
@@ -370,6 +370,96 @@ export function billingEventStatusTone(
 }
 
 /* ==========================================================================
+ * Backup / purge counters
+ *
+ * The API answers a server-defined table→rows map. Known tables get a PT-BR
+ * label (singular/plural) and unknown ones are rendered by their raw key: a
+ * newer deployment never hides a counter the console does not know yet.
+ * ========================================================================== */
+
+/** Labels of the counters a backup artifact records. */
+const BACKUP_COUNT_LABEL: Record<string, readonly [string, string]> = {
+  accounts: ['conta', 'contas'],
+  agents: ['agente', 'agentes'],
+  tickets: ['ticket', 'tickets'],
+  messages: ['mensagem', 'mensagens'],
+  attachments: ['anexo', 'anexos'],
+  orders: ['pedido', 'pedidos'],
+  events: ['evento', 'eventos'],
+  outboundAttempts: ['tentativa de envio', 'tentativas de envio'],
+  slaPolicies: ['política de SLA', 'políticas de SLA'],
+  webhookEvents: ['webhook', 'webhooks'],
+};
+
+/** Tables of the physical purge, in the order the service deletes them. */
+const PURGE_COUNT_LABEL: Record<string, readonly [string, string]> = {
+  tenant: ['workspace', 'workspaces'],
+  agents: ['agente', 'agentes'],
+  accounts: ['conta', 'contas'],
+  sessions: ['sessão', 'sessões'],
+  invitations: ['convite', 'convites'],
+  passwordResets: ['reset de senha', 'resets de senha'],
+  emailVerifications: ['verificação de e-mail', 'verificações de e-mail'],
+  twoFactorRecoveryCodes: ['código de recuperação', 'códigos de recuperação'],
+  buyerPiiVault: ['registro de PII do comprador', 'registros de PII do comprador'],
+  tickets: ['ticket', 'tickets'],
+  ticketEvents: ['evento de ticket', 'eventos de ticket'],
+  messages: ['mensagem', 'mensagens'],
+  messageAttachments: ['anexo de mensagem', 'anexos de mensagem'],
+  outboundAttempts: ['tentativa de envio', 'tentativas de envio'],
+  orders: ['pedido', 'pedidos'],
+  slaPolicies: ['política de SLA', 'políticas de SLA'],
+  webhookEvents: ['webhook', 'webhooks'],
+};
+
+/** Main counters of the backup result: what an operator checks first. */
+const MAIN_BACKUP_COUNT_KEYS = ['accounts', 'agents', 'tickets', 'messages'] as const;
+
+/** One rendered counter. */
+export interface PlatformCountEntry {
+  key: string;
+  label: string;
+  value: number;
+}
+
+function countLabel(key: string, value: number): string {
+  const labels = BACKUP_COUNT_LABEL[key] ?? PURGE_COUNT_LABEL[key];
+  if (labels === undefined) return key;
+  return value === 1 ? labels[0] : labels[1];
+}
+
+/**
+ * Compact summary of the main backup counters (`2 contas · 3 agentes · …`).
+ * An absent/opaque `counts` says so instead of rendering a fabricated zero.
+ */
+export function backupCountSummary(counts: PlatformTenantCountMap | null | undefined): string {
+  const values = counts ?? {};
+  const parts = MAIN_BACKUP_COUNT_KEYS.filter((key) => values[key] !== undefined).map((key) => {
+    const value = values[key];
+    return `${value} ${countLabel(key, value)}`;
+  });
+  return parts.length > 0 ? parts.join(' · ') : 'sem contagens publicadas pela API';
+}
+
+/**
+ * Counters of a physical purge, zero rows omitted (they are noise after a
+ * destructive action). Unknown tables are kept and sorted by raw key.
+ */
+export function purgeCountEntries(
+  counts: PlatformTenantCountMap | null | undefined,
+): PlatformCountEntry[] {
+  const values = counts ?? {};
+  const known = Object.keys(PURGE_COUNT_LABEL)
+    .filter((key) => (values[key] ?? 0) > 0)
+    .map((key) => ({ key, label: countLabel(key, values[key]), value: values[key] }));
+  const extra = Object.keys(values)
+    .filter((key) => !(key in PURGE_COUNT_LABEL) && (values[key] ?? 0) > 0)
+    .sort((left, right) => left.localeCompare(right))
+    .map((key) => ({ key, label: key, value: values[key] }));
+  return [...known, ...extra];
+}
+
+/* ==========================================================================
  * Alerts
  * ========================================================================== */
 
@@ -623,4 +713,156 @@ export function billingEventsErrorMessage(error: unknown): string {
     }
   }
   return platformErrorMessage(error);
+}
+
+/* ==========================================================================
+ * Platform operations (backup / delete / purge)
+ *
+ * These routes are newer than some deployments, and their 404s have two very
+ * different meanings: "unknown tenant" (a real answer) and "route not deployed"
+ * (the console keeps working without that operation). The helpers keep both
+ * explicit instead of reusing the generic "console not published" copy.
+ * ========================================================================== */
+
+/** Last-resort rendering: real server message plus machine code, never hidden. */
+function operationErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 0) return error.message;
+    const code = error.code && error.code !== 'HTTP_ERROR' ? ` (${error.code})` : '';
+    return `${error.message}${code}`;
+  }
+  return error instanceof Error && error.message
+    ? error.message
+    : 'Não foi possível falar com a API. Tente novamente.';
+}
+
+/**
+ * `details.code` of an app error.
+ *
+ * The platform API answers `{ error: { code: 'CONFLICT', details } }` and puts
+ * the stable reason (`TENANT_ALREADY_DELETED`) inside `details.code`; the HTTP
+ * code alone cannot tell an "already deleted" refusal from another conflict.
+ */
+function detailCode(error: ApiClientError): string {
+  const details = error.details;
+  if (typeof details !== 'object' || details === null) return '';
+  const code = (details as { code?: unknown }).code;
+  return typeof code === 'string' ? code : '';
+}
+
+/** `404` of a platform operation: unknown tenant vs. unpublished route. */
+function operationNotFoundMessage(error: ApiClientError, operation: string): string {
+  return notFoundResource(error) === 'Tenant'
+    ? 'Tenant não encontrado (HTTP 404). Ele pode ter sido removido; feche este painel e atualize a lista de tenants.'
+    : `A ${operation} não está publicada nesta API (HTTP 404).`;
+}
+
+/**
+ * Failure of `POST /platform/tenants/:id/backup`.
+ *
+ * `502` is the S3 write: nothing is indexed before the artifact is stored, so
+ * the message can honestly say no backup exists from that attempt.
+ */
+export function backupErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 502) {
+      return 'O storage de backups falhou (HTTP 502). Nenhum backup foi gravado nem indexado nesta tentativa; confira as credenciais do bucket/S3 da API e tente novamente.';
+    }
+    if (error.status === 404) {
+      return operationNotFoundMessage(error, 'criação de backup');
+    }
+    if (error.status === 409) {
+      return `${error.message} (HTTP 409). O workspace não está em um estado que permita gerar backup.`;
+    }
+    if (error.status === 403) {
+      return 'Sua conta não tem permissão de platform admin para gerar o backup deste tenant.';
+    }
+    if (error.status === 422) {
+      return `A API recusou o pedido de backup (HTTP 422): ${error.message}`;
+    }
+    if (error.status === 405 || error.status === 501) {
+      return 'A criação de backup por tenant não está publicada nesta API.';
+    }
+  }
+  return operationErrorMessage(error);
+}
+
+/** Failure of `GET /platform/tenants/:id/backups`. */
+export function tenantBackupsErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 404) {
+      return operationNotFoundMessage(error, 'listagem de backups');
+    }
+    if (error.status === 405 || error.status === 501) {
+      return 'A listagem de backups por tenant não está publicada nesta API.';
+    }
+    if (error.status === 422) {
+      return `A API recusou a consulta de backups (HTTP 422): ${error.message}`;
+    }
+  }
+  return operationErrorMessage(error);
+}
+
+/**
+ * Failure of `DELETE /platform/tenants/:id` (soft delete, no password).
+ *
+ * `409 TENANT_ALREADY_DELETED` is the normal "there is nothing left to delete"
+ * answer and must be visible as such (the purge becomes a separate step).
+ */
+export function platformDeleteErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    const nestedCode = detailCode(error);
+    if (
+      error.code === 'TENANT_ALREADY_DELETED' ||
+      nestedCode === 'TENANT_ALREADY_DELETED' ||
+      error.status === 409
+    ) {
+      const code = nestedCode.length > 0 ? nestedCode : error.code;
+      return `Este workspace já está excluído (HTTP 409 · ${code}). Nenhuma sessão adicional foi encerrada; atualize a lista para conferir o status atual.`;
+    }
+    if (error.status === 404) {
+      return 'Tenant não encontrado (HTTP 404). Ele pode ter sido removido; feche este painel e atualize a lista de tenants.';
+    }
+    if (error.status === 403) {
+      return 'Sua conta não tem permissão de platform admin para excluir este workspace.';
+    }
+    if (error.status === 405 || error.status === 501) {
+      return 'A exclusão de workspace pelo console não está publicada nesta API.';
+    }
+    if (error.status === 422) {
+      return `A API recusou a exclusão (HTTP 422): ${error.message}`;
+    }
+  }
+  return operationErrorMessage(error);
+}
+
+/**
+ * Failure of `POST /platform/tenants/:id/purge`.
+ *
+ * `409` is the expected refusal while the workspace is not soft-deleted yet;
+ * `502` is an S3 failure (the DB purge may still have run, so the message does
+ * not claim nothing changed).
+ */
+export function purgeErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 409) {
+      return `A purga física só roda em um workspace já excluído (HTTP 409). ${error.message} Exclua o workspace primeiro e tente novamente.`;
+    }
+    if (error.status === 404) {
+      return 'Tenant não encontrado (HTTP 404). Ele pode já ter sido purgado; feche este painel e atualize a lista.';
+    }
+    if (error.status === 502) {
+      return 'O storage falhou durante a purga (HTTP 502). Confira o resultado na lista antes de repetir: parte dos objetos pode ter sido removida.';
+    }
+    if (error.status === 403) {
+      return 'Sua conta não tem permissão de platform admin para purgar este workspace.';
+    }
+    if (error.status === 405 || error.status === 501) {
+      return 'A purga manual de workspace não está publicada nesta API.';
+    }
+    if (error.status === 422) {
+      return `A API recusou a purga (HTTP 422): ${error.message}`;
+    }
+  }
+  return operationErrorMessage(error);
 }
