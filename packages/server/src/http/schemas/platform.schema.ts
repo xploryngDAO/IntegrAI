@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   BILLING_STATUSES,
   ENTERPRISE_UNLIMITED,
+  MARKETPLACES,
   TENANT_PLANS,
   TENANT_SEARCH_MAX_LENGTH,
 } from '@sac/shared';
@@ -114,3 +115,17 @@ export type PlatformTenantListQuery = z.infer<typeof platformTenantListQuerySche
 export type PlatformTenantUpdateBody = z.infer<typeof platformTenantUpdateBodySchema>;
 export type PlatformTenantBillingBody = z.infer<typeof platformTenantBillingBodySchema>;
 export type PlatformTenantRestoreBody = z.infer<typeof platformTenantRestoreBodySchema>;
+
+/**
+ * `GET /platform/integration-setup?marketplace=`.
+ *
+ * `marketplace` filters the guide to ONE channel; a blank value means "all
+ * channels" (the UI calls it without a query on the first render). An unknown
+ * channel is a 422 instead of silently returning the full guide, so a typo in
+ * the onboarding deep-link fails loudly.
+ */
+export const integrationSetupQuerySchema = z.object({
+  marketplace: blankAsUndefined(z.enum(MARKETPLACES).optional()),
+});
+
+export type IntegrationSetupQuery = z.infer<typeof integrationSetupQuerySchema>;

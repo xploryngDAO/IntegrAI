@@ -1,6 +1,7 @@
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
   billingEventsQuerySchema,
+  integrationSetupQuerySchema,
   parseInput,
   platformTenantBillingBodySchema,
   platformTenantListQuerySchema,
@@ -25,6 +26,7 @@ export interface PlatformControllers {
   createBackup: RouteHandler;
   listBackups: RouteHandler;
   restoreTenant: RouteHandler;
+  integrationSetup: RouteHandler;
 }
 
 /**
@@ -207,6 +209,32 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
       });
 
       return ok(result);
+    },
+
+    /**
+     * `GET /platform/integration-setup?marketplace=` - Fase 2 onboarding.
+     *
+     * Environment-derived instructions to create the app in the Meli DevCenter,
+     * the Shopee Open Platform and Amazon Seller Central. Public identifiers and
+     * the exact redirect/webhook URLs only: secrets are named (`missing` and
+     * `webhookSecretEnv`) but never returned.
+     */
+    async integrationSetup(request) {
+      const query = parseInput(integrationSetupQuerySchema, request.query, 'query');
+      const guide = services.integrationSetup.guide(query.marketplace);
+
+      services.logger.info('http.platform.integration_setup_read', {
+        requestId: request.id,
+        actorId: requireAgent(request).id,
+        marketplace: query.marketplace ?? null,
+        configured: guide.channels.map((channel) => ({
+          marketplace: channel.marketplace,
+          configured: channel.configured,
+          missing: channel.missing.length,
+        })),
+      });
+
+      return ok(guide);
     },
   };
 }

@@ -20,6 +20,7 @@ import type {
   DeleteTenantCommand,
   DeleteTenantResult,
   InvitationStatus,
+  IntegrationSetupGuide,
   PageRequest,
   Paginated,
   PlanUsageView,
@@ -291,6 +292,24 @@ export interface IPlatformService {
     tenantId: string,
     command: TenantBillingUpdateCommand,
   ): Promise<TenantBillingView>;
+}
+
+/* ==========================================================================
+ * Marketplace app setup guide (Fase 2 onboarding, platform console)
+ * ========================================================================== */
+
+/**
+ * Read-only, environment-derived guide to CREATE the app in each marketplace
+ * portal (Meli DevCenter, Shopee Open Platform, Amazon Seller Central).
+ *
+ * It is configuration introspection, not a marketplace call: the guide only
+ * exposes public app identifiers, the exact redirect/webhook URLs derived from
+ * `APP_BASE_URL` and the NAMES of the missing environment variables. Webhook
+ * signing secrets are referenced by variable name, never by value.
+ */
+export interface IIntegrationSetupService {
+  /** Full guide, or a single channel when `marketplace` is provided. */
+  guide(marketplace?: Marketplace): IntegrationSetupGuide;
 }
 
 /* ==========================================================================
@@ -721,6 +740,8 @@ export interface IAppServices {
   readonly tenantBackup: ITenantBackupService;
   readonly planLimits: IPlanLimitService;
   readonly platform: IPlatformService;
+  /** Fase 2 onboarding: how to create the apps in the marketplace portals. */
+  readonly integrationSetup: IIntegrationSetupService;
   readonly billing: IBillingService;
   readonly tickets: ITicketQueryService;
   readonly ticketCommands: IUnifiedTicketService;

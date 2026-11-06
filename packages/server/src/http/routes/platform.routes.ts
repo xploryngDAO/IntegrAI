@@ -35,4 +35,8 @@ export const platformRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, 
   // Hosted checkout URL built from env (no gateway call from the API).
   app.post('/tenants/:id/checkout', { preHandler: platformOnly }, controllers.checkout);
   app.patch('/tenants/:id/billing', { preHandler: platformOnly }, controllers.updateBilling);
+  // Fase 2 onboarding: how to CREATE the app in each marketplace portal
+  // (Meli DevCenter, Shopee Open Platform, Amazon Seller Central). Derived from
+  // the deployment config; public ids + exact URLs + env var names, no secrets.
+  app.get('/integration-setup', { preHandler: platformOnly }, controllers.integrationSetup);
 };

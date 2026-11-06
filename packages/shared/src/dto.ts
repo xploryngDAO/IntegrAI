@@ -1385,6 +1385,55 @@ export interface ConnectorDescriptor {
   notes: string[];
 }
 
+/* ==========================================================================
+ * Marketplace app setup guide (`GET /api/v1/platform/integration-setup`)
+ *
+ * Operator-facing instructions to CREATE the app in each marketplace portal.
+ * The contract is deliberately credential-free: public application identifiers
+ * (Meli App ID, Shopee partner id, Amazon application id), the exact URLs to
+ * paste in the portal and the NAMES of the environment variables still missing.
+ * No secret value ever crosses this contract.
+ * ========================================================================== */
+
+export interface IntegrationSetupChannel {
+  marketplace: Marketplace;
+  /** Every app credential of this channel is present in the environment. */
+  configured: boolean;
+  /** Environment variable NAMES absent from the deployment (never values). */
+  missing: string[];
+  /** Public app id: Meli client id, Shopee partner id, Amazon app id. */
+  appIdPublic: string | null;
+  /** Exact value to paste in the portal's redirect/callback field. */
+  redirectUri: string;
+  /** Exact public webhook URL to register in the portal. */
+  webhookUrl: string;
+  /** Meli webhook topics / Shopee push codes / Amazon app roles. */
+  oauthScopesOrTopics: string[];
+  /** Where the operator creates the app. */
+  portalUrl: string;
+  /** Official documentation for the app registration. */
+  docsUrl: string;
+  /** Environment-specific, actionable steps (never contain secrets). */
+  steps: string[];
+  /**
+   * NAME of the environment variable holding the webhook signing secret
+   * (e.g. `SHOPEE_PARTNER_KEY`). `null` when the channel does not sign pushes.
+   * The value itself is never returned.
+   */
+  webhookSecretEnv: string | null;
+  /** How to configure/rotate that secret. `null` when there is nothing to set. */
+  webhookSecretHint: string | null;
+}
+
+export interface IntegrationSetupGuide {
+  generatedAt: string;
+  /** Public API base derived from `APP_BASE_URL` (no trailing slash). */
+  apiBaseUrl: string;
+  /** First entry of `WEB_ORIGIN` (the SPA origin the operator uses). */
+  webOrigin: string;
+  channels: IntegrationSetupChannel[];
+}
+
 export interface AuthResponse {
   token: string;
   /** Present when the session store accepted the login (Fase 1 refresh rotation). */

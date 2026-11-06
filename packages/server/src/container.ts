@@ -21,6 +21,7 @@ import { BillingService } from './application/BillingService';
 import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
+import { IntegrationSetupService } from './application/IntegrationSetupService';
 import { InvitationService } from './application/InvitationService';
 import {
   OutboundRouterService,
@@ -231,6 +232,14 @@ export function createContainer(args: ContainerArgs): IAppServices {
       platformTenants: infra.platformTenants,
       platform: infra.platform,
     },
+  });
+
+  // Fase 2 onboarding: read-only guide to CREATE the app in each marketplace
+  // portal. Pure config introspection (no marketplace call, no secret read).
+  const integrationSetup = new IntegrationSetupService({
+    clock: infra.clock,
+    config: channelConfig,
+    webOrigin: config.webOrigin,
   });
 
   // Fase 4: provider-agnostic payment gateway contract. No SDK/adapter is
@@ -446,6 +455,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     tenantBackup,
     planLimits,
     platform,
+    integrationSetup,
     billing,
     tickets,
     ticketCommands,
