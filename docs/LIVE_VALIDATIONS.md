@@ -443,3 +443,11 @@ Pluralizacao: helper lib/plural.ts aplicado em 19 arquivos (1 loja/2 lojas, 1 se
 "1 conectada" e "1 loja neste workspace" conferidos; Meli diagnostics "1 item/2 itens".
 a11y 10/10 telas com 0 violacoes apos as mudancas (inclui mobile).
 ```
+
+### 42. Perfil do operador e higiene de sessoes
+```
+/profile (producao): Dados pessoais, Sessoes ativas, Seguranca, Ajuda e transparencia; sem erros
+Higiene: POST /auth/sessions/revoke-others -> 87 sessoes de teste revogadas; 1 sessao restante
+       (inventario de sessoes voltou ao normal; captura atualizada com 1 dispositivo)
+Sem overflow em 1440/390; pluralizacao ok (sem "(s)")
+```
