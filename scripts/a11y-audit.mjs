@@ -69,6 +69,15 @@ await page.goto(`${URL}/settings`, { waitUntil: 'networkidle2', timeout: 60_000 
 await new Promise((r) => setTimeout(r, 3000));
 reports.push(await audit(page, 'settings'));
 
+// Platform console is only rendered for platform admins; the audit account is one.
+await page.goto(`${URL}/platform`, { waitUntil: 'networkidle2', timeout: 60_000 });
+await new Promise((r) => setTimeout(r, 4000));
+reports.push(await audit(page, 'platform'));
+
+await page.goto(`${URL}/status`, { waitUntil: 'networkidle2', timeout: 60_000 });
+await new Promise((r) => setTimeout(r, 3000));
+reports.push(await audit(page, 'status'));
+
 console.log(JSON.stringify(reports, null, 2));
 await browser.close();
 const total = reports.reduce((sum, report) => sum + report.violations.length, 0);
