@@ -166,3 +166,17 @@ POST /auth/accept-invitation             -> AGENT criado
 POST resend de convite aceito            -> 409 INVITATION_ALREADY_ACCEPTED
 cleanup + validate:live                  -> 11/11
 ```
+
+### 14. Isolamento multi-tenant dos endpoints admin
+```
+(node scripts/isolation-test.mjs — tenant B semeado com agente, convite, sessão, auditoria e ticket)
+A-nao-ve-conta-B / ticket-B / detalhe 404 / mutacao 404
+A-admin-users-nao-ve-B            total=0
+A-admin-convites-nao-ve-B         (nenhum convite do B)
+A-admin-logs-nao-ve-B             total=0
+A-admin-sessoes-nao-ve-B          (nenhuma sessão do B)
+A-admin-csv-nao-exporta-B         bytes=67 (só cabeçalho)
+A-admin-patch-usuario-B-404 / revoga-convite-B-404 / revoga-sessao-B-404
+cleanup                           tenants restantes=0
+14/14 verificações passaram
+```

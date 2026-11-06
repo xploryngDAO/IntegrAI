@@ -18,8 +18,12 @@ const B = {
   accountId: '00000000-0000-4000-8000-0000000000a2',
   agentId: '00000000-0000-4000-8000-0000000000c2',
   ticketId: '00000000-0000-4000-8000-0000000000d2',
+  invitationId: '00000000-0000-4000-8000-0000000000e2',
+  auditEventId: '00000000-0000-4000-8000-0000000000f2',
+  sessionId: '00000000-0000-4000-8000-0000000000b3',
   slug: 'tenant-b-isolation-test',
   email: 'isolation-b@test.local',
+  inviteEmail: 'isolation-invite-b@test.local',
 };
 
 const results = [];
@@ -87,9 +91,46 @@ async function seedTenantB() {
       slaDeadlineAt: new Date(Date.now() + 3_600_000),
     },
   });
+  await prisma.invitation.create({
+    data: {
+      id: B.invitationId,
+      tenantId: B.tenantId,
+      email: B.inviteEmail,
+      role: 'AGENT',
+      tokenHash: 'isolation-invitation-token-hash',
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  }).catch(() => undefined);
+  await prisma.auditEvent.create({
+    data: {
+      id: B.auditEventId,
+      tenantId: B.tenantId,
+      actorId: B.agentId,
+      actorEmail: B.email,
+      action: 'isolation.test',
+      resourceType: 'test',
+      resourceId: B.ticketId,
+      ip: '203.0.113.10',
+      userAgent: 'isolation-test',
+    },
+  }).catch(() => undefined);
+  await prisma.session.create({
+    data: {
+      id: B.sessionId,
+      userId: B.agentId,
+      tenantId: B.tenantId,
+      refreshTokenHash: 'isolation-session-refresh-hash',
+      userAgent: 'isolation-test',
+      ip: '203.0.113.10',
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  }).catch(() => undefined);
 }
 
 async function cleanup() {
+  await prisma.session.deleteMany({ where: { id: B.sessionId } });
+  await prisma.auditEvent.deleteMany({ where: { id: B.auditEventId } });
+  await prisma.invitation.deleteMany({ where: { id: B.invitationId } });
   await prisma.supportTicket.deleteMany({ where: { id: B.ticketId } });
   await prisma.marketplaceAccount.deleteMany({ where: { id: B.accountId } });
   await prisma.agent.deleteMany({ where: { email: B.email } });
@@ -125,6 +166,61 @@ async function main() {
     body: JSON.stringify({ agentId: B.agentId }),
   });
   record('A-mutacao-ticket-B-404', mutation.status === 404, `status ${mutation.status}`);
+
+  const adminUsers = await api('/api/v1/admin/users?search=isolation', { headers });
+  record(
+    'A-admin-users-nao-ve-B',
+    (adminUsers.body?.data?.total ?? -1) === 0,
+    `total=${adminUsers.body?.data?.total}`,
+  );
+
+  const adminInvitations = await api('/api/v1/admin/invitations', { headers });
+  record(
+    'A-admin-convites-nao-ve-B',
+    !(adminInvitations.body?.data?.items ?? []).some((item) => item.email === B.inviteEmail),
+  );
+
+  const adminLogs = await api('/api/v1/admin/audit-logs?action=isolation.test', { headers });
+  record(
+    'A-admin-logs-nao-ve-B',
+    (adminLogs.body?.data?.total ?? -1) === 0,
+    `total=${adminLogs.body?.data?.total}`,
+  );
+
+  const adminSessions = await api('/api/v1/admin/sessions?perPage=100', { headers });
+  record(
+    'A-admin-sessoes-nao-ve-B',
+    !(adminSessions.body?.data?.items ?? []).some((item) => item.agentId === B.agentId),
+  );
+
+  const csvResponse = await fetch(`${API}/api/v1/admin/users/export.csv?search=isolation`, {
+    headers,
+  });
+  const csvText = await csvResponse.text();
+  record(
+    'A-admin-csv-nao-exporta-B',
+    csvResponse.status === 200 && !csvText.includes(B.email),
+    `bytes=${csvText.length}`,
+  );
+
+  const patchUserB = await api(`/api/v1/admin/users/${B.agentId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ isActive: false }),
+  });
+  record('A-admin-patch-usuario-B-404', patchUserB.status === 404, `status ${patchUserB.status}`);
+
+  const revokeInviteB = await api(`/api/v1/admin/invitations/${B.invitationId}`, {
+    method: 'DELETE',
+    headers,
+  });
+  record('A-admin-revoga-convite-B-404', revokeInviteB.status === 404, `status ${revokeInviteB.status}`);
+
+  const revokeSessionB = await api(`/api/v1/admin/sessions/${B.sessionId}`, {
+    method: 'DELETE',
+    headers,
+  });
+  record('A-admin-revoga-sessao-B-404', revokeSessionB.status === 404, `status ${revokeSessionB.status}`);
 
   await cleanup();
   const leftover = await prisma.tenant.count({ where: { id: B.tenantId } });
