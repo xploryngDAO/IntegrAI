@@ -220,6 +220,16 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenance);
   }, []);
 
+  // SPA entry ships a single canonical (the homepage). Per-route rendering must
+  // point it at the actual URL, otherwise crawlers/Lighthouse treat the
+  // canonical as invalid on every non-root page.
+  useEffect(() => {
+    const link = document.querySelector('link[rel="canonical"]');
+    if (!(link instanceof HTMLLinkElement)) return;
+    const normalized = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
+    link.href = `${window.location.origin}${normalized}`;
+  }, [pathname]);
+
   const dismissMaintenance = useCallback((): void => {
     setMaintenance(null);
   }, []);

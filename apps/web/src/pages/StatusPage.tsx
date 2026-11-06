@@ -257,6 +257,10 @@ export function StatusPage(): JSX.Element {
             }
           />
 
+          {/* The cards render `h3`; this hidden `h2` keeps the heading order
+              sequential (h1 → h2 → h3) for screen readers and Lighthouse. */}
+          <h2 className="sr-only">Resumo da disponibilidade</h2>
+
           {snapshot === null ? (
             loading ? (
               <StatusSkeleton />
