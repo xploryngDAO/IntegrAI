@@ -215,8 +215,8 @@ export function AdminOverview({ refreshKey = 0, onForbidden }: AdminOverviewProp
       )}
 
       <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-        Chamada: <span className="sac-num">GET /admin/overview</span>. Somente um ADMIN do workspace
-        lê estes contadores; a API revalida o papel em cada chamada.
+        Somente um ADMIN do workspace vê estes contadores; a API revalida o papel em cada chamada
+        e os números refletem o estado atual do workspace.
       </p>
     </section>
   );
