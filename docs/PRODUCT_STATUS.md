@@ -133,3 +133,7 @@ Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação 
 ## Demo alternativa (GitHub Pages)
 
 Enquanto a cota free da Vercel estiver esgotada, o workflow Pages demo publica o SPA em https://xploryngdao.github.io/IntegrAI/ (base /IntegrAI/, API via envs). Requer habilitar uma vez em **Settings -> Pages -> Source: GitHub Actions** e rodar o workflow manualmente (o token do Actions nao consegue habilitar Pages sozinho). O caminho principal de producao continua sendo o stack self-hosted.
+
+## Performance
+
+Baseline local e metodologia de carga: [PERFORMANCE.md](PERFORMANCE.md) (health ~233 RPS, status ~192 RPS com 10 conexoes).
