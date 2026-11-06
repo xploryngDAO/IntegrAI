@@ -23,7 +23,7 @@ All notable changes to IntegrAI. Dates in `YYYY-MM-DD`; versions follow SemVer.
 - **Imagens Docker**: runtime da API sem `npm`/`npx` (migrações via Prisma CLI direto) e web em
   `nginx:stable-alpine`; `trivy` 0 HIGH/CRITICAL, varredura obrigatória no CI.
 - **CI**: actionlint nos workflows, gitleaks, auditoria WCAG AA em 8 telas, build + scan das imagens.
-- **A11y/UX**: login com âncora de produto, jargão de endpoints removido de todas as telas.
+- **A11y/UX**: login com âncora de produto, jargão de endpoints removido de todas as telas; auditoria axe em 10 telas (8 desktop + 2 mobile); empty state da fila por contexto; pluralização PT-BR em 19 arquivos (helper `lib/plural.ts`).`n- **Fix funcional**: URLs de webhook/redirect do SPA agora derivam da origem da API (`runtimeApiBase`), não do domínio da Vercel.`n- Changelog: **fix funcional** de webhook URL
 - **Banco**: drill de backup/restore por workspace validado (backup → restore → soft delete → purge).
 
 ### Security
