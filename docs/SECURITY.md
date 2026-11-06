@@ -997,3 +997,8 @@ gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .git
 
 - O webhook exige Authorization com HMAC-SHA256(url|corpo) usando SHOPEE_PARTNER_KEY; o parser **rejeita** quando a chave esta vazia (WEBHOOK_SECRET_NOT_CONFIGURED, 401) porque a assinatura seria forjavel.
 - Em NODE_ENV=production a API **nao inicia** sem SHOPEE_PARTNER_KEY (>= 16 chars) — loadConfig falha com Unsafe production secrets.
+
+### SAST (semgrep)
+
+- semgrep --config=p/security-audit em packages/server/src (2026-11-06): **14 achados, todos em arquivos de teste** (segredos JWT de fixture); **0 em codigo de producao**.
+- Regra relevante: jwt-hardcode — fixtures usam valores explicitos de proposito (nunca segredos reais); o gitleaks cobre vazamentos no historico.
