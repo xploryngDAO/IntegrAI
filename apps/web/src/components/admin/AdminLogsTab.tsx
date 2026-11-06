@@ -16,10 +16,12 @@ import { Alert, Button, Card, EmptyState, Input, Select, Skeleton } from '../ui'
 const PER_PAGE = 25;
 
 /**
- * Upper bound of the actor roster. `GET /admin/users` caps `perPage` at 100 and
- * the select needs the whole team, not the current page of the Users tab.
+ * Actor roster read (`GET /admin/users`). The endpoint caps `perPage` at 100, so
+ * the roster walks a bounded number of pages instead of silently truncating the
+ * filter at the first one (the Users tab paginates by itself).
  */
-const ACTOR_ROSTER_LIMIT = 100;
+const ACTOR_ROSTER_PAGE_SIZE = 100;
+const ACTOR_ROSTER_MAX_PAGES = 10;
 
 /** Fallback name when the API omits `Content-Disposition`: `auditoria-<YYYY-MM-DD>.csv`. */
 function defaultExportName(): string {
@@ -50,9 +52,9 @@ export interface AdminLogsTabProps {
  * local day, and the actor is chosen from the workspace roster (a stable id),
  * never typed as free text. Metadata is expandable per row.
  *
- * The actor roster is read here (`GET /admin/users?page=1&perPage=100`) because
- * the Users tab paginates/filters server-side: its current page is no longer the
- * whole team. `refreshKey` re-reads it after a page-level refresh.
+ * The actor roster is read here (`GET /admin/users` paged up to the API cap)
+ * because the Users tab paginates/filters server-side: its current page is no
+ * longer the whole team. `refreshKey` re-reads it after a page-level refresh.
  */
 export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps): JSX.Element {
   const [draft, setDraft] = useState<AppliedFilters>(EMPTY_FILTERS);
@@ -127,8 +129,17 @@ export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps)
 
     async function loadActors(): Promise<void> {
       try {
-        const result = await api.adminUsers({ page: 1, perPage: ACTOR_ROSTER_LIMIT });
-        if (active) setActors(result.items);
+        const collected: AdminUser[] = [];
+        for (let pageNumber = 1; pageNumber <= ACTOR_ROSTER_MAX_PAGES; pageNumber += 1) {
+          const result = await api.adminUsers({
+            page: pageNumber,
+            perPage: ACTOR_ROSTER_PAGE_SIZE,
+          });
+          collected.push(...result.items);
+          // An unpaginated deployment returns everything in the first page.
+          if (result.items.length === 0 || collected.length >= result.total) break;
+        }
+        if (active) setActors(collected);
       } catch {
         if (active) setActors([]);
       }
