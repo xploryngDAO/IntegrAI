@@ -9,7 +9,7 @@
 npm run build:shared
 tsc -p packages/server/tsconfig.json --noEmit
 tsc -p apps/web/tsconfig.json --noEmit
-npx vitest run                 # 1069 testes
+npx vitest run                 # 1072 testes
 npm run build:server
 npm run build --workspace @sac/web
 ```

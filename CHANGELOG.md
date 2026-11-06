@@ -14,7 +14,7 @@ All notable changes to IntegrAI. Dates in `YYYY-MM-DD`; versions follow SemVer.
   purga explícita; backend `DELETE /platform/tenants/:id` (soft delete sem senha do workspace).
 - **Deploy resiliente**: `runtime-config.json` público resolve API/WS no boot (troca de túnel sem
   redeploy), `npm run tunnel:sync` e `npm run deploy:vercel`; `HOST`/`TRUST_PROXY` configuráveis.
-- **Ops**: modo de manutenção (`MAINTENANCE_MODE`) com 503, banner com contagem regressiva no SPA,
+- **Ops**: `GET /version` público com build identity (commit via `GIT_SHA`, inoculado no build Docker/CI), além de `host-check` e `email-check`.`n- **Ops**: modo de manutenção (`MAINTENANCE_MODE`) com 503, banner com contagem regressiva no SPA,
   perfil de observabilidade (Prometheus + Grafana provisionado), backup/restore do Postgres e
   baseline de performance em `docs/PERFORMANCE.md`.
 
