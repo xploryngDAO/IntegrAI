@@ -63,7 +63,7 @@ Alertas/configuração avaliados:
 |---|---|---|
 | 1 | Runbook diferencia revogar-others × logout-all | `docs/RUNBOOK.md` §7 |
 | 2 | Evento de auditoria da contenção | implementado + este doc |
-| 3 | Texto de ajuda no `/profile` (recomendação) | backlog UX |
+| 3 | Texto de ajuda no `/profile` | **implementado** — subtítulo de Sessões ativas explica refresh × access token |
 | 4 | Repetir o drill a cada release maior (tabletop) | calendário do DPO |
 
 **Tempo total de contenção no drill:** < 1 s após a decisão de encerrar todas as

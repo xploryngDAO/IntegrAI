@@ -336,11 +336,11 @@ export function ProfilePage(): JSX.Element {
 
           <Card
             title="Sessões ativas"
-            subtitle="Cada entrada é um refresh token válido para este operador. Revogar um dispositivo encerra o acesso dele imediatamente."
+            subtitle="Cada entrada é um refresh token válido para este operador. Revogar um dispositivo encerra o refresh dele; um token de acesso já emitido expira em até 1 h."
             footer={
               <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-                  Encerra esta e todas as outras sessões do operador.
+                  Encerra esta e todas as outras sessões e derruba os tokens de acesso na hora.
                 </span>
                 <Button
                   variant="danger"
