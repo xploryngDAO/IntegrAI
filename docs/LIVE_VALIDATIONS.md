@@ -330,3 +330,13 @@ POST mesmo payload com ?secret=wrong -> 401 (meli.webhook.invalid_secret)
 POST seller desconhecido 42 com segredo valido -> 401 UNKNOWN_SELLER (segredo passou; conta nao resolve)
 Env restaurado (segredo vazio) e API reiniciada; eventos de teste removidos de webhook_events
 ```
+
+### 30. Upload de anexos e download assinado (controles reais)
+```
+POST /files/upload (multipart "file", image/png 70 bytes) -> 200 key=attachments/2026/11/...-pixel.png
+POST /files/upload (text/html)                                -> 422 (MIME nao permitido)
+POST /files/upload (arquivo vazio)                            -> 422
+POST /files/upload (11 MB image/png)                          -> 413 (limite)
+GET  /files/signed?key=...                                    -> 200 com URL presignada
+GET  URL presignada                                           -> 200 (70 bytes)
+```
