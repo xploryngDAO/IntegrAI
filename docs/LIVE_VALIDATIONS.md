@@ -534,3 +534,13 @@ node scripts/host-check.mjs --api=<host> --web=<spa>
 -> 9/10 PASS + WARN HSTS (quick tunnel); inclui "runtime-config aponta para esta API"
 mismatch vira WARN com a instrucao de rodar tunnel-sync
 ```
+
+### 53. Deploy de producao atualizado (cota Vercel liberada)
+```
+Production: https://integrai-b2ql3q788-xploryngdaos-projects.vercel.app
+Alias:      https://integrai-dev.vercel.app  (bundle assets/index-C-IV3KAO.js)
+verify-live -> 200, login/admin/logs/logout ok (exit 0)
+a11y production -> 10/10 telas, 0 violacoes (light; desktop + landing/login mobile)
+live-signup-ui -> 10/10 (signup, verificacao, login, onboarding, cleanup)
+/status -> "API v1.0.0 · 7549023"
+```
