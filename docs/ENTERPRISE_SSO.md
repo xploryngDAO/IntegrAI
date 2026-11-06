@@ -342,3 +342,14 @@ tempo, manter SSO para os membros que entram pelo IdP — não há dupla exigên
 nem bloqueio do callback. Se o IdP não oferece MFA, a garantia de segundo fator
 é do IdP, não do IntegrAI; nesse caso o ADMIN deve manter `require_2fa` ligado
 apenas se todos os membros também tiverem TOTP local ou se o IdP aplicar MFA.
+
+## Diagnostico previo (sso:doctor)
+
+Antes de salvar a conexao, rode:
+
+`ash
+node scripts/sso-doctor.mjs --issuer=https://login.microsoftonline.com/<tid>/v2.0 \\
+  --client-id=<app-id> --secret=<...> --redirect-uri=<api>/api/v1/auth/sso/callback --domains=suaempresa.com
+` 
+
+Ele valida discovery, issuer canonico, endpoints, PKCE S256, RS256, JWKS e o formato do redirect/issuer do Entra, e imprime o proximo passo. Tambem funciona contra o provedor local (scripts/oidc-stub.mjs).
