@@ -297,3 +297,10 @@ Buckets de login limpos; POST /auth/login via tunel com X-Forwarded-For: 203.0.1
 Chave criada: sac:auth:login:attempts:admin@integr-ai.local:<IPv6 publico real do cliente>
 => XFF do cliente NAO foi usado; o IP real do edge chegou ao rate limit/auditoria
 ```
+
+### 26. Exportacoes CSV e rejeicao de webhook invalido
+```
+GET /admin/users/export.csv -> 200 text/csv (header name,email,role,is_active,last_login_at,created_at,sessions_count)
+GET /admin/audit-logs/export.csv -> 200 text/csv (~30 KB, header created_at,action,actor_email,resource_type,resource_id,ip,user_agent)
+POST /webhooks/shopee com assinatura invalida -> 401 (rejeitado, sem 5xx)
+```
