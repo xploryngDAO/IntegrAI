@@ -80,7 +80,7 @@ backup/restore do Postgres (marker restaurado).
   Callback URL (fail closed sem segredo); billing HMAC. Assinatura inválida → 401, sem processar evento.
 - SAST semgrep: 0 achados em código de produção (14 em fixtures de teste)
 - `TRUST_PROXY=127.0.0.1` atrás do túnel: X-Forwarded-For forjado é ignorado (IP real do edge no rate limit/auditoria)
-- **Deploy público verificado**: E2E (landing/login/sessão/perfil/admin/logout) e axe WCAG AA em 17 telas (8 desktop + 2 mobile)
+- **Deploy público verificado**: E2E (landing/login/sessão/perfil/admin/logout) e axe WCAG AA em 21 telas (8 desktop + 2 mobile)
   diretamente em `https://integrai-dev.vercel.app`
 
 ## 6. Bloqueios para go-live público (requerem o cliente)

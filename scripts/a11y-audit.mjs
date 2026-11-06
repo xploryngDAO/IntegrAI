@@ -138,6 +138,20 @@ await page.goto(`${URL}/login`, { waitUntil: 'networkidle2', timeout: 60_000 });
 await new Promise((r) => setTimeout(r, 1500));
 reports.push(await audit(page, 'login-mobile'));
 
+// Public forms also matter on phones (single-column layouts, larger touch
+// targets): signup/recovery invite and the billing return are the entry points
+// a new customer sees on mobile.
+for (const [name, path] of [
+  ['signup-mobile', '/signup'],
+  ['forgot-mobile', '/forgot-password'],
+  ['invite-mobile', '/invite'],
+  ['billing-success-mobile', '/billing/success'],
+]) {
+  await page.goto(`${URL}${path}`, { waitUntil: 'networkidle2', timeout: 60_000 });
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  reports.push(await audit(page, name));
+}
+
 console.log(JSON.stringify(reports, null, 2));
 await browser.close();
 const total = reports.reduce((sum, report) => sum + report.violations.length, 0);

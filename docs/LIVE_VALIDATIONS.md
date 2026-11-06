@@ -638,3 +638,9 @@ CI roda o mesmo script nos dois temas a cada push.
 Correcoes: <main> no AuthLayout, canonical por rota, h2 no /status,
 alvos de toque >=24px nos links das paginas de billing (target-size).
 ```
+
+### 65. A11y em 21 telas (mobile inclui formularios publicos)
+```
++ /signup, /forgot-password, /invite e /billing/success em 390px
+Resultado local: light 21/21 e dark 21/21 sem violacoes
+```
