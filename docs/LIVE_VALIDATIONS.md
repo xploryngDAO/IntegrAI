@@ -388,3 +388,11 @@ GET /tenants/me (token da sessao) -> slug do workspace criado
 soft delete (202) + purge (200); 0 residuos; sem erros de runtime no console
 8/8 (npm run test:live-signup-ui)
 ```
+
+### 36. Console e settings na producao (bundle publicado)
+```
+https://integrai-dev.vercel.app/platform -> detalhe do tenant IntegrAI
+  secao "Operacoes": Criar backup, Backups recentes, Excluir workspace
+https://integrai-dev.vercel.app/settings -> Autenticacao corporativa, politica 2FA, Privacidade e LGPD
+0 erros de runtime no console
+```
