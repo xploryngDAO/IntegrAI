@@ -349,3 +349,13 @@ npm run test:live-sso       -> 10/10 (stub OIDC: discover, start 302, callback o
    exchange JIT AGENT, replay 401, tenant correto, cleanup)
 Estado final: SSO do tenant 404 (limpo) e 0 usuarios JIT residuais
 ```
+
+### 32. Idempotencia de webhook e revogacao de socket
+```
+POST /webhooks/mercadolivre?secret=... (evento evt-dedup-live-1, seller conectado) -> 200 {"status":"OK"}
+POST identico novamente                                                -> 200 {"status":"DUPLICATE"}
+webhook_events: 1 linha para evt-dedup-live-1 (sem processamento duplicado)
+npm run test:live-socket -> 5/5 (login, socket conecta, logout 204, socket rejeita token revogado,
+   novo login conecta)
+evento e segredo de teste removidos; env restaurado
+```
