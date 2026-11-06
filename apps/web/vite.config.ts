@@ -10,6 +10,9 @@ import react from '@vitejs/plugin-react';
 // while this workspace runs Vite 6; the cast keeps the config type-checking
 // while staying runtime-compatible (the plugin API is stable across both).
 export default defineConfig({
+  // GitHub Pages serves the demo under /IntegrAI/; production (Vercel/nginx)
+  // keeps the root base. Set VITE_BASE_PATH at build time for subpath hosting.
+  base: process.env.VITE_BASE_PATH ?? '/',
   plugins: [react() as unknown as PluginOption],
   server: {
     port: 5173,

@@ -1,0 +1,63 @@
+name: Pages demo
+
+# Publica o SPA no GitHub Pages como demo temporária enquanto a Vercel está
+# limitada por cota. O backend continua no túnel/API configurado nas envs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vendor/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:shared
+      - name: Build SPA for /IntegrAI/
+        env:
+          VITE_BASE_PATH: /IntegrAI/
+          VITE_API_BASE_URL: https://growth-voters-independent-rca.trycloudflare.com/api/v1
+          VITE_WS_URL: https://growth-voters-independent-rca.trycloudflare.com
+        run: npm run build --workspace @sac/web
+      - name: SPA fallback for Pages
+        run: |
+          cp apps/web/dist/index.html apps/web/dist/404.html
+          touch apps/web/dist/.nojekyll
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
