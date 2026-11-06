@@ -23,6 +23,7 @@ npm run build --workspace @sac/web
 | `security-probe` | **18/18** | headers, JWT, CORS, 415, injeção, rate limit, RBAC |
 | `a11y-audit` | **10/10 telas, 0 violações** | 8 desktop + landing/login mobile |
 | `/api/v1/health/ready` | `ready` | database=ok · redis=ok · storage=ok |
+| `npm audit` / OSV | **0 vulnerabilidades** | full tree + lockfile (581 pacotes) |
 
 ## Evidências específicas da rodada
 

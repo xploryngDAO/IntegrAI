@@ -467,3 +467,12 @@ publico (sem token) e isento de manutencao; imagem Docker recebe GIT_SHA no buil
 /auth/sso/callback sem code -> "Login corporativo incompleto" com instrucao de abrir o login
 Sem overflow em 1440; mensagens de usuario (sem stack/technical dump)
 ```
+
+### 45. Dependencias sem vulnerabilidades conhecidas (npm audit + OSV)
+```
+npm audit            -> found 0 vulnerabilities
+npm audit --omit=dev -> found 0 vulnerabilities
+osv-scanner lockfile -> No issues found (581 pacotes)
+Removidos s3rver (nao usado) e vitest2/vite5; agora vitest 4.1.12 + vite 6.4.5 (override)
+1072 testes + builds verdes apos o upgrade
+```
