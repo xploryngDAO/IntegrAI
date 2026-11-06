@@ -520,3 +520,10 @@ o login do admin de CI falhava e as telas "autenticadas" auditadas eram na verda
 Fix: VITE_RUNTIME_CONFIG_DISABLE=true no build de CI + a11y-audit falha se o login nao criar sessao.
 Verificacao local: 10/10 telas, 0 violacoes (login real atestado pela presenca do token)
 ```
+
+### 51. UI smoke autenticado no CI
+```
+node scripts/ui-smoke.mjs <url> <admin> <senha>
+-> login real, /admin, /accounts, /settings, /profile, logout pelo menu, sem erros de runtime
+local (build hermetico): 7/7; roda no security.yml apos as auditorias a11y
+```

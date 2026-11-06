@@ -36,6 +36,7 @@
         "test:live-signup": "node scripts/live-signup-invite-test.mjs",
         "test:live-signup-ui": "node scripts/live-signup-ui-test.mjs",
         "test:live-invite-ui": "node scripts/live-invite-ui-test.mjs",
+        "test:ui-smoke": "node scripts/ui-smoke.mjs",
         "setup:assistant": "node scripts/setup-assistant.mjs",
         "setup:apply": "node scripts/setup-apply.mjs",
         "test:live-2fa": "node scripts/live-2fa-test.mjs",
