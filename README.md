@@ -56,17 +56,20 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 Interface no **Convergência Design System** (tema claro canônico + escuro). As imagens abaixo usam dados ilustrativos de layout — **a aplicação não gera nem exibe dados simulados**; sem API/credenciais ela mostra a tela de login ou estado vazio real.
 
-| Workspace 3 colunas | Tema escuro |
+| Landing | Fila unificada (workspace 3 colunas) |
 |---|---|
-| ![Workspace claro](screenshots/ds-04-final-light.png) | ![Workspace escuro](screenshots/ds-05-final-dark.png) |
+| ![Landing](screenshots/landing-audit-1440.png) | ![Fila](screenshots/workspace-audit-1440.png) |
 
-| Workspace 3 colunas (claro) | Canais conectados / onboarding |
+| Canais conectados | Perfil e sessões |
 |---|---|
-| ![Workspace claro](screenshots/ds-04-final-light.png) | ![Canais](screenshots/ds-06-accounts-final.png) |
+| ![Canais](screenshots/accounts-audit-1440.png) | ![Perfil](screenshots/profile-audit-1440.png) |
 
-| Mobile — fila | Mobile — conversa |
+| Mobile — landing | Mobile — onboarding |
 |---|---|
-| ![Mobile fila](screenshots/ds-10-mobile-workspace.png) | ![Mobile conversa](screenshots/ds-13-mobile-chat-v2.png) |
+| ![Landing mobile](screenshots/landing-audit-390.png) | ![Onboarding](screenshots/onboarding-step1.png) |
+
+Capturas adicionais (admin, consola de plataforma, status, manutenção, páginas de
+retorno): [`screenshots/`](screenshots/).
 
 Antes da adoção do DS (identidade escura própria), para comparação:
 [workspace anterior](screenshots/06-real-api.png) · [claim Meli anterior](screenshots/02-meli-claim.png) · [guardrail Amazon anterior](screenshots/03-amazon-policy-block.png).
