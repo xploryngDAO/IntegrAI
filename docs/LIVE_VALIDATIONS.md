@@ -320,3 +320,13 @@ logs: "meli.webhook.secret_not_configured" · reason WEBHOOK_SECRET_NOT_CONFIGUR
 GET /platform/integration-setup -> Meli configured=false, missing=["MELI_WEBHOOK_SECRET"]
    webhookSecretEnv=MELI_WEBHOOK_SECRET
 ```
+
+### 29. Webhook valido do Mercado Livre (com segredo) aceito
+```
+MELI_WEBHOOK_SECRET=test-meli-secret-dev; API reiniciada
+GET /platform/integration-setup -> configured=true e webhookUrl com ?secret=test-meli-secret-dev
+POST /webhooks/mercadolivre?secret=... (seller conectado 3816933555) -> 200 {"status":"OK"}
+POST mesmo payload com ?secret=wrong -> 401 (meli.webhook.invalid_secret)
+POST seller desconhecido 42 com segredo valido -> 401 UNKNOWN_SELLER (segredo passou; conta nao resolve)
+Env restaurado (segredo vazio) e API reiniciada; eventos de teste removidos de webhook_events
+```
