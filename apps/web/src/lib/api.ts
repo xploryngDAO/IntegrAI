@@ -31,8 +31,14 @@ import type {
   ActionBody,
   ConnectAccountPayload,
   DeleteTenantBody,
+  PlatformAlert,
+  PlatformAlertsResult,
+  PlatformBillingSummary,
   PlatformMetrics,
   PlatformTenant,
+  PlatformTenantBillingResult,
+  PlatformTenantBillingUpdate,
+  PlatformTenantMetrics,
   PlatformTenantQuery,
   PlatformTenantUpdate,
   PolicyCheckBody,
@@ -370,6 +376,17 @@ export interface ApiClient {
     id: string,
     body: PlatformTenantUpdate,
   ): Promise<PlatformTenant | null>;
+  /** Per-tenant metrics of the console (`GET /platform/tenants/:id/metrics`). */
+  platformTenantMetrics(id: string): Promise<PlatformTenantMetrics>;
+  /** Active operational alerts (`GET /platform/alerts`). */
+  platformAlerts(): Promise<PlatformAlert[]>;
+  /** Platform billing summary (`GET /platform/billing/summary`). */
+  platformBillingSummary(): Promise<PlatformBillingSummary>;
+  /** Billing fields of one tenant (`PATCH /platform/tenants/:id/billing`). */
+  updatePlatformTenantBilling(
+    id: string,
+    body: PlatformTenantBillingUpdate,
+  ): Promise<PlatformTenantBillingResult | null>;
   /** Revokes the current session server-side (`POST /auth/logout`). */
   logout(): Promise<void>;
   /** Live infrastructure + every connected account (ADMIN). */
@@ -717,6 +734,41 @@ export const api: ApiClient = {
     });
   },
 
+  platformTenantMetrics(id) {
+    return request<PlatformTenantMetrics>(`/platform/tenants/${encodeURIComponent(id)}/metrics`, {
+      timeoutMs: 12_000,
+    });
+  },
+
+  async platformAlerts() {
+    // The published API answers `{ generatedAt, total, alerts }`; the initial
+    // contract was a bare array. Normalise both so the panel stays agnostic.
+    const payload = await request<PlatformAlert[] | PlatformAlertsResult>('/platform/alerts', {
+      timeoutMs: 12_000,
+    });
+    if (Array.isArray(payload)) return payload;
+    if (payload !== null && typeof payload === 'object' && Array.isArray(payload.alerts)) {
+      return payload.alerts;
+    }
+    return [];
+  },
+
+  platformBillingSummary() {
+    return request<PlatformBillingSummary>('/platform/billing/summary', { timeoutMs: 12_000 });
+  },
+
+  updatePlatformTenantBilling(id, body) {
+    return request<PlatformTenantBillingResult | null>(
+      `/platform/tenants/${encodeURIComponent(id)}/billing`,
+      {
+        method: 'PATCH',
+        body,
+        allowEmpty: true,
+        timeoutMs: 15_000,
+      },
+    );
+  },
+
   async logout() {
     // No refresh token body: the API revokes every session of this operator.
     await request<unknown>('/auth/logout', {
@@ -753,8 +805,14 @@ export type {
   DiagnosisCheck,
   DiagnosisStatus,
   IAgentSummary,
+  PlatformAlert,
+  PlatformAlertsResult,
+  PlatformBillingSummary,
   PlatformMetrics,
   PlatformTenant,
+  PlatformTenantBillingResult,
+  PlatformTenantBillingUpdate,
+  PlatformTenantMetrics,
   PlatformTenantQuery,
   PlatformTenantUpdate,
   PolicyCheckBody,

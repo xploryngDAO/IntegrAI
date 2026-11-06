@@ -270,6 +270,141 @@ export interface PlatformTenant {
   /** Soft-delete marker (null = live workspace). */
   deletedAt: string | null;
   createdAt: string;
+  /**
+   * Billing projection. Optional on purpose: `GET /platform/tenants` does not
+   * return it yet, and the billing form must never invent a value the API did
+   * not return. If a future detail endpoint adds these fields, the drawer
+   * pre-fills the form instead of starting from "não alterar".
+   */
+  billingStatus?: string | null;
+  trialEndsAt?: string | null;
+  billingEmail?: string | null;
+}
+
+/* ==========================================================================
+ * Fase 4 (billing + alertas) — console operacional
+ *
+ *   GET   /platform/tenants/:id/metrics -> PlatformTenantMetrics
+ *   GET   /platform/alerts              -> PlatformAlert[]
+ *   GET   /platform/billing/summary     -> PlatformBillingSummary
+ *   PATCH /platform/tenants/:id/billing -> PlatformTenant | 204
+ *
+ * The billing endpoints are optional while the API is being published: a
+ * 404/405/501 is surfaced as "não publicado" without taking the console down.
+ * ========================================================================== */
+
+/** One daily bucket of `ticketsLast14d`. */
+export interface PlatformDailyTickets {
+  /** ISO date (`YYYY-MM-DD`) or a serialised timestamp. */
+  date: string;
+  count: number;
+}
+
+/**
+ * Quota usage returned by the metrics endpoint. The server may answer one
+ * overall percentage or one value per resource; the UI accepts both.
+ */
+export type PlatformUsagePct =
+  | number
+  | {
+      accounts?: number;
+      agents?: number;
+    };
+
+/** Metrics of a single tenant (`GET /platform/tenants/:id/metrics`). */
+export interface PlatformTenantMetrics {
+  accounts: number;
+  agents: number;
+  ticketsByStatus: Record<string, number>;
+  openTickets: number;
+  slaAtRisk: number;
+  slaBreached: number;
+  /** Average minutes to the first agent reply (null = no data yet). */
+  avgFirstResponseMinutes?: number | null;
+  messagesLast7d: number;
+  ticketsLast14d?: PlatformDailyTickets[];
+  plan: TenantPlan;
+  limits: PlatformTenantLimits;
+  usagePct?: PlatformUsagePct;
+}
+
+/** Raw severity of `GET /platform/alerts` (normalised by `lib/platform`). */
+export type PlatformAlertSeverity = 'critical' | 'warning' | 'info';
+
+/**
+ * Stable alert kinds derived from live data. Unknown values are tolerated and
+ * rendered raw, so a newer API never breaks the console.
+ */
+export type PlatformAlertType =
+  | 'TENANT_SUSPENDED'
+  | 'ACCOUNT_STATUS'
+  | 'ACCOUNT_ERROR'
+  | 'AGENTS_QUOTA'
+  | 'ACCOUNTS_QUOTA'
+  | 'SLA_AT_RISK'
+  | 'INVITATIONS_EXPIRING';
+
+/** One operational alert of the platform console. */
+export interface PlatformAlert {
+  severity: string;
+  tenantId: string;
+  tenantSlug: string;
+  type: PlatformAlertType | string;
+  message: string;
+  value?: number | string | null;
+}
+
+/**
+ * `GET /platform/alerts` answers `{ generatedAt, total, alerts }`. The client
+ * also accepts a bare array so both shapes of the contract keep working.
+ */
+export interface PlatformAlertsResult {
+  generatedAt?: string;
+  total?: number;
+  alerts: PlatformAlert[];
+}
+
+/** One row of the billing breakdown by plan. */
+export interface PlatformBillingPlanSlice {
+  plan: string;
+  tenants: number;
+  mrr: number;
+}
+
+/** `GET /platform/billing/summary`. */
+export interface PlatformBillingSummary {
+  mrr: number;
+  byPlan: PlatformBillingPlanSlice[];
+  trialing: number;
+  pastDue: number;
+}
+
+/** Billing lifecycle of a tenant (server-side enum, kept tolerant). */
+export type PlatformBillingStatus = 'ACTIVE' | 'TRIALING' | 'PAST_DUE' | 'CANCELED';
+
+/**
+ * Body of `PATCH /platform/tenants/:id/billing`.
+ *
+ * Only the fields the operator actually changed are sent; `null` clears an
+ * existing value (empty date/email after a populated one).
+ */
+export interface PlatformTenantBillingUpdate {
+  billingStatus?: string;
+  trialEndsAt?: string | null;
+  billingEmail?: string | null;
+}
+
+/** Response of `PATCH /platform/tenants/:id/billing` (server-normalised view). */
+export interface PlatformTenantBillingResult {
+  tenantId: string;
+  slug: string;
+  plan: TenantPlan;
+  billingStatus: string;
+  trialEndsAt: string | null;
+  billingEmail: string | null;
+  /** Monthly list price of the current plan in BRL (0 for FREE). */
+  monthlyPriceBrl?: number;
+  updatedAt?: string;
 }
 
 /** Body of `PATCH /platform/tenants/:id`. */

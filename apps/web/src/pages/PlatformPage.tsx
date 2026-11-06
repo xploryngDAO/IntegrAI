@@ -3,10 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable, Grid, PageHeader, Pagination, StatCard } from '@xploryng/convergencia';
 import type { Marketplace } from '@sac/shared';
 import { api } from '../lib/api';
-import type { PlatformMetrics, PlatformTenant } from '../lib/types';
+import type {
+  PlatformAlert,
+  PlatformBillingSummary,
+  PlatformMetrics,
+  PlatformTenant,
+} from '../lib/types';
 import { MARKETPLACE_LABEL, MARKETPLACE_ORDER, formatDate } from '../lib/labels';
 import {
   ENTERPRISE_UNLIMITED,
+  asCount,
   isForbiddenError,
   planLabel,
   platformErrorMessage,
@@ -15,21 +21,18 @@ import {
   tenantStatusTone,
 } from '../lib/platform';
 import { Alert, Button, Card, EmptyState, Pill, SearchField, Skeleton } from '../components/ui';
+import { AlertsPanel } from '../components/platform/AlertsPanel';
+import { BillingCards } from '../components/platform/BillingCards';
 import { EditTenantDialog } from '../components/platform/EditTenantDialog';
+import {
+  TenantDetailDialog,
+  type TenantTarget,
+} from '../components/platform/TenantDetailDialog';
 
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 /** `GET /platform/tenants` caps `pageSize` at 100. */
 const SEARCH_PAGE_SIZE = 100;
-
-function asCount(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
-  }
-  return 0;
-}
 
 /** Accent-insensitive, case-insensitive name/slug match (client-side fallback). */
 function normalizeSearch(value: string): string {
@@ -72,16 +75,47 @@ export function PlatformPage(): JSX.Element {
   const [tenantsLoading, setTenantsLoading] = useState(true);
   const [tenantsError, setTenantsError] = useState<string | null>(null);
 
+  const [alerts, setAlerts] = useState<PlatformAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+
+  const [billing, setBilling] = useState<PlatformBillingSummary | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
   const [forbidden, setForbidden] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState<PlatformTenant | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<TenantTarget | null>(null);
 
   const retry = useCallback((): void => {
     setReloadKey((key) => key + 1);
   }, []);
+
+  /** 403 anywhere in the console: the whole page becomes the "sem permissão" state. */
+  const handleForbidden = useCallback((): void => {
+    setSelectedTenant(null);
+    setForbidden(true);
+  }, []);
+
+  /** Alert → drawer. The row from the current page enriches billing prefill when loaded. */
+  const openTenantFromAlert = useCallback(
+    (alert: PlatformAlert): void => {
+      const tenantId = typeof alert.tenantId === 'string' ? alert.tenantId.trim() : '';
+      if (tenantId.length === 0) return;
+      const known = tenants.find((tenant) => tenant.id === tenantId);
+      if (known) {
+        setSelectedTenant(known);
+        return;
+      }
+      const slug = typeof alert.tenantSlug === 'string' ? alert.tenantSlug.trim() : '';
+      setSelectedTenant({ id: tenantId, name: slug.length > 0 ? slug : tenantId, slug });
+    },
+    [tenants],
+  );
 
   // Server-side filter: debounce so typing does not fire one request per key.
   useEffect(() => {
@@ -165,6 +199,69 @@ export function PlatformPage(): JSX.Element {
     };
   }, [debouncedSearch, reloadKey, requestPage, requestPageSize]);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadAlerts(): Promise<void> {
+      setAlertsLoading(true);
+      setAlertsError(null);
+      try {
+        const result = await api.platformAlerts();
+        if (!active) return;
+        const items: PlatformAlert[] = Array.isArray(result)
+          ? result.filter(
+              (item): item is PlatformAlert => typeof item === 'object' && item !== null,
+            )
+          : [];
+        setAlerts(items);
+      } catch (error) {
+        if (!active) return;
+        if (isForbiddenError(error)) {
+          setForbidden(true);
+          return;
+        }
+        setAlerts([]);
+        setAlertsError(platformErrorMessage(error));
+      } finally {
+        if (active) setAlertsLoading(false);
+      }
+    }
+
+    void loadAlerts();
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadBilling(): Promise<void> {
+      setBillingLoading(true);
+      setBillingError(null);
+      try {
+        const result = await api.platformBillingSummary();
+        if (!active) return;
+        setBilling(result !== null && typeof result === 'object' ? result : null);
+      } catch (error) {
+        if (!active) return;
+        if (isForbiddenError(error)) {
+          setForbidden(true);
+          return;
+        }
+        setBilling(null);
+        setBillingError(platformErrorMessage(error));
+      } finally {
+        if (active) setBillingLoading(false);
+      }
+    }
+
+    void loadBilling();
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
   const filteredTenants = useMemo(
     () => (filtering ? tenants.filter((tenant) => matchesSearch(tenant, debouncedSearch)) : tenants),
     [debouncedSearch, filtering, tenants],
@@ -195,7 +292,18 @@ export function PlatformPage(): JSX.Element {
   const rows = useMemo<Record<string, ReactNode>[]>(
     () =>
       visibleTenants.map((tenant) => ({
-        name: <strong className="font-medium">{tenant.name || '—'}</strong>,
+        name: (
+          <button
+            type="button"
+            className="max-w-full cursor-pointer border-0 bg-transparent p-0 text-left text-inherit"
+            onClick={() => setSelectedTenant(tenant)}
+            aria-label={`Abrir métricas e cobrança de ${tenant.name || tenant.slug}`}
+          >
+            <strong className="font-medium underline-offset-2 hover:underline">
+              {tenant.name || '—'}
+            </strong>
+          </button>
+        ),
         slug: <span className="sac-num">{tenant.slug || '—'}</span>,
         plan: <Pill tone="accent">{planLabel(tenant.plan)}</Pill>,
         usage: (
@@ -212,15 +320,26 @@ export function PlatformPage(): JSX.Element {
         ),
         createdAt: formatDate(tenant.createdAt),
         actions: (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="sliders"
-            onClick={() => setEditing(tenant)}
-            aria-label={`Editar plano de ${tenant.name}`}
-          >
-            Editar
-          </Button>
+          <span className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="chart"
+              onClick={() => setSelectedTenant(tenant)}
+              aria-label={`Ver métricas e cobrança de ${tenant.name}`}
+            >
+              Detalhes
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="sliders"
+              onClick={() => setEditing(tenant)}
+              aria-label={`Editar plano de ${tenant.name}`}
+            >
+              Editar
+            </Button>
+          </span>
         ),
       })),
     [visibleTenants],
@@ -236,7 +355,7 @@ export function PlatformPage(): JSX.Element {
     { key: 'actions', label: 'Ações' },
   ];
 
-  const busy = metricsLoading || tenantsLoading;
+  const busy = metricsLoading || tenantsLoading || alertsLoading || billingLoading;
 
   if (forbidden) {
     return (
@@ -267,7 +386,7 @@ export function PlatformPage(): JSX.Element {
       <PageHeader
         eyebrow="Plataforma"
         title="Console da plataforma"
-        description="Métricas globais dos tenants, uso por marketplace, fila de atendimento e o plano/limites de cada workspace."
+        description="Métricas globais dos tenants, alertas operacionais, cobrança da plataforma e o plano/limites de cada workspace. Clique em um tenant para abrir as métricas e o formulário de cobrança."
         actions={
           <Button variant="secondary" icon="pulse" loading={busy} onClick={retry}>
             Atualizar
@@ -346,6 +465,21 @@ export function PlatformPage(): JSX.Element {
           </Card>
         </Grid>
       )}
+
+      <AlertsPanel
+        alerts={alerts}
+        loading={alertsLoading}
+        error={alertsError}
+        onRetry={retry}
+        onOpenTenant={openTenantFromAlert}
+      />
+
+      <BillingCards
+        summary={billing}
+        loading={billingLoading}
+        error={billingError}
+        onRetry={retry}
+      />
 
       <Card
         title="Tenants"
@@ -436,6 +570,19 @@ export function PlatformPage(): JSX.Element {
           )}
         </div>
       </Card>
+
+      {selectedTenant ? (
+        <TenantDetailDialog
+          key={selectedTenant.id}
+          tenant={selectedTenant}
+          onClose={() => setSelectedTenant(null)}
+          onSaved={() => {
+            // Billing can change the MRR/trial/past-due counters and the row.
+            setReloadKey((key) => key + 1);
+          }}
+          onForbidden={handleForbidden}
+        />
+      ) : null}
 
       {editing ? (
         <EditTenantDialog
