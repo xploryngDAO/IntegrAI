@@ -102,3 +102,8 @@ backup/restore do Postgres (marker restaurado).
 
 **GO** para homologação interna/self-hosted e **demo pública na Vercel** (evidências acima).
 **NO-GO** para produção comercial até concluir os itens 1, 2, 3 e 4 da seção 6.
+
+## Publicação
+
+- Release no GitHub (prerelease): <https://github.com/xploryngDAO/IntegrAI/releases/tag/v0.1.0-rc.1>
+- Topics do repositório configurados (omnichannel, marketplaces, LGPD, SSO).

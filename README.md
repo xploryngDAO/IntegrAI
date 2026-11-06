@@ -1,6 +1,8 @@
 # SAC Hub — Integrador Omnichannel de Atendimento
 
 [![Demo](https://img.shields.io/badge/demo-integrai--dev.vercel.app-6367c9)](https://integrai-dev.vercel.app)
+[![Pages](https://img.shields.io/badge/fallback-xploryngdao.github.io%2FIntegrAI-6367c9)](https://xploryngdao.github.io/IntegrAI/)
+[![Release](https://img.shields.io/github/v/release/xploryngDAO/IntegrAI?include_prereleases&label=release)](https://github.com/xploryngDAO/IntegrAI/releases)
 [![Repo](https://img.shields.io/badge/github-xploryngDAO%2FIntegrAI-181717?logo=github)](https://github.com/xploryngDAO/IntegrAI)
 [![Design System](https://img.shields.io/badge/UI-Convergência-6367c9)](docs/CONVERGENCIA_ADOPTION.md)
 [![CI](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml)
