@@ -34,3 +34,9 @@ jobs:
         run: docker build -f packages/server/Dockerfile -t sac-hub-api:ci .
       - name: Build production web image
         run: docker build -f apps/web/Dockerfile -t sac-hub-web:ci .
+      - name: Scan images for HIGH/CRITICAL CVEs
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress sac-hub-api:ci
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress sac-hub-web:ci

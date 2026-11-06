@@ -72,6 +72,7 @@ backup/restore do Postgres (marker restaurado).
 - Isolamento multi-tenant 14/14
 - Segredos cifrados (AES-256-GCM), JWT curto + refresh rotativo/denylist, 2FA, sessões revogáveis
 - Pentest externo **ainda não realizado** (bloqueia go-live público)
+- Imagens Docker: **trivy 0 HIGH/CRITICAL** (API sem npm/npx no runtime; web em nginx:stable-alpine), varredura no CI
 
 ## 6. Bloqueios para go-live público (requerem o cliente)
 
