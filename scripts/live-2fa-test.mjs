@@ -74,7 +74,7 @@ function totp(secret, offsetSteps = 0) {
 
 async function waitForEmail(email) {
   for (let attempt = 0; attempt < 15; attempt += 1) {
-    const list = await fetch(`${MAILPIT}/api/v1/messages?limit=30`).then((r) => r.json()).catch(() => null);
+    const list = await fetch(`${MAILPIT}/api/v1/messages?limit=250`).then((r) => r.json()).catch(() => null);
     const message = list?.messages?.find((entry) => entry.To?.some((to) => to.Address === email));
     if (message) {
       const full = await fetch(`${MAILPIT}/api/v1/message/${message.ID}`).then((r) => r.json());

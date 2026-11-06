@@ -586,3 +586,13 @@ boot() (agents/accounts/health/me) sem sessao -> 0 erros de console na landing
 Lighthouse local: a11y 100, best-practices 100, console items 0
 Auth continua ok: a11y 10/10 + UI smoke 7/7 (build hermetico)
 ```
+
+### 59. Bateria orquestrada (live-all) 13/13
+```
+node scripts/live-all.mjs --reset-login-limit
+13/13 etapas OK em ~215s (verify, validate, isolation, probe, 2FA policy/socket/API,
+signup+convite API, signup/convite/reset/2FA pela UI, a11y 10 telas)
+--only=..., --skip-ui, --skip-a11y disponiveis
+Flags: limpa sac:auth:*attempts* via docker (Redis local) para evitar 429 falso entre etapas
+Mailpit: scripts consultam limit=250 (volume de testes) e o policy-test limpa tenant no catch
+```

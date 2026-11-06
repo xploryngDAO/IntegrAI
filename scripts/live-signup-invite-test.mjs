@@ -45,7 +45,7 @@ async function mailToken(pattern, recipient) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     try {
-      const list = await (await fetch(`${MAILPIT}/api/v1/messages?limit=50`)).json();
+      const list = await (await fetch(`${MAILPIT}/api/v1/messages?limit=250`)).json();
       const messages = Array.isArray(list.messages) ? list.messages : [];
       for (const message of messages) {
         const to = (message.To ?? []).map((entry) => (entry.Address ?? '').toLowerCase());

@@ -51,7 +51,7 @@ async function mailLink(pattern, recipient) {
   const deadline = Date.now() + 25_000;
   while (Date.now() < deadline) {
     try {
-      const list = await (await fetch(`${MAILPIT}/api/v1/messages?limit=50`)).json();
+      const list = await (await fetch(`${MAILPIT}/api/v1/messages?limit=250`)).json();
       for (const message of list.messages ?? []) {
         const to = (message.To ?? []).map((entry) => (entry.Address ?? '').toLowerCase());
         if (!to.includes(recipient.toLowerCase())) continue;

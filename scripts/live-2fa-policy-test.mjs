@@ -22,6 +22,8 @@ const prisma = new PrismaClient({
   ),
 });
 const results = [];
+/** Tenant temporário; declarado cedo para o catch conseguir limpar. */
+let tenantId = null;
 const check = (name, ok, detail = '') => {
   results.push({ name, ok });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
@@ -73,7 +75,7 @@ function totp(secret) {
 
 async function waitForVerificationToken(email) {
   for (let attempt = 0; attempt < 15; attempt += 1) {
-    const list = await fetch(`${MAILPIT}/api/v1/messages?limit=50`).then((r) => r.json()).catch(() => null);
+    const list = await fetch(`${MAILPIT}/api/v1/messages?limit=250`).then((r) => r.json()).catch(() => null);
     const message = list?.messages?.find((entry) => entry.To?.some((to) => to.Address === email));
     if (message) {
       const full = await fetch(`${MAILPIT}/api/v1/message/${message.ID}`).then((r) => r.json());
@@ -106,7 +108,7 @@ async function main() {
   const stamp = Date.now();
   const email = `policy-2fa-${stamp}@integrai.test`;
   const password = 'Politica-2FA-2026!';
-  let tenantId = null;
+  tenantId = null;
 
   const signup = await post('/api/v1/auth/signup', {
     companyName: `Politica 2FA ${stamp}`,
