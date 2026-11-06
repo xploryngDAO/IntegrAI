@@ -60,7 +60,22 @@ POST /invitations (ADMIN) → e-mail "Convite para operar o IntegrAI" no Mailpit
 cleanup de sessões/convite/usuário
 ```
 
-### 6. Assistente de configuração (`npm run setup:assistant`)
+### 6. Backup, restore e purga de tenant (S3 real)
+```
+POST /platform/tenants/:id/backup → backups/integrai/<timestamp>.json
+POST /platform/tenants/restore {backupKey,newSlug} → novo tenant (2 agents, 1 account, 26 webhooks)
+GET  /platform/tenants?search=<slug> → encontrado
+UPDATE tenants status=DELETED (soft delete)
+POST /platform/tenants/:id/purge → apagou 26 webhooks, 1 account, 2 agents, sessões e o tenant
+GET  /platform/tenants?search=<slug> → 0 (removido fisicamente)
+```
+
+### 7. Portais dos marketplaces (verificação via navegador/MCP)
+- `open.shopee.com/console/app` → redireciona para login (sem sessão)
+- `sellercentral.amazon.com.br` → landing de vendedor (sem sessão)
+- Conclusão: criar os apps exige suas contas; a plataforma já entrega valores copiáveis em `/setup` e os comandos `setup:assistant`/`setup:apply`.
+
+### 8. Assistente de configuração (`npm run setup:assistant`)
 Mostra por canal o que está configurado/pendente, os webhooks exatos e o próximo passo com link do portal; `--generate` cria segredos locais ausentes (billing/SES) sem sobrescrever.
 
 ### 6. Estado geral
