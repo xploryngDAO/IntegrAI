@@ -42,7 +42,20 @@ counts: agents=1, accounts=0, tickets=0, messages=0...
 GET /platform/tenants/:id/backups → 1 item
 ```
 
-### 4. Estado geral
+### 4. 2FA ponta a ponta (`npm run test:live-2fa`)
+```
+signup → e-mail no Mailpit → verify-email → login
+→ 2fa/setup → 2fa/verify (TOTP gerado localmente) → 8 recovery codes
+→ login bloqueado (TWO_FACTOR_REQUIRED) → 2fa/challenge (TOTP) → sessão emitida
+→ 2fa/disable com recovery code → login volta a funcionar
+cleanup do tenant temporário
+11/11 verificações passaram
+```
+
+### 5. Assistente de configuração (`npm run setup:assistant`)
+Mostra por canal o que está configurado/pendente, os webhooks exatos e o próximo passo com link do portal; `--generate` cria segredos locais ausentes (billing/SES) sem sobrescrever.
+
+### 6. Estado geral
 ```
 GET /status                 → operational (4 serviços, 1 canal)
 GET /accounts (ADMIN)       → 1 loja Mercado Livre ativa
