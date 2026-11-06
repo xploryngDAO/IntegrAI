@@ -210,3 +210,17 @@ GET /admin/audit-logs?action=admin.audit.exported
   -> metadata {"format":"csv","filters":{"action":"auth.login.success"},"rowCount":36}
 actor/IP registrados; validate:live -> 11/11
 ```
+
+### 18. Politica de 2FA obrigatoria por workspace
+```
+npm run test:live-2fa-policy
+signup tenant novo -> verify-email -> login inicial
+PATCH /tenants/me {require2fa:true} -> 200
+login -> 403 TWO_FACTOR_SETUP_REQUIRED + setupToken
+POST /auth/2fa/enroll/setup -> secret -> TOTP -> enroll/verify -> sessao + 8 recovery codes
+GET /auth/me (sessao do enrollment) -> 200
+replay do setup token -> 401
+login seguinte -> 401 TWO_FACTOR_REQUIRED
+cleanup -> tenant inexistente
+13/13 verificacoes
+```
