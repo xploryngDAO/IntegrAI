@@ -721,3 +721,14 @@ workflow_dispatch do uptime.yml -> run success
 monitor: producao 200 -> comentou a recuperacao e fechou a issue automaticamente
 estado final: #12 closed, 1 comentario; nenhum incidente pendente
 ```
+
+### 79. Bateria 12/15 contra o GitHub Pages (fallback)
+```
+node scripts/live-all.mjs --web=https://xploryngdao.github.io/IntegrAI --reset-login-limit
+PASS: verify-live, validate, isolation, probe, 2FA policy/socket/API, 2FA UI, SSO UI,
+      Web Vitals, a11y 21 telas
+FAIL esperado: signup/convite/reset UI -> o link do e-mail usa WEB_ORIGIN (Vercel),
+      primario do produto; os asserts exigem o dominio do webBase (Pages).
+Conclusao: o fallback Pages e funcional (login, 2FA, SSO, a11y, API); links de e-mail
+continuam apontando para a URL primaria, o que e o comportamento desejado.
+```
