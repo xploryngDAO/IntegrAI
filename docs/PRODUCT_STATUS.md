@@ -112,6 +112,11 @@ Monorepo npm workspaces:
 
 Hexagonal/ports & adapters, event-driven (webhooks → fila → domínio → tempo real via Socket.IO).
 
+## Documentação
+
+- [ADRs (Architecture Decision Records)](adr/README.md) — decisões arquiteturais e seus porquês: monorepo/hexagonal, isolamento multi-tenant, SSO OIDC, Prisma 7, deploy e observabilidade.
+- [ARCHITECTURE.md](ARCHITECTURE.md) · [SECURITY.md](SECURITY.md) · [ENTERPRISE_SSO.md](ENTERPRISE_SSO.md) · [RUNBOOK.md](RUNBOOK.md) — referência técnica e operacional.
+
 ## Acessibilidade
 
 Auditoria automatizada com **axe-core (WCAG 2.1 A/AA)** em Edge limpo: **0 violações** em landing, login, admin, perfil, contas e ajustes (
