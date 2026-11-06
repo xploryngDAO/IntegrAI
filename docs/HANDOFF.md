@@ -121,6 +121,9 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
   (b) gerenciados (Postgres/Redis + host Node) com `DATABASE_URL`/`REDIS_URL`;
   (c) túnel atual como transitório.
 - Nenhuma compra/DNS foi alterada. Detalhes no comentário da issue #2.
+- Provisionamento em 1 comando: `scripts/provision-vps.sh` (Docker, firewall, .env com
+  segredos, build das imagens, stack TLS + health check). Portas de Postgres/Redis/API/web
+  agora escutam apenas em 127.0.0.1; público somente 22/80/443 via Caddy.
 
 ### Opções de VPS (catálogo 2026-11-06)
 

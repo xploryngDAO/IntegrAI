@@ -20,7 +20,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.prod}
       POSTGRES_DB: ${POSTGRES_DB:-sac_hub}
     ports:
-      - '${POSTGRES_HOST_PORT:-55433}:5432'
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-55433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -33,7 +33,7 @@ services:
     image: redis:7-alpine
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '${REDIS_HOST_PORT:-56380}:6379'
+      - '127.0.0.1:${REDIS_HOST_PORT:-56380}:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -51,7 +51,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - '${API_HOST_PORT:-4105}:4000'
+      - '127.0.0.1:${API_HOST_PORT:-4105}:4000'
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -68,7 +68,7 @@ services:
       JWT_EXPIRES_IN: 1h
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:?defina ENCRYPTION_MASTER_KEY}
       ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-prod-v1}
-      APP_BASE_URL: http://localhost:${API_HOST_PORT:-4105}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:${API_HOST_PORT:-4105}}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:${WEB_HOST_PORT:-8080}}
       TRUST_PROXY: ${TRUST_PROXY:-false}
       RATE_LIMIT_GLOBAL_PER_MINUTE: ${RATE_LIMIT_GLOBAL_PER_MINUTE:-1800}
@@ -95,7 +95,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - '${WEB_HOST_PORT:-8080}:80'
+      - '127.0.0.1:${WEB_HOST_PORT:-8080}:80'
     healthcheck:
       test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1/ || exit 1']
       interval: 15s
