@@ -99,6 +99,14 @@ function writeCache(config: RuntimeConfig): void {
  * the cached (or build-time) values stay in place and the app boots normally.
  */
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
+  // Hermetic builds (CI/local E2E) must honor the baked API base: the remote
+  // JSON would otherwise point the preview at the tunnel and silently bypass
+  // the local stack (making authenticated audits pass against the wrong API).
+  if (import.meta.env.VITE_RUNTIME_CONFIG_DISABLE === 'true') {
+    loaded = EMPTY;
+    return loaded;
+  }
+
   const cached = readCache();
 
   const configured = (import.meta.env.VITE_RUNTIME_CONFIG_URL as string | undefined)?.trim();

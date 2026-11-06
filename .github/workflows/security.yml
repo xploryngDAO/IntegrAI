@@ -103,6 +103,9 @@ jobs:
         run: npm run build --workspace @sac/web
         env:
           VITE_API_BASE_URL: http://127.0.0.1:4000/api/v1
+          # Do not let the remote runtime-config.json repoint the preview at the
+          # tunnel: the authenticated audits must run against the local API.
+          VITE_RUNTIME_CONFIG_DISABLE: 'true'
 
       - name: Start web preview
         run: |

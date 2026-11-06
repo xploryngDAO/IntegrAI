@@ -512,3 +512,11 @@ node scripts/sso-apply.mjs --file=<entra-app.json> --domains=integrai.test
 Caso negativo (sem config): HTTP 404 -> [falha], exit 1
 Cleanup: DELETE /tenants/me/sso -> 404 (nao configurado), estado restaurado
 ```
+
+### 50. Auditoria a11y hermética no CI (sem runtime-config remoto)
+```
+Bug de cobertura: o build do CI herdava o runtime-config.json remoto e apontava para o tunel;
+o login do admin de CI falhava e as telas "autenticadas" auditadas eram na verdade o /login.
+Fix: VITE_RUNTIME_CONFIG_DISABLE=true no build de CI + a11y-audit falha se o login nao criar sessao.
+Verificacao local: 10/10 telas, 0 violacoes (login real atestado pela presenca do token)
+```

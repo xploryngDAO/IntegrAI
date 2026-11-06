@@ -67,6 +67,20 @@ reports.push(await audit(page, 'login'));
 await page.type('input[type="email"]', EMAIL);
 await page.type('input[type="password"]', PASSWORD);
 await Promise.all([page.click('button[type="submit"]'), new Promise((r) => setTimeout(r, 6000))]);
+// A failed login would make every "authenticated" audit below silently audit
+// the login page instead: treat it as a hard failure of the run.
+const sessionToken = await page.evaluate(() => {
+  try {
+    return window.localStorage.getItem('sac.auth.token');
+  } catch {
+    return null;
+  }
+});
+if (sessionToken === null) {
+  console.error('Login falhou na auditoria: as telas autenticadas não seriam realmente auditadas (API errada ou credenciais inválidas).');
+  await browser.close();
+  process.exit(1);
+}
 await page.goto(`${URL}/admin`, { waitUntil: 'networkidle2', timeout: 60_000 });
 await new Promise((r) => setTimeout(r, 4000));
 reports.push(await audit(page, 'admin'));
