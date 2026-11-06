@@ -41,7 +41,9 @@ jobs:
           api_status="$(curl -s -o /tmp/ready.json -w '%{http_code}' --max-time 20 "$api_base/api/v1/health/ready" || echo 000)"
           spa_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SPA_URL/" || echo 000)"
           pages_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$PAGES_URL" || echo 000)"
-          echo "api_base=$api_base api=$api_status spa=$spa_status pages=$pages_status"
+          api_version="$(curl -fsS --max-time 15 "$api_base/api/v1/version" 2>/dev/null \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log((j.version||'?')+' / '+(j.commit||'?').slice(0,7))}catch(e){console.log('?')}})" || echo '?')"
+          echo "api_base=$api_base api=$api_status spa=$spa_status pages=$pages_status version=$api_version"
           {
             echo "### Resultado do probe $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
@@ -50,6 +52,8 @@ jobs:
             echo "| API \`/health/ready\` ($api_base) | $api_status |"
             echo "| SPA Vercel | $spa_status |"
             echo "| SPA Pages | $pages_status |"
+            echo
+            echo "API \`/version\`: **$api_version**"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$api_status" != "200" ] || [ "$spa_status" != "200" ]; then
             {
