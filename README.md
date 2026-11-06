@@ -40,17 +40,19 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 | Item | Estado |
 |---|---|
-| **SPA** | <https://integrai-dev.vercel.app> — publicado em 2026-11-06; API resolvida em runtime (`runtime-config.json`), sem mock |
+| **SPA** | <https://integrai-dev.vercel.app> — deploy de 2026-11-06 (`assets/index-C-IV3KAO.js`); API resolvida em runtime (`runtime-config.json`), sem mock |
 | **API real** | túnel HTTPS temporário do ambiente de setup (ver [DEPLOY_LOCAL_TUNNEL](docs/DEPLOY_LOCAL_TUNNEL.md)); Postgres, Redis e S3 ok |
 | **Operador** | criado por `npm run db:seed` com ADMIN_EMAIL/ADMIN_PASSWORD (não versionado) |
 | **Marketplaces** | Mercado Livre conectado (token real); Shopee e Amazon aguardando apps/credenciais — `/setup` mostra o que falta |
 | **Admin** | visão geral, usuários (busca/paginação/CSV), convites (reenvio), sessões (revogação), logs/CSV e console de plataforma (backup/exclusão/purga) |
-| **SSO** | OIDC/Entra com `POST /tenants/me/sso/test` + botão **Testar conexão** e `scripts/sso-doctor.mjs`; falta o App registration real |
+| **SSO** | OIDC/Entra com `POST /tenants/me/sso/test` + botão **Testar conexão**, `scripts/sso-doctor.mjs` e `scripts/sso-apply.mjs`; falta o App registration real |
 | **Mensageria** | webhooks autenticados (Shopee HMAC, Amazon SES HMAC, Mercado Livre com segredo na Callback URL, billing HMAC) e idempotência |
-| **Qualidade/Segurança** | 1069 testes · CI (lint de workflows, build/test, gitleaks, isolamento, sonda, a11y em 8 telas, imagens com trivy 0 HIGH/CRITICAL) |
-| **Evidência E2E** | `verify-live`, `validate:live`, `test:live-2fa`, `test:live-2fa-policy`, `test:live-sso`, `test:live-socket`, `test:live-signup`, `test:live-signup-ui`, `isolation-test` |
+| **Qualidade/Segurança** | 1072 testes · CI (actionlint, build/test, gitleaks, npm audit+OSV, isolamento, sonda, a11y em 10 telas claro+escuro, UI smoke, trivy 0 HIGH/CRITICAL) |
+| **Evidência E2E** | `verify-live`, `validate:live`, `test:live-2fa`, `test:live-2fa-policy`, `test:live-sso`, `test:live-socket`, `test:live-signup`, `test:live-signup-ui`, `test:live-invite-ui`, `isolation-test` |
 
-> Handoff de go-live (o que falta e comandos): [docs/HANDOFF.md](docs/HANDOFF.md).`n> Verificação final da baseline: [docs/FINAL_VERIFICATION.md](docs/FINAL_VERIFICATION.md).`n> Estado detalhado, links, credenciais do ambiente, comandos e pendências:
+> Handoff de go-live (o que falta e comandos): [docs/HANDOFF.md](docs/HANDOFF.md).
+> Verificação final da baseline: [docs/FINAL_VERIFICATION.md](docs/FINAL_VERIFICATION.md).
+> Estado detalhado, links, credenciais do ambiente, comandos e pendências:
 > [docs/PRODUCT_STATUS.md](docs/PRODUCT_STATUS.md).
 ## Screenshots
 
