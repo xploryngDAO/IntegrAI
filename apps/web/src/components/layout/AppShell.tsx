@@ -39,6 +39,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
   const nav: NavEntry[] = [...BASE_NAV];
   if (isPlatformAdmin(currentAgent)) {
     nav.push({ to: '/platform', label: 'Plataforma', icon: 'grid', end: false });
+    nav.push({ to: '/setup', label: 'Apps', icon: 'rocket', end: false });
   }
   if (isTenantAdmin(currentAgent)) {
     nav.push({ to: '/settings', label: 'Ajustes', icon: 'sliders', end: false });

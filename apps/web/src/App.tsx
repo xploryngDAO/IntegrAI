@@ -22,6 +22,7 @@ import { StatusPage } from './pages/StatusPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { IntegrationSetupPage } from './pages/IntegrationSetupPage';
 import { PlatformPage } from './pages/PlatformPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BillingSuccessPage, BillingCancelPage } from './pages/BillingReturnPage';
@@ -260,6 +261,8 @@ export default function App(): JSX.Element {
           <Route path="/" element={<WorkspacePage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          {/* Fase 3: app setup screen (platform admin; the API answers 403). */}
+          <Route path="/setup" element={<IntegrationSetupPage />} />
           {/* Fase 4: both screens are guarded again by the API (403). */}
           <Route path="/platform" element={<PlatformPage />} />
           <Route path="/settings" element={<SettingsPage />} />

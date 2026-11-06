@@ -310,6 +310,25 @@ export function OnboardingPage(): JSX.Element {
             error={accountsError}
             onRetry={retryAccounts}
           />
+          <Card>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="m-0 text-[var(--cv-font-control)] font-medium">Ainda não tem o app?</p>
+                <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+                  O app de cada marketplace é criado uma vez pela equipe da plataforma. Veja a
+                  redirect URI, o webhook e os escopos exatos para colar no portal.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                icon="rocket"
+                className="w-full flex-none sm:w-auto"
+                onClick={() => navigate('/setup')}
+              >
+                Configure as integrações
+              </Button>
+            </div>
+          </Card>
         </div>
       ) : null}
 

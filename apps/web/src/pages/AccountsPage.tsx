@@ -287,6 +287,26 @@ export function AccountsPage(): JSX.Element {
         </span>
       </div>
 
+      <Card>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="m-0 text-[var(--cv-font-control)] font-medium">Ainda não tem o app?</p>
+            <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+              Crie o app no portal do marketplace antes de autorizar a loja. A tela de integrações
+              mostra a redirect URI, a URL de webhook, os escopos/tópicos e o App ID exatos.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            icon="rocket"
+            className="w-full flex-none sm:w-auto"
+            onClick={() => navigate('/setup')}
+          >
+            Configure as integrações
+          </Button>
+        </div>
+      </Card>
+
       {hydrating && accounts.length === 0 ? (
         <Grid min={300} aria-busy="true">
           {[0, 1, 2].map((index) => (

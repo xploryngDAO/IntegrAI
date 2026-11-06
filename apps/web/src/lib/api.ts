@@ -32,6 +32,8 @@ import type {
   ActionBody,
   ConnectAccountPayload,
   DeleteTenantBody,
+  IntegrationSetup,
+  IntegrationSetupChannel,
   PlatformAlert,
   PlatformAlertsResult,
   PlatformBillingEvent,
@@ -213,6 +215,21 @@ function unwrap<T>(payload: unknown): T {
     return (payload as { data: T }).data;
   }
   return payload as T;
+}
+
+/** Trimmed non-empty string, or `null` (the API may serialise `''`/absent). */
+function optionalText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Array of trimmed non-empty strings; anything invalid is dropped. */
+function textList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => optionalText(entry))
+    .filter((entry): entry is string => entry !== null);
 }
 
 function encodeQuery(params: Record<string, string | number | null | undefined>): string {
@@ -441,6 +458,12 @@ export interface ApiClient {
    * (`GET /platform/billing/events?limit=`), newest first.
    */
   platformBillingEvents(limit?: number): Promise<PlatformBillingEventsResult>;
+  /**
+   * Public values to create the marketplace apps (`GET /platform/integration-setup`,
+   * platform admin). The page renders exactly what the API returned; `missing`
+   * lists the env variables the deployment still needs.
+   */
+  integrationSetup(): Promise<IntegrationSetup>;
   /** Revokes the current session server-side (`POST /auth/logout`). */
   logout(): Promise<void>;
   /** Live infrastructure + every connected account (ADMIN). */
@@ -925,6 +948,52 @@ export const api: ApiClient = {
     };
   },
 
+  async integrationSetup() {
+    // The endpoint is new and owned by the platform API. Its public values are
+    // rendered verbatim, so normalisation only drops invalid entries (an
+    // anonymous/empty object must never become an invented card) and never
+    // fills a missing value with a guessed URL.
+    const payload = await request<unknown>('/platform/integration-setup', {
+      timeoutMs: 12_000,
+    });
+    const container =
+      payload !== null && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)
+        : null;
+
+    const rawChannels =
+      container !== null && Array.isArray(container.channels) ? container.channels : [];
+    const channels: IntegrationSetupChannel[] = [];
+    for (const entry of rawChannels) {
+      if (entry === null || typeof entry !== 'object') continue;
+      const raw = entry as Record<string, unknown>;
+      const marketplace = optionalText(raw.marketplace);
+      // Without an identifier the card cannot be labelled or matched to a
+      // connected account, so it is skipped instead of rendered as "unknown".
+      if (marketplace === null) continue;
+      channels.push({
+        marketplace,
+        configured: raw.configured === true,
+        missing: textList(raw.missing),
+        appIdPublic: optionalText(raw.appIdPublic),
+        redirectUri: optionalText(raw.redirectUri),
+        webhookUrl: optionalText(raw.webhookUrl),
+        oauthScopesOrTopics: textList(raw.oauthScopesOrTopics),
+        portalUrl: optionalText(raw.portalUrl),
+        docsUrl: optionalText(raw.docsUrl),
+        steps: textList(raw.steps),
+        webhookSecretEnv: optionalText(raw.webhookSecretEnv),
+      });
+    }
+
+    return {
+      generatedAt: optionalText(container?.generatedAt) ?? '',
+      apiBaseUrl: optionalText(container?.apiBaseUrl) ?? '',
+      webOrigin: optionalText(container?.webOrigin) ?? '',
+      channels,
+    };
+  },
+
   async logout() {
     // No refresh token body: the API revokes every session of this operator.
     await request<unknown>('/auth/logout', {
@@ -961,6 +1030,8 @@ export type {
   DiagnosisCheck,
   DiagnosisStatus,
   IAgentSummary,
+  IntegrationSetup,
+  IntegrationSetupChannel,
   PlatformAlert,
   PlatformAlertsResult,
   PlatformBillingEvent,

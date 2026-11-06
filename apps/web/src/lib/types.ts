@@ -438,6 +438,48 @@ export interface PlatformBillingEventsResult {
   limit: number;
 }
 
+/* ==========================================================================
+ * Setup de apps de integração (platform admin)
+ *
+ *   GET /platform/integration-setup -> IntegrationSetup
+ *
+ * The API owns the values: redirect URI, webhook URL, topics/scopes and the
+ * step list are rendered exactly as returned. A `null` field means the server
+ * did not publish that value yet — the UI says so instead of inventing it.
+ * `missing` is the list of environment variables the deployment still needs.
+ * ========================================================================== */
+
+/** One channel card of the integration setup screen. */
+export interface IntegrationSetupChannel {
+  /** Marketplace identifier as returned by the API (normalised for display by `lib/integrations`). */
+  marketplace: string;
+  /** Whether every app credential of this channel is present in the API env. */
+  configured: boolean;
+  /** Environment variables still missing for this channel. */
+  missing: string[];
+  /** Public app id (Meli App ID / Shopee partner_id / Amazon LWA client id). */
+  appIdPublic: string | null;
+  redirectUri: string | null;
+  webhookUrl: string | null;
+  /** Meli/Shopee topics or OAuth scopes, in the order the portal expects. */
+  oauthScopesOrTopics: string[];
+  portalUrl: string | null;
+  docsUrl: string | null;
+  /** Ordered, operator-facing steps to create the app in the portal. */
+  steps: string[];
+  /** Env variable that holds the webhook secret (the value is never exposed). */
+  webhookSecretEnv: string | null;
+}
+
+/** Response of `GET /platform/integration-setup`. */
+export interface IntegrationSetup {
+  /** ISO instant of the server read (empty when the API omitted it). */
+  generatedAt: string;
+  apiBaseUrl: string;
+  webOrigin: string;
+  channels: IntegrationSetupChannel[];
+}
+
 /**
  * `GET /auth/2fa/recovery-codes/count` — how many unused recovery codes the
  * operator still has (the count never exposes the codes themselves).

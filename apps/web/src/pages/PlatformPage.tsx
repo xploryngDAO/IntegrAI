@@ -429,9 +429,14 @@ export function PlatformPage(): JSX.Element {
         title="Console da plataforma"
         description="Métricas globais dos tenants, alertas operacionais, cobrança da plataforma e o plano/limites de cada workspace. Clique em um tenant para abrir as métricas, gerar o checkout da assinatura e ajustar a cobrança."
         actions={
-          <Button variant="secondary" icon="pulse" loading={busy} onClick={retry}>
-            Atualizar
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" icon="rocket" onClick={() => navigate('/setup')}>
+              Apps de integração
+            </Button>
+            <Button variant="secondary" icon="pulse" loading={busy} onClick={retry}>
+              Atualizar
+            </Button>
+          </div>
         }
       />
 

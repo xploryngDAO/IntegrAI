@@ -46,38 +46,46 @@ export function Topbar(): JSX.Element {
   const { pathname } = useLocation();
   const onAccounts = pathname.startsWith('/accounts');
   const onOnboarding = pathname.startsWith('/onboarding');
+  const onSetup = pathname.startsWith('/setup');
   const onPlatform = pathname.startsWith('/platform');
   const onSettings = pathname.startsWith('/settings');
   // Onboarding is a focused flow: channel health, SLA and the queue badge are
-  // hidden so the wizard keeps a single primary action per step. The Fase 4
+  // hidden so the wizard keeps a single primary action per step. The Fase 3/4
   // admin screens are also focused surfaces (no queue telemetry).
-  const focusMode = onAccounts || onOnboarding || onPlatform || onSettings;
+  const focusMode = onAccounts || onOnboarding || onSetup || onPlatform || onSettings;
 
   const title = onOnboarding
     ? 'Primeiros passos'
     : onAccounts
       ? 'Canais'
-      : onPlatform
-        ? 'Plataforma'
-        : onSettings
-          ? 'Configurações'
-          : 'Atendimento';
+      : onSetup
+        ? 'Integrações'
+        : onPlatform
+          ? 'Plataforma'
+          : onSettings
+            ? 'Configurações'
+            : 'Atendimento';
   const subtitle = onOnboarding
     ? 'Conecte os canais e faça o primeiro atendimento'
     : onAccounts
       ? `${accounts.length} loja(s) · tokens, webhooks e autorizações`
-      : onPlatform
-        ? 'Console interno · tenants e planos'
-        : onSettings
-          ? 'Workspace, privacidade e zona de perigo'
-          : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
-              totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
-            }`;
+      : onSetup
+        ? 'Crie os apps nos portais dos marketplaces'
+        : onPlatform
+          ? 'Console interno · tenants e planos'
+          : onSettings
+            ? 'Workspace, privacidade e zona de perigo'
+            : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
+                totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
+              }`;
 
   const platformAdmin = isPlatformAdmin(currentAgent);
   const tenantAdmin = isTenantAdmin(currentAgent);
   const adminLinks: { to: string; label: string; icon: IconName }[] = [];
-  if (platformAdmin) adminLinks.push({ to: '/platform', label: 'Plataforma', icon: 'grid' });
+  if (platformAdmin) {
+    adminLinks.push({ to: '/platform', label: 'Plataforma', icon: 'grid' });
+    adminLinks.push({ to: '/setup', label: 'Integrações', icon: 'rocket' });
+  }
   if (tenantAdmin) adminLinks.push({ to: '/settings', label: 'Ajustes', icon: 'sliders' });
 
   const selected = filters.marketplaces;
