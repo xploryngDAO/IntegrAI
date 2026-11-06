@@ -128,7 +128,7 @@ export const envSchema = z.object({
   ENCRYPTION_MASTER_KEY: masterKeyFromEnv(DEV_MASTER_KEY),
   ENCRYPTION_KEY_ID: stringFromEnv('local-dev-v1'),
   JWT_SECRET: requiredString('JWT_SECRET').default('dev-only-change-me-please-32-chars-min'),
-  JWT_EXPIRES_IN: stringFromEnv('12h'),
+  JWT_EXPIRES_IN: stringFromEnv('1h'),
   AGENT_PRESENCE_TTL: intFromEnv(120, 10, 86_400),
 
   /* -------------------------- Amazon SP-API / SES ------------------------- */

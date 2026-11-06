@@ -116,10 +116,21 @@ function parseEnv(source: NodeJS.ProcessEnv): Env {
 
 function assertProductionSafety(env: Env): void {
   if (env.NODE_ENV !== 'production') return;
+  const issues: string[] = [];
   if (env.JWT_SECRET.length < 32) {
-    throw new ConfigError('JWT_SECRET must be at least 32 characters in production', [
-      'JWT_SECRET: too short for production (min 32 chars)',
-    ]);
+    issues.push('JWT_SECRET: too short for production (min 32 chars)');
+  }
+  if (env.JWT_SECRET === 'dev-only-change-me-please-32-chars-min') {
+    issues.push('JWT_SECRET: remove the development default before going to production');
+  }
+  if (env.ENCRYPTION_KEY_ID === 'local-dev-v1') {
+    issues.push('ENCRYPTION_KEY_ID: use a real key id (not local-dev-v1) in production');
+  }
+  if (env.ENCRYPTION_MASTER_KEY === 'zJ8kQ2mWv7bT1yN5cR9pLx4hF6dA0gU3sE2iO8qK5wY=') {
+    issues.push('ENCRYPTION_MASTER_KEY: remove the development key before going to production');
+  }
+  if (issues.length > 0) {
+    throw new ConfigError('Unsafe production secrets', issues);
   }
 }
 
