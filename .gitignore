@@ -50,3 +50,4 @@ artifacts/
 !.env.prod.example
 backups/
 gitleaks-report.json
+deploy/observability/METRICS_TOKEN

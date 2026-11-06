@@ -1,0 +1,71 @@
+groups:
+  - name: sachub-api
+    rules:
+      - alert: SachubApiDown
+        expr: up{job="sachub-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'API do IntegrAI indisponível'
+          description: 'O scrape de /api/v1/metrics falha há mais de 2 minutos ({{ $labels.instance }}).'
+
+      - alert: SachubDatabaseDown
+        expr: sac_db_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Postgres indisponível (readiness)'
+          description: 'O readiness reportou database=error nos últimos checks.'
+
+      - alert: SachubRedisDown
+        expr: sac_redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Redis indisponível (readiness)'
+          description: 'O readiness reportou redis=error nos últimos checks.'
+
+      - alert: SachubStorageDown
+        expr: sac_storage_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Object storage indisponível (readiness)'
+          description: 'Anexos/backups podem falhar; verifique S3/MinIO.'
+
+      - alert: SachubHigh5xxRate
+        expr: |
+          sum(rate(sac_http_requests_total{status_class="5xx"}[5m]))
+          /
+          clamp_min(sum(rate(sac_http_requests_total[5m])), 0.001) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Taxa de 5xx acima de 2%'
+          description: 'Investigue o x-request-id nos logs do período.'
+
+      - alert: SachubLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(sac_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Latência p95 acima de 1s'
+          description: 'Verifique DB/Redis/queues e endpoints mais lentos.'
+
+      - alert: SachubNoTraffic
+        expr: sum(rate(sac_http_requests_total[10m])) == 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Sem tráfego HTTP há 15 minutos'
+          description: 'Pode ser esperado fora do horário comercial; confirme se o edge está encaminhando.'
