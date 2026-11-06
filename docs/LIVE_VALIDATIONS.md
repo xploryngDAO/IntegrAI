@@ -697,3 +697,12 @@ npx vitest run x3 -> 3/3 exit 0; 1073 testes em ~16s por execucao
 node scripts/host-check.mjs --api=<host> --web=<spa>
 -> 10/11 obrigatorios + WARN HSTS; inclui "GET /api/v1/version (build identity)"
 ```
+
+### 75. GitHub Pages ativado (fallback publico com bundle atual)
+```
+Pages source: gh-pages (build legacy), branch a7721cb, bundle assets/index-71ZH7xD_.js
+https://xploryngdao.github.io/IntegrAI/
+Lighthouse: PERF 98 · A11Y 100 · BP 100 · SEO 100; console errors 0
+axe: 21/21 telas sem violacoes; verify-live (login via Pages) exit 0
+Correcoes: imagens do produto com BASE_URL e canonical usando window.location.pathname
+```

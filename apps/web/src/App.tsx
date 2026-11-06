@@ -226,8 +226,9 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const link = document.querySelector('link[rel="canonical"]');
     if (!(link instanceof HTMLLinkElement)) return;
-    const normalized = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
-    link.href = `${window.location.origin}${normalized}`;
+    // `pathname` from the router is basename-stripped; the canonical must be
+    // the real browser URL (e.g. `/IntegrAI/login` on GitHub Pages).
+    link.href = `${window.location.origin}${window.location.pathname}`;
   }, [pathname]);
 
   const dismissMaintenance = useCallback((): void => {
