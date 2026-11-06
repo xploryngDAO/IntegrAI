@@ -151,6 +151,42 @@ const PREVIEW_ROWS: { title: string; meta: string; sla: string; tone: 'ok' | 'wa
 ];
 
 /**
+ * Real captures shipped in `apps/web/public/product/` (copied from the
+ * repository's `screenshots/` folder). They are the product itself — light
+ * workspace, the same workspace in dark mode and the admin console — not
+ * mockups, so the copy around them must not promise more than they show.
+ */
+const PRODUCT_SHOTS: {
+  src: string;
+  chrome: string;
+  title: string;
+  description: string;
+  alt: string;
+}[] = [
+  {
+    src: '/product/workspace-light.png',
+    chrome: 'SAC Hub · atendimento',
+    title: 'Fila unificada',
+    description: 'Tema claro — fila, conversa e Cockpit 360° na mesma tela.',
+    alt: 'Captura real da tela de atendimento no tema claro: fila unificada com tickets de Shopee e Mercado Livre, conversa de devolução da Shopee e o painel Cockpit 360° com pedido, cliente e rastreio.',
+  },
+  {
+    src: '/product/workspace-dark.png',
+    chrome: 'SAC Hub · atendimento',
+    title: 'Modo escuro',
+    description: 'A mesma operação no tema escuro, com contraste preservado.',
+    alt: 'Captura real da mesma tela de atendimento no tema escuro, com a fila unificada, a conversa da Shopee e o Cockpit 360° preservando contraste e legibilidade.',
+  },
+  {
+    src: '/product/admin.png',
+    chrome: 'SAC Hub · administração',
+    title: 'Administração e auditoria',
+    description: 'Usuários, sessões, convites e eventos de auditoria.',
+    alt: 'Captura real da área de administração: visão geral com usuários, sessões ativas, convites, contas, tickets e eventos de auditoria, além das abas de usuários, convites, sessões e logs.',
+  },
+];
+
+/**
  * Public landing page (`/`) for visitors.
  *
  * Rendered by the App gate when there is no session; an authenticated operator
@@ -280,6 +316,55 @@ export function LandingPage(): JSX.Element {
               </div>
               <p className="sac-landing__preview-caption">Prévia ilustrativa da interface.</p>
             </div>
+          </div>
+        </section>
+
+        <section id="produto" className="sac-landing__section sac-landing__section--subtle">
+          <div className="sac-landing__container">
+            <div className="sac-landing__section-head">
+              <span className="sac-landing__eyebrow">
+                <Icon name="check" size={14} /> Produto real
+              </span>
+              <h2>Veja o produto em uso, não em mockup.</h2>
+              <p>
+                As imagens abaixo são capturas da aplicação real: a fila unificada, o mesmo
+                workspace no tema escuro e a administração com a trilha de auditoria. É a interface
+                que você encontra depois de criar a conta.
+              </p>
+            </div>
+
+            <div className="sac-landing__shots">
+              {PRODUCT_SHOTS.map((shot) => (
+                <figure className="sac-landing__shot" key={shot.src}>
+                  <div className="sac-landing__shot-chrome" aria-hidden="true">
+                    <span className="sac-landing__shot-dots">
+                      <span className="sac-landing__shot-dot" />
+                      <span className="sac-landing__shot-dot" />
+                      <span className="sac-landing__shot-dot" />
+                    </span>
+                    <span className="sac-landing__shot-label">{shot.chrome}</span>
+                  </div>
+                  <img
+                    className="sac-landing__shot-image"
+                    src={shot.src}
+                    alt={shot.alt}
+                    width={1440}
+                    height={900}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <figcaption className="sac-landing__shot-caption">
+                    <strong>{shot.title}</strong>
+                    <span>{shot.description}</span>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+
+            <p className="sac-landing__shots-note">
+              <Icon name="check" size={14} /> Capturas da aplicação real. Nenhuma imagem foi
+              montada ou simulada.
+            </p>
           </div>
         </section>
 
