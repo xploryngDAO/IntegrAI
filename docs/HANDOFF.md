@@ -102,3 +102,11 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
 - Ativar backup diário off-site (`npm run db:backup` + cópia para S3).
 - Acompanhar alertas (readiness, 5xx, latência) — ver [RUNBOOK.md](RUNBOOK.md).
 - Agendar reteste de pentest após correções.
+
+## Vercel — configuração do projeto
+
+- Projeto `integrai-dev` é **Git-connected** (`xploryngDAO/IntegrAI`): push na
+  main dispara deploy de produção (sujeito à cota diária do plano Hobby).
+- `nodeVersion` fixado em **22.x** (LTS) via API, alinhado ao CI/local; antes
+  estava em 26.x (não-LTS).
+- Runtime-config continua sendo a fonte da API em boot; o deploy só muda o bundle.
