@@ -164,21 +164,21 @@ const PRODUCT_SHOTS: {
   alt: string;
 }[] = [
   {
-    src: `${import.meta.env.BASE_URL}product/workspace-light.png`,
+    src: `${import.meta.env.BASE_URL}product/workspace-light.webp`,
     chrome: 'SAC Hub · atendimento',
     title: 'Fila unificada',
     description: 'Tema claro — fila, conversa e Cockpit 360° na mesma tela.',
     alt: 'Captura real da tela de atendimento no tema claro: fila unificada com tickets de Shopee e Mercado Livre, conversa de devolução da Shopee e o painel Cockpit 360° com pedido, cliente e rastreio.',
   },
   {
-    src: `${import.meta.env.BASE_URL}product/workspace-dark.png`,
+    src: `${import.meta.env.BASE_URL}product/workspace-dark.webp`,
     chrome: 'SAC Hub · atendimento',
     title: 'Modo escuro',
     description: 'A mesma operação no tema escuro, com contraste preservado.',
     alt: 'Captura real da mesma tela de atendimento no tema escuro, com a fila unificada, a conversa da Shopee e o Cockpit 360° preservando contraste e legibilidade.',
   },
   {
-    src: `${import.meta.env.BASE_URL}product/admin.png`,
+    src: `${import.meta.env.BASE_URL}product/admin.webp`,
     chrome: 'SAC Hub · administração',
     title: 'Administração e auditoria',
     description: 'Usuários, sessões, convites e eventos de auditoria.',
