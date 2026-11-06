@@ -80,3 +80,9 @@ self-hosted (Caddy → API) os números tendem a ser iguais ou melhores. O objet
 | `/accounts` | 384 ms | 0.000 | 84 ms | 8 ms | 0 |
 
 Alvo: LCP ≤ 2,5 s e CLS ≤ 0,1 — **3/3 dentro do alvo**, sem long tasks.
+
+## Imagens da landing (2026-11-06)
+
+As capturas do produto foram convertidas para **WebP** (quality 82, largura 1400px):
+`workspace-light` 164→63 KiB · `workspace-dark` 164→64 KiB · `admin` 86→45 KiB
+(~60% de redução; `image-delivery` do Lighthouse caiu de 318 para 131 KiB de economia potencial).
