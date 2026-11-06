@@ -1022,7 +1022,24 @@ gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .git
 - semgrep --config=p/security-audit em packages/server/src (2026-11-06): **14 achados, todos em arquivos de teste** (segredos JWT de fixture); **0 em codigo de producao**.
 - Regra relevante: jwt-hardcode — fixtures usam valores explicitos de proposito (nunca segredos reais); o gitleaks cobre vazamentos no historico.
 
-## 16. Postura de segurança do repositório (GitHub)
+## 16. Code scanning (CodeQL)`n`nWorkflow `codeql.yml` (semanal + workflow_dispatch) analisa `javascript-typescript`
+com `security-extended`. Triagem inicial (2026-11-06): **30 alertas**, sendo:
+
+- **4 corrigidos no código**:
+  - `js/remote-property-injection` (3) em `http/utils/query.ts` — chaves `__proto__`/
+    `constructor`/`prototype` bloqueadas + `Object.fromEntries` (CreateDataProperty) e
+    protótipo nulo. Coberto por `query-utils.test.ts`.
+  - `js/polynomial-redos` em `extractBearerToken` — parsing sem regex sobre input do atacante.
+- **22 revisados e dispensados** com justificativa registrada no GitHub:
+  - `missing-rate-limiting` (11): `@fastify/rate-limit` global + buckets dinâmicos
+    (CodeQL não modela plugins do Fastify).
+  - scripts locais/dev (`file-system-race`, `file-access-to-http`, `regex/missing-anchor`,
+    `clear-text-logging`) — sem superfície em runtime multi-tenant.
+  - `insufficient-password-hash` (fake in-memory de testes).
+  - `double-escaping`/`bad-tag-filter`: conversão para **texto puro** (sem sink HTML).
+- **0 alertas abertos** após a reanálise.
+
+## 17. Postura de segurança do repositório (GitHub)
 
 Configurado no repositório `xploryngDAO/IntegrAI` (2026-11-06):
 
