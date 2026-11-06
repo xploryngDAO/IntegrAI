@@ -678,3 +678,10 @@ node scripts/web-vitals.mjs -> landing LCP 488ms CLS 0; workspace LCP 72ms CLS 0
 Alias: https://integrai-dev.vercel.app (assets/index-CyPnOyWY.js)
 Lighthouse landing: 100/100/100/100; axe 21/21 light e 21/21 dark; verify-live ok
 ```
+
+### 72. Bateria 15/15 no bundle index-CyPnOyWY
+```
+node scripts/live-all.mjs --reset-login-limit -> 15/15 etapas OK em 270s
+(verify, validate, isolation, probe, 2FA policy/socket/API, signup+convite,
+ signup/convite/reset/2FA/SSO UI, Web Vitals, a11y 21 telas)
+```
