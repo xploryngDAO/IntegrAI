@@ -123,3 +123,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  caddydata:
+  caddyconfig:
