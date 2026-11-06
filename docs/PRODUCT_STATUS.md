@@ -67,7 +67,7 @@ Acesso de administrador do ambiente de demonstração: `admin@integr-ai.local`
 
 Desenvolvimento:
 ```bash
-npm ci && npm run dev          # API + web (Vite)
+npm ci && npm run prisma:generate && npm run dev   # client Prisma 7 + API + web
 npm run db:seed                # cria tenant + ADMIN
 ```
 
