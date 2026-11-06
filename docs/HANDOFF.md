@@ -72,7 +72,7 @@ Runbook: [RUNBOOK.md](RUNBOOK.md).
 
 1. Configurar `SMTP_HOST/PORT/SECURE/USER/PASSWORD/FROM` no `.env.prod` (SES, SendGrid ou corporativo).
 2. SPF/DKIM/DMARC do domínio remetente.
-3. Validar: `POST /auth/forgot-password` (link abre no SPA), convite em `/admin`, login de novo dispositivo.
+3. Validar:\n   ```bash\n   node --env-file=.env.prod scripts/email-check.mjs --to=seu-email@empresa.com\n   ```\n   Depois: `POST /auth/forgot-password` (link abre no SPA), convite em `/admin`, login de novo dispositivo.
 
 ## 7. Redeploy do SPA (issue #5)
 

@@ -44,6 +44,7 @@
         "test:live-2fa-policy": "node scripts/live-2fa-policy-test.mjs",
         "security:probe": "node scripts/security-probe.mjs",
     "sso:doctor": "node scripts/sso-doctor.mjs",
+    "email:check": "node --env-file=.env scripts/email-check.mjs",
     "entra:provision": "node scripts/entra-provision.mjs",
         "test:isolation": "node scripts/isolation-test.mjs",
         "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
