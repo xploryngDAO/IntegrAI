@@ -111,3 +111,8 @@ Monorepo npm workspaces:
 - `apps/web` — React 18 + Vite + Tailwind + Convergência Design System
 
 Hexagonal/ports & adapters, event-driven (webhooks → fila → domínio → tempo real via Socket.IO).
+
+## Acessibilidade
+
+Auditoria automatizada com **axe-core (WCAG 2.1 A/AA)** em Edge limpo: **0 violações** em landing, login, admin, perfil, contas e ajustes (
+ode scripts/a11y-audit.mjs, também via dev server local). Corrigidos contraste, listas de definição e nomes acessíveis (incluindo bug de especificidade do DS em botões-âncora).
