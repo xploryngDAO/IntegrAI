@@ -40,6 +40,16 @@ for v in S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do
   [ -n "${!v:-}" ] || die "defina $v no ambiente (storage S3 externo é obrigatório)"
 done
 
+if [ "${SKIP_DNS_CHECK:-0}" != "1" ]; then
+  resolved="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR==1{print $1}')"
+  public_ip="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || true)"
+  [ -n "$resolved" ] || die "DNS de $DOMAIN ainda não resolve; crie o A/AAAA e aguarde (ou use SKIP_DNS_CHECK=1)"
+  if [ -n "$public_ip" ] && [ "$resolved" != "$public_ip" ]; then
+    die "DNS de $DOMAIN resolve para $resolved, mas o IP público deste host é $public_ip. Corrija o DNS antes do Caddy (ou use SKIP_DNS_CHECK=1)."
+  fi
+  echo "[ok] DNS de $DOMAIN aponta para $resolved"
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 log "Instalando dependências do sistema"
 apt-get update -qq
