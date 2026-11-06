@@ -527,3 +527,10 @@ node scripts/ui-smoke.mjs <url> <admin> <senha>
 -> login real, /admin, /accounts, /settings, /profile, logout pelo menu, sem erros de runtime
 local (build hermetico): 7/7; roda no security.yml apos as auditorias a11y
 ```
+
+### 52. host-check valida o vinculo API <-> runtime-config
+```
+node scripts/host-check.mjs --api=<host> --web=<spa>
+-> 9/10 PASS + WARN HSTS (quick tunnel); inclui "runtime-config aponta para esta API"
+mismatch vira WARN com a instrucao de rodar tunnel-sync
+```

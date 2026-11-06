@@ -57,7 +57,7 @@ cp .env.prod.example .env.prod   # segredos reais (JWT, encryption, S3, SMTP, we
 docker build -f packages/server/Dockerfile -t sac-hub-api:prod .
 docker build -f apps/web/Dockerfile -t sac-hub-web:prod .
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
-# antes de apontar o SPA, valide o host:\n# node scripts/host-check.mjs --api=https://api.seudominio.com --web=https://integrai-dev.vercel.app\n\n# HTTPS automático (após DNS):
+# antes de apontar o SPA, valide o host:\n# node scripts/host-check.mjs --api=https://api.seudominio.com --web=https://integrai-dev.vercel.app\n# (inclui checagem de que o runtime-config.json publicado aponta para esse host)\n\n# HTTPS automático (após DNS):
 docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tls up -d
 
 # aponta o SPA publicado para a API definitiva:

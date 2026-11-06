@@ -16,6 +16,9 @@ const args = new Map(
 const API = (args.get('api') ?? '').replace(/\/+$/, '');
 const WEB = (args.get('web') ?? 'https://integrai-dev.vercel.app').replace(/\/+$/, '');
 const METRICS_TOKEN = args.get('metrics-token') ?? '';
+const RUNTIME_CONFIG_URL =
+  args.get('runtime-config') ??
+  'https://raw.githubusercontent.com/xploryngDAO/IntegrAI/main/apps/web/runtime-config.json';
 
 if (!/^https?:\/\//.test(API)) {
   console.error('uso: node scripts/host-check.mjs --api=https://api.dominio.com [--web=https://spa] [--metrics-token=...]');
@@ -109,6 +112,32 @@ async function main() {
     metricsWith?.status === 200 || metricsWith?.status === 401 || metricsWith?.status === 404,
     `HTTP ${metricsWith?.status ?? 'n/a'}${METRICS_TOKEN ? '' : ' (sem token informado)'}`,
   );
+
+  // The published SPA resolves its API at boot from runtime-config.json; a host
+  // that is healthy but not wired in the SPA would still look "down" to users.
+  try {
+    const configResponse = await fetch(`${RUNTIME_CONFIG_URL}?ts=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    const config = await configResponse.json();
+    const configuredOrigin =
+      typeof config.apiBaseUrl === 'string' ? new URL(config.apiBaseUrl).origin : null;
+    check(
+      'runtime-config aponta para esta API',
+      configuredOrigin === origin,
+      configuredOrigin === origin
+        ? origin
+        : `runtime-config=${configuredOrigin ?? 'ausente'} · host=${origin} (rode tunnel-sync após validar)`,
+      configuredOrigin !== origin,
+    );
+  } catch (error) {
+    check(
+      'runtime-config aponta para esta API',
+      false,
+      `não foi possível ler runtime-config: ${error instanceof Error ? error.message : String(error)}`,
+      true,
+    );
+  }
 
   summary();
 }
