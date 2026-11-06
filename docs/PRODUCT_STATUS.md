@@ -116,3 +116,7 @@ Hexagonal/ports & adapters, event-driven (webhooks → fila → domínio → tem
 
 Auditoria automatizada com **axe-core (WCAG 2.1 A/AA)** em Edge limpo: **0 violações** em landing, login, admin, perfil, contas e ajustes (
 ode scripts/a11y-audit.mjs, também via dev server local). Corrigidos contraste, listas de definição e nomes acessíveis (incluindo bug de especificidade do DS em botões-âncora).
+
+## Go-live
+
+Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação e validação final): [GO_LIVE.md](GO_LIVE.md).
