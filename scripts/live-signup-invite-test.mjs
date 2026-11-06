@@ -118,6 +118,32 @@ async function main() {
   const agentTenant = await request('/api/v1/tenants/me', { headers: { Authorization: `Bearer ${agentToken}` } });
   check('convidado no mesmo workspace', agentTenant.body?.data?.slug === slug, agentTenant.body?.data?.slug);
 
+  // Password reset (public): the new password replaces the invite one and the
+  // old credential stops working.
+  const newPassword = 'Teste-Reset-2026!x';
+  const forgot = await request('/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email: agentEmail }),
+  });
+  check('forgot-password 202', forgot.status === 202, `HTTP ${forgot.status}`);
+  const resetToken = await mailToken(/reset-password\?token=([^"'&\s<>]+)/, agentEmail);
+  check('e-mail de reset entregue', resetToken.length > 20);
+  const reset = await request('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token: resetToken, password: newPassword }),
+  });
+  check('reset-password 200', reset.status === 200, `HTTP ${reset.status}`);
+  const loginNew = await request('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: agentEmail, password: newPassword }),
+  });
+  check('login com a nova senha', loginNew.status === 200 && typeof loginNew.body?.data?.token === 'string');
+  const loginOld = await request('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: agentEmail, password }),
+  });
+  check('senha antiga recusada', loginOld.status === 401, `HTTP ${loginOld.status}`);
+
   const removed = await request('/api/v1/tenants/me', {
     method: 'DELETE',
     headers: auth,
