@@ -119,8 +119,8 @@ fazem chamadas reais e mostram o que falta para cada marketplace.
 
 - O túnel gratuito **não tem SLA** e depende desta máquina ligada.
 - **E-mail transacional**: o `.env` atual aponta para o Mailpit local; cadastro,
-  convite e reset não chegam a caixas reais. Configure um SMTP real
-  (Resend/Brevo/SES/SendGrid) antes de abrir para usuários externos.
+  convite e reset não chegam a caixas reais. O relay já está pronto para receber
+  credenciais — ver [docs/SMTP.md](SMTP.md) e `npm run smtp:doctor`.
 - **Marketplaces**: só o Mercado Livre está credenciado; Amazon e Shopee
   precisam das credenciais (`npm run doctor` lista o que falta).
 - Sem SSO corporativo (Entra) e sem pentest externo — ver `docs/GO_LIVE.md`.
