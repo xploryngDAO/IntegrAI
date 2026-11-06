@@ -37,6 +37,7 @@ if [ -z "$FILE" ]; then
   [ -n "$FILE" ] || die "nenhum backup em $BACKUP_DIR"
 fi
 [ -f "$FILE" ] || die "arquivo não encontrado: $FILE"
+gzip -t "$FILE" >/dev/null 2>&1 || die "backup corrompido (gzip -t falhou): $FILE"
 
 POSTGRES_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | cut -d= -f2 || true)"
 POSTGRES_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | cut -d= -f2 || true)"

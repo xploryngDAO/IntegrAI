@@ -165,8 +165,13 @@ POSTGRES_DB="${POSTGRES_DB:-sac_hub}"
 mkdir -p "$DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 cd /opt/integrai
+OUT="$DIR/db-$STAMP.sql.gz"
 docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$DIR/db-$STAMP.sql.gz"
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$OUT"
+# Falha cedo (e visível no cron) se o dump saiu vazio/corrompido.
+gzip -t "$OUT"
+[ -s "$OUT" ] || { echo "[erro] backup vazio: $OUT" >&2; exit 1; }
+echo "[ok] backup $(wc -c < "$OUT") bytes em $OUT"
 find "$DIR" -type f -name 'db-*.sql.gz' -mtime +"$KEEP_DAYS" -delete
 BACKUP
 chmod 700 /usr/local/sbin/integrai-backup
