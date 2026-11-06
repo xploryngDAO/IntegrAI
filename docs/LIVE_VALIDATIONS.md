@@ -754,3 +754,14 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app --dark -> exit 0, vi
 lighthouse https://xploryngdao.github.io/IntegrAI/ -> 100/100/100/100
 bundle: assets/index-CEInSfKG.js (texto de sessoes corrigido)
 ```
+
+### 83. Ensaio de backup/restore do PostgreSQL (scratch)
+```
+container postgres:16-alpine (db drill) -> CREATE TABLE tickets + 2 linhas
+pg_dump -U postgres drill | gzip -> /tmp/drill.sql.gz (628 bytes)
+DROP TABLE tickets
+gunzip -c /tmp/drill.sql.gz | psql -v ON_ERROR_STOP=1 -> exit 0
+SELECT count(*) => "2:devolucao shopee|atraso meli" (conteudo intacto)
+```
+Valida os comandos usados por `scripts/provision-vps.sh` (backup) e
+`scripts/restore-postgres.sh` (restore), sem tocar no banco de producao.
