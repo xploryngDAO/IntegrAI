@@ -41,6 +41,14 @@ export function ssoProviderLabel(provider: string | null | undefined): string {
     case 'azuread':
     case 'azure':
       return 'Microsoft Entra ID';
+    case 'google':
+    case 'googleworkspace':
+      return 'Google Workspace';
+    case 'okta':
+      return 'Okta';
+    case 'oidc':
+    case 'openidconnect':
+      return 'OpenID Connect';
     default:
       // An unknown provider is shown raw: the operator needs the exact slug.
       return value;
@@ -69,13 +77,14 @@ export function ssoRedirectUri(): string {
 /**
  * Whether the tenant has a usable configuration.
  *
- * A configured workspace has the three OIDC identifiers plus a stored secret;
- * `enabled` is a separate switch (configured but turned off is a valid state).
+ * A configured workspace has the three OIDC identifiers; the client secret is
+ * optional (a public client with PKCE is a valid deployment, and the API stores
+ * `NULL` in that case). `enabled` is a separate switch — configured but turned
+ * off is a valid state.
  */
 export function hasSsoConfiguration(config: TenantSsoConfig | null): boolean {
   if (config === null) return false;
   return (
-    config.clientSecretConfigured &&
     config.provider.trim().length > 0 &&
     config.issuerUrl.trim().length > 0 &&
     config.clientId.trim().length > 0

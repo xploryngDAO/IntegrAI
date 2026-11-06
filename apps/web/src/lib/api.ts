@@ -425,7 +425,9 @@ export interface ApiClient {
   /**
    * `GET /auth/sso/discover?email=` (public) — whether the e-mail's domain uses
    * SSO. It is the gate of the "Entrar com Microsoft" button: the redirect to
-   * the IdP only happens when the API says `enabled`.
+   * the IdP only happens when the API says `enabled`. A `404/409
+   * SSO_NOT_CONFIGURED` is normalised to `enabled: false` (an answer, not an
+   * outage).
    */
   ssoDiscover(email: string): Promise<SsoDiscovery>;
   /**

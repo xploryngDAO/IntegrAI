@@ -188,9 +188,6 @@ export function CorporateAuthCard(): JSX.Element {
     if (clientSecret.length > 0 && clientSecret.length < SSO_SECRET_MIN_LENGTH) {
       errors.clientSecret = `O client secret precisa de pelo menos ${SSO_SECRET_MIN_LENGTH} caracteres (a API recusa valores menores).`;
     }
-    if (!config?.clientSecretConfigured && clientSecret.length === 0) {
-      errors.clientSecret = 'Informe o client secret para concluir a primeira configuração.';
-    }
     if (parsedDomains.invalid.length > 0) {
       errors.allowedDomains = `Domínio inválido: ${parsedDomains.invalid.join(', ')}. Use apenas o domínio (ex.: suaempresa.com.br).`;
     } else if (parsedDomains.domains.length > SSO_MAX_ALLOWED_DOMAINS) {
@@ -278,6 +275,7 @@ export function CorporateAuthCard(): JSX.Element {
         {config?.enabled ? 'Habilitado' : 'Desabilitado'}
       </Pill>
       <Pill tone={configured ? 'ok' : 'neutral'}>{configured ? 'Configurado' : 'Não configurado'}</Pill>
+      {configured && !config?.clientSecretConfigured ? <Pill tone="info">Cliente público</Pill> : null}
       <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
         {ssoProviderLabel(config?.provider)} · OIDC
       </span>
@@ -286,7 +284,7 @@ export function CorporateAuthCard(): JSX.Element {
 
   return (
     <Card
-      title="Microsoft Entra ID"
+      title={ssoProviderLabel(config?.provider)}
       subtitle="Provedor OIDC do workspace · estado real de GET/PUT/DELETE /tenants/me/sso."
     >
       {loading ? (
@@ -363,7 +361,7 @@ export function CorporateAuthCard(): JSX.Element {
                 hint={
                   config?.clientSecretConfigured
                     ? 'Deixe em branco para manter o secret atual. O valor nunca é exibido pela API.'
-                    : 'Guardado cifrado pela API; não é exibido depois de salvo.'
+                    : 'Opcional: sem secret a API usa um cliente público (PKCE). Guardado cifrado, nunca exibido de volta.'
                 }
                 error={fieldErrors.clientSecret}
                 onChange={(event) => patchForm({ clientSecret: event.target.value })}
