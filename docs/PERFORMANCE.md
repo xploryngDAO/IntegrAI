@@ -86,3 +86,10 @@ Alvo: LCP ≤ 2,5 s e CLS ≤ 0,1 — **3/3 dentro do alvo**, sem long tasks.
 As capturas do produto foram convertidas para **WebP** (quality 82, largura 1400px):
 `workspace-light` 164→63 KiB · `workspace-dark` 164→64 KiB · `admin` 86→45 KiB
 (~60% de redução; `image-delivery` do Lighthouse caiu de 318 para 131 KiB de economia potencial).
+
+## Code splitting (2026-11-06)
+
+`vite.config.ts` separa vendors de longa duração: `react` (react/react-dom/react-router-dom),
+`convergencia` (design system) e `icons` (lucide-react). O chunk da aplicação caiu de
+~537 KiB para ~243 KiB; deploys de produto não invalidam o cache de vendor.
+Resultado no GitHub Pages: **Performance 100 · A11y 100 · BP 100 · SEO 100**.

@@ -706,3 +706,10 @@ Lighthouse: PERF 98 · A11Y 100 · BP 100 · SEO 100; console errors 0
 axe: 21/21 telas sem violacoes; verify-live (login via Pages) exit 0
 Correcoes: imagens do produto com BASE_URL e canonical usando window.location.pathname
 ```
+
+### 77. Pages com Lighthouse 100/100/100/100
+```
+repo split chunks (react/convergencia/icons) -> bundle principal ~243 KiB
+https://xploryngdao.github.io/IntegrAI/ -> PERF 100 · A11Y 100 · BP 100 · SEO 100
+Pages demo + pages build and deployment automaticos a cada push na main
+```
