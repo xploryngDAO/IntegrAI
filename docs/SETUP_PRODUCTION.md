@@ -232,3 +232,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 DATABASE_URL=postgresql://sac:<senha>@127.0.0.1:55433/sac_hub \
   ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:seed
 ```
+
+## Frontend self-hosted (sem Vercel)
+
+O docker-compose.prod.yml também sobe o serviço **web** (imagem pps/web/Dockerfile: nginx servindo o SPA e fazendo proxy same-origin de /api, /socket.io e /webhooks para o container da API). Basta docker build -f apps/web/Dockerfile -t sac-hub-web:prod . e docker compose ... up -d; o SPA fica em http://localhost:8080 (ajuste WEB_HOST_PORT). Validado localmente: web+api healthy, seed, login, perfil, admin, logout e WCAG AA 0 violações no bundle servido pelo nginx.
