@@ -569,3 +569,12 @@ logout -> login pede codigo -> codigo TOTP -> sessao criada
 cleanup: soft delete 202 + purge 200; 0 residuos; sem erros de runtime
 9/9 (npm run test:live-2fa-ui)
 ```
+
+### 56. Recuperacao de senha pela UI publicada
+```
+workspace temporario (signup+verify) -> /forgot-password -> pedido confirmado
+e-mail real -> /reset-password?token=... -> nova senha -> "Senha redefinida"
+login com nova senha -> sessao; senha antiga -> 401
+cleanup: soft delete 202 + purge 200; 0 residuos; sem erros de runtime
+10/10 (npm run test:live-reset-ui)
+```
