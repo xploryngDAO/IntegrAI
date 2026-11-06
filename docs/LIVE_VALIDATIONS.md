@@ -263,3 +263,12 @@ GET /api/v1/tenants/me com x-request-id: probe-req_12345 (sem JWT)
   -> 401, header x-request-id ecoado e error.requestId = probe-req_12345
 validate:live -> 11/11
 ```
+
+### 23. Bundle de producao validado localmente (Vite preview + proxy)
+```
+npm run build --workspace @sac/web
+VITE_PROXY_TARGET=<api> npx vite preview --port 4173
+a11y-audit http://127.0.0.1:4173 -> 0 violacoes (landing, login, admin, profile, accounts, settings)
+verify-live http://127.0.0.1:4173 -> landing/login/sessao persistida/profile/admin/logout OK
+```
+Feito enquanto a cota free da Vercel bloqueava o deploy (100/24h).

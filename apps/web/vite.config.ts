@@ -28,6 +28,19 @@ export default defineConfig({
   },
   preview: {
     port: 4173,
+    // The production bundle calls a same-origin `/api/v1`; previewing it
+    // locally against the real backend needs the same proxy as dev.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',
