@@ -90,8 +90,10 @@ const result = spawnSync(
 if (result.status !== 0) {
   fail(
     'o deploy falhou. Se a mensagem for "Deployment rate limited" / ' +
-      '"api-deployments-free-per-day", a cota diária do plano Hobby (100 deploys) ' +
-      'foi atingida: aguarde o reset (~24 h) ou faça upgrade para o Pro.',
+      '"api-deployments-free-per-day", a cota do plano Hobby (100 deploys em uma ' +
+      'janela móvel de 24 h) foi atingida: cada deploy antigo que sai da janela libera ' +
+      'uma vaga, então tente mais tarde (ou faça upgrade para o Pro). O site que já ' +
+      'está no ar continua funcionando e lendo o runtime config atual.',
   );
 }
 
