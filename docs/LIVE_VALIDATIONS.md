@@ -644,3 +644,10 @@ alvos de toque >=24px nos links das paginas de billing (target-size).
 + /signup, /forgot-password, /invite e /billing/success em 390px
 Resultado local: light 21/21 e dark 21/21 sem violacoes
 ```
+
+### 66. ZAP baseline (API + SPA) sem achados FAIL
+```
+API: 0 FAIL / 3 WARN / 65 PASS; SPA: 0 FAIL / 8 WARN / 60 PASS
+Warns revisados e aceitos (HSTS do quick tunnel, CSP https: por hosts dinamicos,
+unsafe-inline do DS, COEP intencionalmente ausente) -> docs/PENTEST_REPORT.md
+```
