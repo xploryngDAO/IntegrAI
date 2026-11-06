@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /accounts
+Disallow: /onboarding
+Disallow: /setup
+
+Sitemap: https://integrai-dev.vercel.app/sitemap.xml
