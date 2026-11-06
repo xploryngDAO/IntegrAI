@@ -120,8 +120,43 @@ services:
       - caddyconfig:/config
     restart: unless-stopped
 
+  # Monitoramento opcional: docker compose ... --profile observability up -d
+  # Requer deploy/observability/METRICS_TOKEN (token, somente leitura).
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ['observability']
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./deploy/observability/METRICS_TOKEN:/etc/prometheus/METRICS_TOKEN:ro
+      - prometheusdata:/prometheus
+    ports:
+      - '${PROMETHEUS_PORT:-9090}:9090'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ['observability']
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - '${GRAFANA_PORT:-3000}:3000'
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
   caddydata:
   caddyconfig:
+  prometheusdata:
+  grafanadata:
