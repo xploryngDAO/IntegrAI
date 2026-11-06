@@ -4,7 +4,9 @@ import type { FastifyInstance } from 'fastify';
 import type {
   ILogger,
   IPlatformService,
+  ITenantPrivacyService,
   ITenantPurgeService,
+  DeleteTenantResult,
   PlatformAlertsResult,
   PlatformBillingSummary,
   PlatformMetrics,
@@ -56,6 +58,14 @@ const LIST: PlatformTenantListResult = {
   page: 1,
   pageSize: 25,
   totalPages: 1,
+};
+
+const DELETE_RESULT: DeleteTenantResult = {
+  tenantId: TENANT_ID,
+  slug: 'acme',
+  status: 'DELETED',
+  deletedAt: '2026-11-05T12:00:00.000Z',
+  purge: { scheduled: true, note: 'A purga física roda após a janela de retenção.' },
 };
 
 const PURGE_RESULT: TenantPurgeResult = {
@@ -164,6 +174,7 @@ describe('platform console routes', () => {
   let listTenants: ReturnType<typeof vi.fn>;
   let updateTenant: ReturnType<typeof vi.fn>;
   let purgeTenant: ReturnType<typeof vi.fn>;
+  let deleteTenantByPlatform: ReturnType<typeof vi.fn>;
   let metrics: ReturnType<typeof vi.fn>;
   let tenantMetrics: ReturnType<typeof vi.fn>;
   let alerts: ReturnType<typeof vi.fn>;
@@ -178,6 +189,7 @@ describe('platform console routes', () => {
     listTenants = vi.fn(async () => LIST);
     updateTenant = vi.fn(async () => TENANT_VIEW);
     purgeTenant = vi.fn(async () => PURGE_RESULT);
+    deleteTenantByPlatform = vi.fn(async () => DELETE_RESULT);
     metrics = vi.fn(async () => METRICS);
     tenantMetrics = vi.fn(async () => TENANT_METRICS);
     alerts = vi.fn(async () => ALERTS);
@@ -197,6 +209,7 @@ describe('platform console routes', () => {
           updateBilling,
         } as unknown as IPlatformService,
         tenantPurge: { purgeTenant } as unknown as ITenantPurgeService,
+        tenantPrivacy: { deleteTenantByPlatform } as unknown as ITenantPrivacyService,
         logger: noopLogger,
       },
       hub: {},
@@ -232,6 +245,7 @@ describe('platform console routes', () => {
     listTenants.mockClear();
     updateTenant.mockClear();
     purgeTenant.mockClear();
+    deleteTenantByPlatform.mockClear();
     metrics.mockClear();
     tenantMetrics.mockClear();
     alerts.mockClear();
@@ -656,6 +670,50 @@ describe('platform console routes', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    });
+  });
+
+  describe('DELETE /platform/tenants/:id (platform soft delete)', () => {
+    it('soft-deletes for a platform admin without a workspace password', async () => {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/platform/tenants/${TENANT_ID}`,
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(deleteTenantByPlatform).toHaveBeenCalledWith(TENANT_ID, 'platform-admin');
+      expect(response.json()).toEqual({ data: DELETE_RESULT });
+    });
+
+    it('rejects a non-platform agent with 403', async () => {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/platform/tenants/${TENANT_ID}`,
+        headers: { 'x-test-agent': 'tenant-admin' },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(deleteTenantByPlatform).not.toHaveBeenCalled();
+    });
+
+    it('maps an already deleted workspace to 409', async () => {
+      deleteTenantByPlatform.mockRejectedValueOnce(
+        new ConflictError('Workspace is already deleted or suspended', {
+          code: 'TENANT_ALREADY_DELETED',
+        }),
+      );
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/platform/tenants/${TENANT_ID}`,
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        error: { code: 'CONFLICT', details: { code: 'TENANT_ALREADY_DELETED' } },
+      });
     });
   });
 });

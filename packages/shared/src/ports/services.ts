@@ -484,6 +484,12 @@ export interface ITenantPrivacyService {
     command: DeleteTenantCommand,
     actorId: string,
   ): Promise<DeleteTenantResult>;
+  /**
+   * Platform-console soft delete (no re-authentication): revokes the workspace
+   * sessions and marks it as deleted so the manual `purgeTenant` can run. Used
+   * for abandoned/restored workspaces whose ADMIN password is unknown.
+   */
+  deleteTenantByPlatform(tenantId: string, actorId: string): Promise<DeleteTenantResult>;
 }
 
 /* ==========================================================================

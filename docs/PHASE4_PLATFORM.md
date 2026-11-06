@@ -10,7 +10,7 @@
 |---|---|
 | Schema | `tenants.plan` (`TenantPlan`), `max_accounts`, `max_agents`, `deleted_at`, `billing_status` (`BillingStatus`), `trial_ends_at`, `billing_email`; `agents.is_platform_admin` |
 | Limites | `max_agents` ao convidar/aceitar convite; `max_accounts` ao conectar loja nova |
-| Console | `GET /platform/tenants` (paginação + busca + billing prefill), `PATCH /platform/tenants/:id`, `GET /platform/metrics`, `GET /platform/tenants/:id/metrics`, `GET /platform/alerts`, `POST /platform/tenants/:id/purge` |
+| Console | `GET /platform/tenants` (paginação + busca + billing prefill), `PATCH /platform/tenants/:id`, `DELETE /platform/tenants/:id` (soft delete sem senha do workspace), `GET /platform/metrics`, `GET /platform/tenants/:id/metrics`, `GET /platform/alerts`, `POST /platform/tenants/:id/purge` |
 | Billing (base) | `GET /platform/billing/summary` (MRR por plano), `PATCH /platform/tenants/:id/billing`; preços em `shared/plans.ts`; `billingStatus`/`trialEndsAt`/`billingEmail` no item da listagem |
 | Gateway (contrato) | `POST /billing/webhook` público com HMAC SHA-256 do raw body (`x-billing-signature`), máquina de estados em `billing_status` e idempotência por `externalId` em `webhook_events`; `POST /platform/tenants/:id/checkout` (URL por template, sem chamada externa); `GET /platform/billing/events` (auditoria) |
 | LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete), purga física diária (`queue.tenant.purge`) + purga manual, com remoção dos objetos S3 do workspace antes do delete transacional |
@@ -122,6 +122,17 @@ workspace. `trialEndsAt`/`billingEmail` são `null` quando não definidos (nunca
 `undefined`). O `select` do Prisma é explícito (`TENANT_LIST_SELECT`), então um
 campo novo em `TenantRecord` falha a compilação em vez de virar `undefined` no
 JSON.
+
+### `DELETE /platform/tenants/:id`
+Soft delete executado **pelo console** (JWT + `is_platform_admin`), sem exigir a
+senha do workspace — pensado para workspaces restaurados/abandonados cujo ADMIN
+não tem credencial conhecida.
+
+- Revoga todas as sessões do workspace e marca `status='DELETED'`/`deleted_at`.
+- 200 com `{tenantId, slug, status:'DELETED', deletedAt, purge}`; `404` tenant
+  desconhecido; `409 CONFLICT` (`TENANT_ALREADY_DELETED`) se já excluído/suspenso.
+- A purga física continua sendo um passo separado (`POST .../purge`); o fluxo
+  LGPD do próprio ADMIN (`DELETE /tenants/me`, com senha + slug) permanece igual.
 
 ### `POST /platform/tenants/:id/purge`
 Purga física **manual** (LGPD) de um workspace já soft-deleted.

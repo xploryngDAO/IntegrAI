@@ -144,6 +144,39 @@ async function main() {
   });
   check('senha antiga recusada', loginOld.status === 401, `HTTP ${loginOld.status}`);
 
+  // Platform admin: tenant backup/restore (DR) and final cleanup.
+  const platformLogin = await request('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: PLATFORM_EMAIL, password: PLATFORM_PASSWORD }),
+  });
+  const platformToken = platformLogin.body?.data?.token;
+  check('login do platform admin', typeof platformToken === 'string');
+  const platformAuth = { Authorization: `Bearer ${platformToken}` };
+
+  const backup = await request(`/api/v1/platform/tenants/${tenantId}/backup`, {
+    method: 'POST',
+    headers: platformAuth,
+  });
+  const backupKey = backup.body?.data?.backupKey;
+  check('backup do workspace (S3)', backup.status === 200 && typeof backupKey === 'string', backupKey ?? `HTTP ${backup.status}`);
+  const backups = await request(`/api/v1/platform/tenants/${tenantId}/backups`, { headers: platformAuth });
+  const backupsList = Array.isArray(backups.body?.data) ? backups.body.data : [];
+  check('backup indexado', backupsList.some((entry) => entry.backupKey === backupKey));
+
+  const restoredSlug = `restored-${tag}`;
+  const restore = await request('/api/v1/platform/tenants/restore', {
+    method: 'POST',
+    headers: platformAuth,
+    body: JSON.stringify({ backupKey, newSlug: restoredSlug, newName: `Restaurado ${tag}` }),
+  });
+  const restoredId = restore.body?.data?.tenantId;
+  check(
+    'restore cria um novo workspace',
+    (restore.status === 200 || restore.status === 201) && typeof restoredId === 'string',
+    `HTTP ${restore.status}`,
+  );
+  check('restore preserva operadores', (restore.body?.data?.counts?.agents ?? 0) >= 2, JSON.stringify(restore.body?.data?.counts ?? {}));
+
   const removed = await request('/api/v1/tenants/me', {
     method: 'DELETE',
     headers: auth,
@@ -151,20 +184,28 @@ async function main() {
   });
   check('soft delete do workspace', removed.status === 202 || removed.status === 200, `HTTP ${removed.status}`);
 
-  const platformLogin = await request('/api/v1/auth/login', {
+  const purge = await request(`/api/v1/platform/tenants/${tenantId}/purge`, {
     method: 'POST',
-    body: JSON.stringify({ email: PLATFORM_EMAIL, password: PLATFORM_PASSWORD }),
+    headers: platformAuth,
   });
-  const platformToken = platformLogin.body?.data?.token;
-  if (typeof platformToken === 'string') {
-    const purge = await request(`/api/v1/platform/tenants/${tenantId}/purge`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${platformToken}` },
-    });
-    check('purge do workspace de teste', purge.status === 200 || purge.status === 202, `HTTP ${purge.status}`);
-  } else {
-    check('login do platform admin', false, 'sem token');
-  }
+  check('purge do workspace de teste', purge.status === 200 || purge.status === 202, `HTTP ${purge.status}`);
+
+  // The restored workspace has unknown temporary passwords, so the platform
+  // console soft-deletes it before purging.
+  const marked = await request(`/api/v1/platform/tenants/${restoredId}`, {
+    method: 'DELETE',
+    headers: platformAuth,
+  });
+  check('workspace restaurado marcado como excluido', marked.status === 200, `HTTP ${marked.status}`);
+  const purgeRestored = await request(`/api/v1/platform/tenants/${restoredId}/purge`, {
+    method: 'POST',
+    headers: platformAuth,
+  });
+  check(
+    'purge do workspace restaurado',
+    purgeRestored.status === 200 || purgeRestored.status === 202,
+    `HTTP ${purgeRestored.status}`,
+  );
 
   console.log(`\n${passed}/${passed + failed} verificações passaram.`);
   if (failed > 0) process.exitCode = 1;

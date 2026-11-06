@@ -15,6 +15,7 @@ import { requireAgent } from '../middleware/auth';
 export interface PlatformControllers {
   listTenants: RouteHandler;
   updateTenant: RouteHandler;
+  deleteTenant: RouteHandler;
   purgeTenant: RouteHandler;
   metrics: RouteHandler;
   tenantMetrics: RouteHandler;
@@ -64,6 +65,28 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
       });
 
       return ok(updated);
+    },
+
+    /**
+     * `DELETE /platform/tenants/:id` - platform-console soft delete.
+     *
+     * Does not require the workspace password (the caller is a platform
+     * administrator), revokes sessions and marks the workspace `DELETED`; the
+     * physical LGPD purge remains a separate explicit step.
+     */
+    async deleteTenant(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      const actorId = requireAgent(request).id;
+      const result = await services.tenantPrivacy.deleteTenantByPlatform(id, actorId);
+
+      services.logger.info('http.platform.tenant_deleted', {
+        requestId: request.id,
+        actorId,
+        tenantId: id,
+        slug: result.slug,
+      });
+
+      return ok(result);
     },
 
     /**

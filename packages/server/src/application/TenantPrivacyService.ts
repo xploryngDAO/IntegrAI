@@ -222,6 +222,44 @@ export class TenantPrivacyService implements ITenantPrivacyService {
       purge: { scheduled: true, note: DELETE_PURGE_NOTE },
     };
   }
+
+  /**
+   * Platform-console soft delete. Unlike `deleteTenant`, there is no password
+   * confirmation because the caller is a platform administrator who does not
+   * belong to the workspace; sessions are revoked and the row is marked
+   * `DELETED`, after which the LGPD purge can run.
+   */
+  async deleteTenantByPlatform(tenantId: string, actorId: string): Promise<DeleteTenantResult> {
+    const now = this.clock.now();
+    const tenant = await this.tenants.findById(tenantId);
+    if (tenant === null) throw new NotFoundError('Tenant', tenantId);
+
+    if (!isTenantActive(tenant)) {
+      throw new ConflictError('Workspace is already deleted or suspended', {
+        code: 'TENANT_ALREADY_DELETED',
+        status: tenant.status,
+      });
+    }
+
+    const revokedSessions = await this.tenantData.revokeSessions(tenantId, now);
+    const updated = await this.tenantAdmin.softDelete(tenantId, now);
+
+    this.logger.info('tenant.deleted_by_platform', {
+      tenantId,
+      slug: updated.slug,
+      actorId,
+      revokedSessions,
+      deletedAt: now.toISOString(),
+    });
+
+    return {
+      tenantId: updated.id,
+      slug: updated.slug,
+      status: 'DELETED',
+      deletedAt: now.toISOString(),
+      purge: { scheduled: true, note: DELETE_PURGE_NOTE },
+    };
+  }
 }
 
 /* ====================================================================== */

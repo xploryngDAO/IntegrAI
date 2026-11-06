@@ -17,6 +17,9 @@ export const platformRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, 
 
   app.get('/tenants', { preHandler: platformOnly }, controllers.listTenants);
   app.patch('/tenants/:id', { preHandler: platformOnly }, controllers.updateTenant);
+  // Platform soft delete (no workspace password): used for abandoned/restored
+  // workspaces whose ADMIN credentials are unknown; purge stays a separate step.
+  app.delete('/tenants/:id', { preHandler: platformOnly }, controllers.deleteTenant);
   // Manual LGPD purge: only for an ALREADY soft-deleted workspace (`deleted_at`
   // set). The automatic path is the daily `queue.tenant.purge` scheduler.
   app.post('/tenants/:id/purge', { preHandler: platformOnly }, controllers.purgeTenant);

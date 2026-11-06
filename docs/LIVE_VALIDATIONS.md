@@ -282,6 +282,10 @@ POST /invitations (AGENT) -> 201
 e-mail de convite (Mailpit) -> token -> POST /auth/accept-invitation -> 200
 login do convidado -> 200; /auth/me role=AGENT; /tenants/me mesmo slug
 DELETE /tenants/me (password+confirmSlug) -> 202
+POST /platform/tenants/:id/backup -> 200 (backups/<slug>/<ts>.json) e indice na listagem
+POST /platform/tenants/restore -> 200 (novo workspace; counts.agents=2)
 POST /platform/tenants/:id/purge -> 200; 0 residuos no banco
-14/14 verificacoes passaram (npm run test:live-signup)
+DELETE /platform/tenants/:id (platform admin, sem senha) -> 200 soft delete do restaurado
+POST /platform/tenants/:id/purge (restaurado) -> 200; 0 residuos no banco
+26/26 verificacoes passaram (npm run test:live-signup)
 ```
