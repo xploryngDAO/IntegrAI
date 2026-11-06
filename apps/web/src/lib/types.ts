@@ -171,6 +171,48 @@ export interface TenantProfile {
 }
 
 /* ==========================================================================
+ * Fase 1 — verificação em duas etapas (TOTP)
+ *
+ * Client-side contracts of the 2FA API (docs/PHASE1_AUTH.md):
+ *
+ *   GET  /auth/2fa/status          -> TwoFactorStatusResult
+ *   POST /auth/2fa/setup           -> TwoFactorSetupResult
+ *   POST /auth/2fa/verify          -> TwoFactorVerifyResult (8 recovery codes, once)
+ *   POST /auth/2fa/disable         -> { enabled: false }
+ *   POST /auth/2fa/challenge       -> AuthResponse (same session as login)
+ *
+ * The secret and the recovery codes are returned exactly once by the API, so
+ * the UI keeps them in component state only (never in storage).
+ * ========================================================================== */
+
+export interface TwoFactorStatusResult {
+  enabled: boolean;
+}
+
+export interface TwoFactorSetupResult {
+  /** Base32 secret; only `POST /auth/2fa/setup` ever returns it. */
+  secret: string;
+  /** `otpauth://totp/...` URL the operator can open/copy instead of scanning a QR. */
+  otpauthUrl: string;
+}
+
+export interface TwoFactorVerifyResult {
+  enabled: boolean;
+  /** 8 one-time recovery codes — shown only in this response. */
+  recoveryCodes: string[];
+}
+
+export interface TwoFactorDisableBody {
+  password: string;
+  /** TOTP (6 digits) or one-time recovery code. */
+  code?: string;
+}
+
+export interface TwoFactorDisableResult {
+  enabled: false;
+}
+
+/* ==========================================================================
  * Fase 4 — console interno da plataforma + LGPD
  *
  * These are the client-side contracts of the platform API (admin-only):

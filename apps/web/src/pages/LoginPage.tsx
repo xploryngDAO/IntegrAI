@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, ApiClientError } from '../lib/api';
+import { api, ApiClientError, TwoFactorRequiredError } from '../lib/api';
+import {
+  isPlausibleTwoFactorCode,
+  normalizeTwoFactorCode,
+  twoFactorErrorMessage,
+} from '../lib/twoFactor';
 import { AuthLayout } from '../components/auth/AuthLayout';
 import { Alert, Button, Input } from '../components/ui';
 
@@ -17,6 +22,10 @@ interface LoginPageProps {
  * The screen is also the hub of the Fase 1 self-service flows: account creation
  * (`/signup`), password recovery (`/forgot-password`) and, when the API answers
  * `EMAIL_NOT_VERIFIED`, the resend link for the verification e-mail.
+ *
+ * When the API answers `TWO_FACTOR_REQUIRED` (401/403) with a `challengeToken`,
+ * no session exists yet: the same page switches to the 2FA step, redeems the
+ * challenge on `POST /auth/2fa/challenge` and only then calls `onAuthenticated`.
  */
 export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JSX.Element {
   const [email, setEmail] = useState('');
@@ -24,6 +33,21 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [needsVerification, setNeedsVerification] = useState(false);
+
+  // Second step: the password was accepted but the account has 2FA enabled, so
+  // the API issued a short-lived challenge token instead of a session.
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [challengeCode, setChallengeCode] = useState('');
+  const [challengeLoading, setChallengeLoading] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
+
+  function backToCredentials(): void {
+    if (challengeLoading) return;
+    setChallengeToken(null);
+    setChallengeCode('');
+    setChallengeError(null);
+    setPassword('');
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -35,11 +59,25 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
       await api.login(email.trim(), password);
       onAuthenticated();
     } catch (loginError) {
+      if (loginError instanceof TwoFactorRequiredError) {
+        // No session was issued: drop the password and ask for the code.
+        setChallengeToken(loginError.challengeToken);
+        setChallengeCode('');
+        setChallengeError(null);
+        setPassword('');
+        return;
+      }
       if (loginError instanceof ApiClientError) {
         // Fase 1: a valid password on an unverified account answers 403, which
         // is a verification problem — not a credential problem.
         if (loginError.code === 'EMAIL_NOT_VERIFIED') {
           setNeedsVerification(true);
+          return;
+        }
+        if (loginError.code === 'TWO_FACTOR_REQUIRED') {
+          setError(
+            'A API pediu a verificação em duas etapas, mas não retornou o token do desafio. Tente entrar novamente.',
+          );
           return;
         }
         setError(
@@ -55,6 +93,84 @@ export function LoginPage({ onAuthenticated, initialError }: LoginPageProps): JS
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleChallengeSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (challengeLoading || challengeToken === null) return;
+
+    const normalized = normalizeTwoFactorCode(challengeCode);
+    if (!isPlausibleTwoFactorCode(normalized)) {
+      setChallengeError('Informe os 6 dígitos do app autenticador ou um código de recuperação.');
+      return;
+    }
+
+    setChallengeLoading(true);
+    setChallengeError(null);
+    try {
+      // Persists the JWT returned by the challenge (same session as login).
+      await api.twoFactorChallenge(challengeToken, normalized);
+      onAuthenticated();
+    } catch (challengeFailure) {
+      setChallengeError(twoFactorErrorMessage(challengeFailure, 'challenge'));
+    } finally {
+      setChallengeLoading(false);
+    }
+  }
+
+  if (challengeToken !== null) {
+    return (
+      <AuthLayout
+        title="Verificação em duas etapas"
+        description="Sua conta está protegida por um código adicional. Confirme para concluir o login."
+      >
+        <form
+          className="mt-1 flex flex-col gap-4"
+          onSubmit={(event) => void handleChallengeSubmit(event)}
+        >
+          <p className="m-0 text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
+            Entrando como{' '}
+            <strong className="font-medium text-[var(--cv-color-text)]">{email.trim()}</strong>
+          </p>
+
+          <Input
+            label="Código de verificação"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            maxLength={32}
+            autoFocus
+            value={challengeCode}
+            placeholder="123456 ou ABCD-2345"
+            hint="6 dígitos do app autenticador ou um código de recuperação de uso único."
+            onChange={(event) => {
+              setChallengeCode(event.target.value);
+              setChallengeError(null);
+            }}
+            required
+          />
+
+          {challengeError !== null ? (
+            <Alert title="Não foi possível verificar o código" tone="danger">
+              {challengeError}
+            </Alert>
+          ) : null}
+
+          <Button
+            type="submit"
+            variant="primary"
+            loading={challengeLoading}
+            disabled={!isPlausibleTwoFactorCode(challengeCode)}
+            fullWidth
+          >
+            Verificar e entrar
+          </Button>
+
+          <Button variant="ghost" fullWidth onClick={backToCredentials} disabled={challengeLoading}>
+            Voltar ao login
+          </Button>
+        </form>
+      </AuthLayout>
+    );
   }
 
   return (

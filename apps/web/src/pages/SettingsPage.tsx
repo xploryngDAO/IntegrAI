@@ -9,6 +9,7 @@ import type { TenantProfile } from '../lib/types';
 import { formatDateTime } from '../lib/labels';
 import { Alert, Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { DeleteWorkspaceDialog } from '../components/settings/DeleteWorkspaceDialog';
+import { TwoFactorCard } from '../components/settings/TwoFactorCard';
 
 function settingsErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -148,7 +149,7 @@ export function SettingsPage(): JSX.Element {
       <PageHeader
         eyebrow="Workspace"
         title="Configurações"
-        description="Identidade do workspace, onboarding guiado e as ações de privacidade previstas na LGPD."
+        description="Identidade do workspace, segurança do login e as ações de privacidade previstas na LGPD."
         actions={
           <Button variant="secondary" icon="pulse" loading={loading} onClick={retry}>
             Atualizar
@@ -220,6 +221,23 @@ export function SettingsPage(): JSX.Element {
           </div>
         ) : null}
       </Card>
+
+      <section className="flex flex-col gap-3" aria-labelledby="security-heading">
+        <div>
+          <h2
+            id="security-heading"
+            className="m-0 text-[var(--cv-font-section)] font-semibold leading-[var(--cv-font-line-heading)]"
+          >
+            Segurança
+          </h2>
+          <p className="m-0 mt-1 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            Segundo fator do login do operador autenticado. A configuração vale para os próximos
+            acessos, em qualquer navegador, e é aplicada pela API a cada login.
+          </p>
+        </div>
+
+        <TwoFactorCard />
+      </section>
 
       <section className="flex flex-col gap-3" aria-labelledby="lgpd-heading">
         <div>

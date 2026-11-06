@@ -39,6 +39,11 @@ import type {
   SendMessageBody,
   SignupBody,
   TenantProfile,
+  TwoFactorDisableBody,
+  TwoFactorDisableResult,
+  TwoFactorSetupResult,
+  TwoFactorStatusResult,
+  TwoFactorVerifyResult,
   UploadedFile,
   WorkspaceFilters,
 } from './types';
@@ -83,6 +88,65 @@ export class ApiClientError extends Error {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+/**
+ * Password accepted but the operator has 2FA enabled: the API issued NO session,
+ * only a short-lived `challengeToken` (redeemed on `POST /auth/2fa/challenge`).
+ *
+ * It extends `ApiClientError` so existing `catch` blocks keep working, but the
+ * login screen can tell it apart from a real credential failure and ask for the
+ * code instead of showing "credenciais inválidas".
+ */
+export class TwoFactorRequiredError extends ApiClientError {
+  readonly challengeToken: string;
+
+  constructor(challengeToken: string, status = 401) {
+    super(status, 'TWO_FACTOR_REQUIRED', 'A verificação em duas etapas é obrigatória para entrar.', {
+      challengeToken,
+    });
+    this.name = 'TwoFactorRequiredError';
+    this.challengeToken = challengeToken;
+  }
+}
+
+/** 2FA login error contract: top-level `{ code, challengeToken }`, no envelope. */
+function challengeTokenOf(error: ApiClientError): string | null {
+  const details = error.details;
+  if (typeof details !== 'object' || details === null) return null;
+  const token = (details as { challengeToken?: unknown }).challengeToken;
+  return typeof token === 'string' && token.trim().length > 0 ? token.trim() : null;
+}
+
+interface RawErrorPayload {
+  error?: { code?: string; message?: string; details?: unknown };
+  /** Some flows answer at the top level (login with 2FA) instead of `{ error }`. */
+  code?: string;
+  message?: string;
+  challengeToken?: string;
+}
+
+/**
+ * Builds the typed client error from whatever the API answered.
+ *
+ * Most routes use `{ error: { code, message, details? } }`, but `POST /auth/login`
+ * with 2FA answers a top-level `{ code: 'TWO_FACTOR_REQUIRED', challengeToken }`.
+ * Both shapes are normalised here, and the whole body is kept as `details` for
+ * top-level errors so `challengeToken` survives.
+ */
+function apiErrorFrom(status: number, payload: unknown): ApiClientError {
+  const body = (payload ?? null) as RawErrorPayload | null;
+  const envelope = body?.error;
+  const topLevelCode =
+    typeof body?.code === 'string' && body.code.length > 0 ? body.code : null;
+  const message =
+    envelope?.message ??
+    (typeof body?.message === 'string' && body.message.length > 0
+      ? body.message
+      : `Erro HTTP ${status}.`);
+  const details = envelope?.details ?? (topLevelCode !== null ? body : undefined);
+
+  return new ApiClientError(status, envelope?.code ?? topLevelCode ?? 'HTTP_ERROR', message, details);
 }
 
 export function setAuthToken(token: string | null): void {
@@ -184,15 +248,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      const errorBody = payload as
-        | { error?: { code?: string; message?: string; details?: unknown } }
-        | null;
-      throw new ApiClientError(
-        response.status,
-        errorBody?.error?.code ?? 'HTTP_ERROR',
-        errorBody?.error?.message ?? `Erro HTTP ${response.status}.`,
-        errorBody?.error?.details,
-      );
+      throw apiErrorFrom(response.status, payload);
     }
     if (payload === null) {
       if (options.allowEmpty) return undefined as T;
@@ -222,6 +278,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export type OAuthMarketplaceSlug = 'mercadolivre' | 'shopee' | 'amazon';
 
 export interface ApiClient {
+  /**
+   * Opens a session. When the operator has 2FA enabled the API answers
+   * `TWO_FACTOR_REQUIRED` and no token: this rejects with
+   * `TwoFactorRequiredError` (carrying `challengeToken`) instead of a session,
+   * and the caller completes the login with `twoFactorChallenge()`.
+   */
   login(email: string, password: string): Promise<AuthResponse>;
   me(): Promise<IAgentSummary>;
   /** Creates tenant + first ADMIN and mails the verification link (public). */
@@ -239,6 +301,21 @@ export interface ApiClient {
    * opens a session (public) — same `AuthResponse` as `login()`.
    */
   acceptInvitation(body: AcceptInvitationBody): Promise<AuthResponse>;
+  /* ---- Two-factor authentication (Fase 1: TOTP) ---- */
+  /** `GET /auth/2fa/status` — whether this operator has TOTP enabled. */
+  twoFactorStatus(): Promise<TwoFactorStatusResult>;
+  /** `POST /auth/2fa/setup` — pending secret + `otpauth://` URL (returned once). */
+  twoFactorSetup(): Promise<TwoFactorSetupResult>;
+  /** `POST /auth/2fa/verify` — confirms the pending secret and enables 2FA. */
+  twoFactorVerify(code: string): Promise<TwoFactorVerifyResult>;
+  /** `POST /auth/2fa/disable` — requires the account password + TOTP/recovery code. */
+  twoFactorDisable(body: TwoFactorDisableBody): Promise<TwoFactorDisableResult>;
+  /**
+   * `POST /auth/2fa/challenge` — public: exchanges the login `challengeToken`
+   * plus a TOTP/recovery code for the same session `login()` would issue.
+   * Persists the JWT in the client (like `login()` does).
+   */
+  twoFactorChallenge(challengeToken: string, code: string): Promise<AuthResponse>;
   listTickets(
     filters: WorkspaceFilters,
     page?: number,
@@ -307,17 +384,68 @@ export interface ApiClient {
 
 export const api: ApiClient = {
   async login(email, password) {
-    const auth = await request<AuthResponse>('/auth/login', {
-      method: 'POST',
-      body: { email, password },
-    });
-    // Persist the JWT before any other request runs (boot happens next).
-    setAuthToken(auth.token);
-    return auth;
+    try {
+      const auth = await request<AuthResponse>('/auth/login', {
+        method: 'POST',
+        body: { email, password },
+      });
+      // Persist the JWT before any other request runs (boot happens next).
+      setAuthToken(auth.token);
+      return auth;
+    } catch (error) {
+      // 2FA enabled: 401 `TWO_FACTOR_REQUIRED` + `challengeToken` and NO session.
+      // Surface it as a typed error so the login screen can ask for the code.
+      if (error instanceof ApiClientError && error.code === 'TWO_FACTOR_REQUIRED') {
+        const challengeToken = challengeTokenOf(error);
+        if (challengeToken !== null) {
+          throw new TwoFactorRequiredError(challengeToken, error.status);
+        }
+      }
+      throw error;
+    }
   },
 
   me() {
     return request<IAgentSummary>('/auth/me');
+  },
+
+  twoFactorStatus() {
+    return request<TwoFactorStatusResult>('/auth/2fa/status', { timeoutMs: 8_000 });
+  },
+
+  twoFactorSetup() {
+    return request<TwoFactorSetupResult>('/auth/2fa/setup', {
+      method: 'POST',
+      timeoutMs: 10_000,
+    });
+  },
+
+  twoFactorVerify(code) {
+    return request<TwoFactorVerifyResult>('/auth/2fa/verify', {
+      method: 'POST',
+      body: { code },
+      timeoutMs: 10_000,
+    });
+  },
+
+  twoFactorDisable(body) {
+    return request<TwoFactorDisableResult>('/auth/2fa/disable', {
+      method: 'POST',
+      body,
+      // bcrypt of the password + code check run inside this request.
+      timeoutMs: 20_000,
+    });
+  },
+
+  async twoFactorChallenge(challengeToken, code) {
+    const auth = await request<AuthResponse>('/auth/2fa/challenge', {
+      method: 'POST',
+      body: { challengeToken, code },
+      timeoutMs: 15_000,
+    });
+    // The challenge issues a real session: persist it before boot runs.
+    setAuthToken(auth.token);
+    return auth;
   },
 
   /* ------------------------------------------------------------------ */
@@ -638,6 +766,11 @@ export type {
   TicketDetail,
   TicketListItem,
   TicketStats,
+  TwoFactorDisableBody,
+  TwoFactorDisableResult,
+  TwoFactorSetupResult,
+  TwoFactorStatusResult,
+  TwoFactorVerifyResult,
   UploadedFile,
   WorkspaceFilters,
 } from './types';
