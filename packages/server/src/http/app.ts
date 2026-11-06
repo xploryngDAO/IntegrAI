@@ -15,6 +15,7 @@ import {
 import type { HttpRouteContext, HttpServerOptions } from './types';
 import type { RealtimeHub } from './realtime-hub';
 import { registerAuthGuard } from './middleware/auth';
+import { AuthRateLimiter } from '../application/auth/rate-limit';
 import { registerErrorHandler } from './middleware/error-handler';
 import { registerRequestContext } from './middleware/request-context';
 import { registerApiRoutes, registerRootRoutes } from './routes';
@@ -242,6 +243,22 @@ export async function buildHttpApp(
   registerErrorHandler(app, {
     logger: options.logger,
     exposeDetails: !production,
+  });
+  // Global per-IP shield in front of every route (including public ones except
+  // liveness probes). Tiered auth limits still apply on top of this.
+  const globalLimiter = new AuthRateLimiter({
+    cache: services.cache,
+    clock: services.clock,
+    logger: options.logger,
+  });
+  app.addHook('onRequest', async (request) => {
+    if (request.method === 'OPTIONS') return;
+    const path = request.url.split('?')[0] ?? '';
+    if (path === '/health' || path === '/status' || path.startsWith('/socket.io')) return;
+    await globalLimiter.assertAllowed(
+      { bucket: 'http.global', limit: 600, windowSeconds: 60 },
+      `sac:http:global:${request.ip}`,
+    );
   });
   registerAuthGuard(app, {
     agents: services.agents,
