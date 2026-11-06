@@ -21,3 +21,5 @@ jobs:
       - run: npx vitest run
       - run: npm run build:server
       - run: npm run build --workspace @sac/web
+      - name: Build production API image
+        run: docker build -f packages/server/Dockerfile -t sac-hub-api:ci .
