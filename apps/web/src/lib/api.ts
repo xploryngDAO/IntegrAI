@@ -53,7 +53,10 @@ import type {
   RegenerateRecoveryCodesResult,
   SendMessageBody,
   SignupBody,
+  SsoDiscovery,
   TenantProfile,
+  TenantSsoConfig,
+  TenantSsoUpdate,
   TwoFactorDisableBody,
   TwoFactorDisableResult,
   TwoFactorSetupResult,
@@ -188,6 +191,24 @@ export function hasAuthToken(): boolean {
   return authToken !== null;
 }
 
+/**
+ * Absolute URL of the API base (never with a trailing slash).
+ *
+ * `VITE_API_BASE_URL` is either absolute (API on another host) or a same-origin
+ * path (`/api/v1`, the default when the SPA is served behind the API proxy).
+ * Things the browser has to open by itself — the SSO start redirect and the
+ * callback URI registered at the IdP — need the absolute form, so both are
+ * derived here instead of being hardcoded in the pages.
+ */
+export function apiBaseUrl(): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(API_BASE)) return API_BASE;
+  try {
+    return new URL(API_BASE, window.location.origin).toString().replace(/\/+$/, '');
+  } catch {
+    return API_BASE;
+  }
+}
+
 /* ==========================================================================
  * HTTP plumbing
  * ========================================================================== */
@@ -230,6 +251,49 @@ function textList(value: unknown): string[] {
   return value
     .map((entry) => optionalText(entry))
     .filter((entry): entry is string => entry !== null);
+}
+
+/**
+ * `GET|PUT /tenants/me/sso` read model.
+ *
+ * The API owns the truth; this only coerces the shape so a missing field is
+ * rendered as "não configurado" instead of an invented value. The OAuth secret
+ * is never part of the payload — at most the `clientSecretConfigured` flag.
+ */
+function normalizeTenantSsoConfig(payload: unknown): TenantSsoConfig {
+  const raw =
+    payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  const groupRoleMap: Record<string, string> = {};
+  if (
+    raw.groupRoleMap !== null &&
+    typeof raw.groupRoleMap === 'object' &&
+    !Array.isArray(raw.groupRoleMap)
+  ) {
+    for (const [group, role] of Object.entries(raw.groupRoleMap as Record<string, unknown>)) {
+      const key = group.trim();
+      const value = optionalText(role);
+      if (key.length > 0 && value !== null) groupRoleMap[key] = value;
+    }
+  }
+
+  return {
+    provider: optionalText(raw.provider) ?? '',
+    issuerUrl: optionalText(raw.issuerUrl) ?? '',
+    clientId: optionalText(raw.clientId) ?? '',
+    clientSecretConfigured: raw.clientSecretConfigured === true,
+    redirectUri: optionalText(raw.redirectUri),
+    allowedDomains: textList(raw.allowedDomains).map((domain) =>
+      domain.replace(/^@/, '').toLowerCase(),
+    ),
+    groupRoleMap,
+    autoProvision: raw.autoProvision === true,
+    defaultRole: optionalText(raw.defaultRole) ?? 'AGENT',
+    enforceSso: raw.enforceSso === true,
+    enabled: raw.enabled === true,
+  };
 }
 
 function encodeQuery(params: Record<string, string | number | null | undefined>): string {
@@ -357,6 +421,28 @@ export interface ApiClient {
    * opens a session (public) — same `AuthResponse` as `login()`.
    */
   acceptInvitation(body: AcceptInvitationBody): Promise<AuthResponse>;
+  /* ---- Fase 5: SSO corporativo (Microsoft Entra ID) ---- */
+  /**
+   * `GET /auth/sso/discover?email=` (public) — whether the e-mail's domain uses
+   * SSO. It is the gate of the "Entrar com Microsoft" button: the redirect to
+   * the IdP only happens when the API says `enabled`.
+   */
+  ssoDiscover(email: string): Promise<SsoDiscovery>;
+  /**
+   * `POST /auth/sso/exchange` (public) — redeems the single-use `code` the
+   * backend appended to the SPA callback URL and opens the session (same
+   * `AuthResponse` as `login()`; the JWT is persisted here).
+   */
+  ssoExchange(code: string): Promise<AuthResponse>;
+  /** `GET /tenants/me/sso` (ADMIN) — config without the secret; null when absent. */
+  tenantSso(): Promise<TenantSsoConfig | null>;
+  /**
+   * `PUT /tenants/me/sso` (ADMIN) — full update (omit `clientSecret` to keep the
+   * stored one). Returns the saved config when the API sends it back.
+   */
+  updateTenantSso(body: TenantSsoUpdate): Promise<TenantSsoConfig | null>;
+  /** `DELETE /tenants/me/sso` (ADMIN) — removes the tenant configuration. */
+  deleteTenantSso(): Promise<void>;
   /* ---- Two-factor authentication (Fase 1: TOTP) ---- */
   /** `GET /auth/2fa/status` — whether this operator has TOTP enabled. */
   twoFactorStatus(): Promise<TwoFactorStatusResult>;
@@ -662,6 +748,90 @@ export const api: ApiClient = {
     });
     setAuthToken(auth.token);
     return auth;
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Fase 5 — SSO corporativo (Microsoft Entra ID).                     */
+  /* ------------------------------------------------------------------ */
+
+  async ssoDiscover(email) {
+    // Public, cache-busting read: the answer depends on the tenant
+    // configuration, which an ADMIN may have changed a minute ago.
+    // `no-store` also keeps a proxy from replaying an outdated `enabled`.
+    try {
+      const payload = await request<unknown>(`/auth/sso/discover${encodeQuery({ email })}`, {
+        cache: 'no-store',
+        timeoutMs: 8_000,
+      });
+      const raw =
+        payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      // Only an explicit `true` enables the redirect; anything else is "not
+      // configured" — never a guess that would send the operator to a 404.
+      return { enabled: raw.enabled === true, provider: optionalText(raw.provider) };
+    } catch (error) {
+      // The API answers `404/409 SSO_NOT_CONFIGURED` when the domain has no
+      // enabled connection (unknown domain, disabled connection or suspended
+      // workspace). For the login screen that is an answer — "SSO not configured
+      // for this domain" — not an outage, so it must not become an error alert.
+      if (
+        error instanceof ApiClientError &&
+        (error.code === 'SSO_NOT_CONFIGURED' || error.status === 404 || error.status === 409)
+      ) {
+        return { enabled: false, provider: null };
+      }
+      throw error;
+    }
+  },
+
+  async ssoExchange(code) {
+    const auth = await request<AuthResponse>('/auth/sso/exchange', {
+      method: 'POST',
+      body: { code },
+      // The first corporate login may create the operator (auto-provision),
+      // load the IdP profile and issue the refresh token in this request.
+      timeoutMs: 20_000,
+    });
+    // Real session: persist the JWT before anything else runs (same as login).
+    setAuthToken(auth.token);
+    return auth;
+  },
+
+  async tenantSso() {
+    try {
+      const payload = await request<unknown>('/tenants/me/sso', {
+        cache: 'no-store',
+        timeoutMs: 8_000,
+      });
+      return normalizeTenantSsoConfig(payload);
+    } catch (error) {
+      // A workspace that never configured SSO may answer 404 NOT_FOUND: that is
+      // an empty state, not a failure of the settings page.
+      if (error instanceof ApiClientError && error.status === 404) return null;
+      throw error;
+    }
+  },
+
+  async updateTenantSso(body) {
+    const payload = await request<unknown>('/tenants/me/sso', {
+      method: 'PUT',
+      body,
+      // The API encrypts the client secret and may validate the issuer over the
+      // network, so this request gets more headroom than a plain write.
+      allowEmpty: true,
+      timeoutMs: 20_000,
+    });
+    // A 204 means "saved, no body": the caller re-reads the config.
+    return payload === null || payload === undefined ? null : normalizeTenantSsoConfig(payload);
+  },
+
+  async deleteTenantSso() {
+    await request<unknown>('/tenants/me/sso', {
+      method: 'DELETE',
+      allowEmpty: true,
+      timeoutMs: 15_000,
+    });
   },
 
   async listTickets(filters, page = 1) {
@@ -1053,11 +1223,14 @@ export type {
   RegenerateRecoveryCodesResult,
   RouteDecision,
   SendMessageBody,
+  SsoDiscovery,
   SystemDiagnosis,
   SystemStatusChannel,
   SystemStatusLevel,
   SystemStatusService,
   SystemStatusSnapshot,
+  TenantSsoConfig,
+  TenantSsoUpdate,
   TicketDetail,
   TicketListItem,
   TicketStats,

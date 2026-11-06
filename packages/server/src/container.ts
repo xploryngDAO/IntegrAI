@@ -31,11 +31,13 @@ import {
 import { PlanLimitService } from './application/PlanLimitService';
 import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
+import { SsoAuthService } from './application/SsoAuthService';
 import { StatusService } from './application/StatusService';
 import { TenantBackupService } from './application/TenantBackupService';
 import { TenantPrivacyService } from './application/TenantPrivacyService';
 import { TenantPurgeService } from './application/TenantPurgeService';
 import { TenantService } from './application/TenantService';
+import { TenantSsoService } from './application/TenantSsoService';
 import { TicketQueryService } from './application/TicketQueryService';
 import { TwoFactorService } from './application/TwoFactorService';
 import { UnifiedTicketService } from './application/UnifiedTicketService';
@@ -296,6 +298,19 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  // Fase 5: workspace IdP configuration + `enforce_sso` password gate. Built
+  // BEFORE AgentService (the login gate depends on it) and reused by the public
+  // SSO flow below.
+  const tenantSso = new TenantSsoService({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    cipher: infra.cipher,
+    repo: infra.ssoConnections,
+    appBaseUrl: config.appBaseUrl,
+    nodeEnv: config.nodeEnv,
+  });
+
   const agents = new AgentService({
     logger: infra.logger,
     clock: infra.clock,
@@ -306,10 +321,30 @@ export function createContainer(args: ContainerArgs): IAppServices {
     presenceTtlSeconds: config.agentPresenceTtlSeconds,
     sessions,
     tenants: infra.tenants,
+    sso: tenantSso,
     repos: {
       agents: infra.agents,
       tickets: infra.repos.tickets,
     },
+  });
+
+  // Fase 5: public OIDC flow (start/callback/exchange). Session issuance goes
+  // through `agents.issueSession`, so SSO and password logins share the exact
+  // same token/presence/refresh-token bookkeeping.
+  const sso = new SsoAuthService({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    http: infra.http,
+    cipher: infra.cipher,
+    jwtSecret: config.jwtSecret,
+    webOrigin: config.webOrigin,
+    nodeEnv: config.nodeEnv,
+    repos: {
+      connections: infra.ssoConnections,
+      agents: infra.ssoAgents,
+    },
+    agents,
   });
 
   const twoFactor = new TwoFactorService({
@@ -462,6 +497,8 @@ export function createContainer(args: ContainerArgs): IAppServices {
     outbound,
     agents,
     auth,
+    tenantSso,
+    sso,
     twoFactor,
     sessions,
     invitations,

@@ -143,6 +143,23 @@ Validação: `npm run doctor` → `shopee.config`, `shopee.clock`, `shopee.sign`
 `shopee.token`, `shopee.shop_info` (+ `shopee.lost_push` com
 `SHOPEE_DIAGNOSE_LOST_PUSH=true`).
 
+### 3.4 SSO corporativo (opcional, por workspace)
+
+O login corporativo (Microsoft Entra ID, Google Workspace, Okta ou OIDC
+genérico) **não usa variáveis de ambiente**: cada workspace configura o seu IdP
+em `/settings → Autenticação corporativa`, com o client secret cifrado no banco.
+
+1. Registre o app no IdP com a Redirect URI exata
+   `https://api.seudominio.com.br/api/v1/auth/sso/callback` (derivada de
+   `APP_BASE_URL`).
+2. No `/settings`, informe issuer, client id, secret e os **domínios
+   permitidos**; valide um login em janela anônima antes de ligar `enforceSso`.
+3. `WEB_ORIGIN` precisa ser a origem pública do SPA: o callback redireciona para
+   `<WEB_ORIGIN>/auth/sso/callback?code=…` (nunca com token na URL).
+
+Passo a passo completo (claims, grupos, break-glass, troubleshooting):
+[`docs/ENTERPRISE_SSO.md`](./ENTERPRISE_SSO.md).
+
 ## 4. Exposição dos webhooks
 
 A API precisa de **HTTPS público** para:

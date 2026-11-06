@@ -319,13 +319,18 @@ código de erro) para auditoria e reprocessamento.
 
 ## Segurança & LGPD/PII
 
+Documento completo (modelo de ameaças, controles com arquivos, checklist LGPD,
+resposta a incidentes ANPD, pentest, matriz de risco e requisitos OAuth/OIDC):
+[`docs/SECURITY.md`](docs/SECURITY.md).
+
 - Tokens de loja cifrados em repouso (AES-256-GCM, chave por `ENCRYPTION_KEY_ID`,
   formato `v1:<keyId>:<iv>:<tag>:<cipher>`), nunca logados.
 - PII restrita Amazon **não** fica em `support_tickets`: vai para
   `buyer_pii_vault` com `expires_at` (shipment + 30 dias) + cache Redis de curta
   duração, e é **hard-deleted** pelo cron `pii.purge`.
-- JWT para operadores, RBAC (`ADMIN`/`SUPERVISOR`/`AGENT`), rate limit por IP nas
-  rotas públicas de webhook.
+- JWT para operadores, RBAC (`ADMIN`/`SUPERVISOR`/`AGENT`), rate limit
+  distribuído (Redis) nas rotas de login/2FA/reset; webhooks autenticados por
+  HMAC (quando o provedor oferece) e idempotência de 24 h.
 - Logs com `redactPiiForLogs` (e-mails mascarados, telefones suprimidos).
 - Uploads validados por MIME + tamanho, com hash SHA-256 e bucket privado.
 

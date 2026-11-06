@@ -213,6 +213,76 @@ export interface TwoFactorDisableResult {
 }
 
 /* ==========================================================================
+ * Fase 5 — SSO corporativo (Microsoft Entra ID)
+ *
+ * Client-side contracts of the corporate login API:
+ *
+ *   GET    /auth/sso/discover?email=  -> SsoDiscovery       (pública)
+ *   GET    /auth/sso/start?email=     -> 302 para o IdP     (pública)
+ *   POST   /auth/sso/exchange         -> AuthResponse       (pública)
+ *   GET    /tenants/me/sso            -> TenantSsoConfig    (ADMIN)
+ *   PUT    /tenants/me/sso            -> TenantSsoConfig    (ADMIN)
+ *   DELETE /tenants/me/sso            -> 204                (ADMIN)
+ *
+ * The OAuth client secret never comes back from the API: the read model only
+ * says whether a secret is stored (`clientSecretConfigured`). The callback URL
+ * registered at the IdP is rendered read-only by `/settings`.
+ * ========================================================================== */
+
+/** `GET /auth/sso/discover` — whether this e-mail's domain uses SSO. */
+export interface SsoDiscovery {
+  enabled: boolean;
+  /** Provider slug recognised by the API (e.g. `microsoft`); null when disabled. */
+  provider: string | null;
+}
+
+/** `GET|PUT /tenants/me/sso` — tenant configuration without any secret. */
+export interface TenantSsoConfig {
+  /** Provider slug (`microsoft`); empty when the tenant never configured SSO. */
+  provider: string;
+  /** OIDC issuer of the tenant (`https://login.microsoftonline.com/<id>/v2.0`). */
+  issuerUrl: string;
+  /** Application (client) id of the app registration. */
+  clientId: string;
+  /** Whether the API holds a client secret (the value itself is never returned). */
+  clientSecretConfigured: boolean;
+  /** Effective callback URL the IdP must call; null when the API omitted it. */
+  redirectUri: string | null;
+  /** E-mail domains allowed to sign in through SSO (already normalised). */
+  allowedDomains: string[];
+  /** IdP group id/name → workspace role. Opaque to the UI; preserved on save. */
+  groupRoleMap: Record<string, string>;
+  /** Create the operator on the first SSO login instead of requiring an invite. */
+  autoProvision: boolean;
+  /** Role given to a provisioned operator (`ADMIN` | `SUPERVISOR` | `AGENT`). */
+  defaultRole: string;
+  /** Whether the API refuses password login for the SSO-covered domains. */
+  enforceSso: boolean;
+  /** Whether the corporate login is active for this workspace. */
+  enabled: boolean;
+}
+
+/**
+ * Body of `PUT /tenants/me/sso`.
+ *
+ * Omitting `clientSecret` keeps the stored one — that is how the form lets an
+ * operator change the issuer/client id without retyping the secret.
+ */
+export interface TenantSsoUpdate {
+  provider?: string;
+  issuerUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri?: string | null;
+  allowedDomains?: string[];
+  groupRoleMap?: Record<string, string>;
+  autoProvision?: boolean;
+  defaultRole?: string;
+  enforceSso?: boolean;
+  enabled?: boolean;
+}
+
+/* ==========================================================================
  * Fase 4 — console interno da plataforma + LGPD
  *
  * These are the client-side contracts of the platform API (admin-only):

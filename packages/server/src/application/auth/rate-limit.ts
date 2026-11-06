@@ -52,6 +52,16 @@ export const AUTH_RATE_LIMITS = {
     limit: 5,
     windowSeconds: 15 * 60,
   },
+  /*
+   * Enterprise SSO public endpoints. They are unauthenticated (the browser has
+   * no token yet), so each one is throttled per client IP:
+   *  - discover is an e-mail-domain oracle (30/15min);
+   *  - start/callback/exchange drive an outbound IdP call or a token mint (20/15min).
+   */
+  ssoDiscover: { bucket: 'auth.sso.discover', limit: 30, windowSeconds: 15 * 60 },
+  ssoStart: { bucket: 'auth.sso.start', limit: 20, windowSeconds: 15 * 60 },
+  ssoCallback: { bucket: 'auth.sso.callback', limit: 20, windowSeconds: 15 * 60 },
+  ssoExchange: { bucket: 'auth.sso.exchange', limit: 20, windowSeconds: 15 * 60 },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 
 export interface AuthRateLimitDecision {

@@ -12,11 +12,36 @@ export const HUB_PATH = '/socket.io';
 /** Room every authenticated socket joins; receives queue-wide events. */
 export const HUB_ROOM_ALL = 'all';
 
-/** Global request body cap (webhooks + JSON). */
+/**
+ * Global request body cap (webhooks + JSON).
+ *
+ * The 12 MiB ceiling is driven by the Amazon SES inbound relay: the raw MIME
+ * message travels inside the signed body and may carry attachments. It is NOT
+ * meant for the authenticated JSON API - that surface is capped much lower by
+ * `MAX_API_JSON_BYTES` (see `buildHttpApp`).
+ */
 export const DEFAULT_BODY_LIMIT_BYTES = 12 * 1024 * 1024;
+
+/**
+ * JSON body cap for `/api/v1/*`.
+ *
+ * No authenticated JSON endpoint needs more than a few hundred KiB (the largest
+ * field - message body - is limited by Zod). Keeping it at 1 MiB shrinks the
+ * pre-auth allocation an attacker can trigger through `application/json`
+ * without touching the webhook ingress, which keeps its 12 MiB allowance.
+ */
+export const MAX_API_JSON_BYTES = 1024 * 1024;
 
 /** Attachment upload cap (Amazon MIME/size restrictions). */
 export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Whole-request deadline (headers + body) enforced by the HTTP server.
+ *
+ * Above the 30 s diagnostics budget and below Node's 300 s default, so a
+ * slowloris/body-drip client cannot hold a socket forever.
+ */
+export const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 
 /** Presigned GET lifetime for attachments (contract: 5 minutes). */
 export const SIGNED_URL_TTL_SECONDS = 300;

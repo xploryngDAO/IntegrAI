@@ -1,14 +1,20 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { HttpRouteContext } from '../types';
 import { createAuthControllers } from '../controllers/auth.controller';
+import { createSsoControllers } from '../controllers/sso.controller';
 
 /**
  * `/api/v1/auth` - login, identity, presence and the Fase 1 self-service flows:
  * signup, e-mail verification (+resend), password reset (forgot/reset), operator
  * invitation acceptance and the rotating refresh-token session endpoints.
+ *
+ * Fase 5 adds the public enterprise SSO flow (`/sso/*`): discovery, start,
+ * callback and the one-time-code exchange. None of them can present a JWT.
  */
 export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx) => {
   const controllers = createAuthControllers(ctx);
+  const sso = createSsoControllers(ctx);
+
   app.post('/login', controllers.login);
   app.post('/signup', controllers.signup);
   app.post('/verify-email', controllers.verifyEmail);
@@ -20,6 +26,12 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/logout', controllers.logout);
   app.get('/me', controllers.me);
   app.put('/presence', controllers.setPresence);
+
+  // Fase 5 - enterprise SSO (public browser flow; see docs/ENTERPRISE_SSO.md).
+  app.get('/sso/discover', sso.discover);
+  app.get('/sso/start', sso.start);
+  app.get('/sso/callback', sso.callback);
+  app.post('/sso/exchange', sso.exchange);
 
   // Fase 1 - 2FA TOTP. `/challenge` is public (the short-lived challenge JWT in
   // the body authenticates the second step); the management routes need a JWT.

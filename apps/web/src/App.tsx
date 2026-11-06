@@ -18,6 +18,7 @@ import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { InvitePage } from './pages/InvitePage';
+import { SsoCallbackPage } from './pages/SsoCallbackPage';
 import { StatusPage } from './pages/StatusPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
@@ -32,8 +33,9 @@ type AuthState = 'checking' | 'authenticated' | 'anonymous';
 /**
  * Session-free routes: the credential gate, the Fase 1 self-service screens
  * (the API mails `/verify-email?token=…`, `/reset-password?token=…` and
- * `/invite?token=…`), the public availability page (`/status`) and the hosted
- * checkout return URLs (`/billing/success`, `/billing/cancel`).
+ * `/invite?token=…`), the Fase 5 corporate login return URL
+ * (`/auth/sso/callback?code=…`), the public availability page (`/status`) and
+ * the hosted checkout return URLs (`/billing/success`, `/billing/cancel`).
  */
 const PUBLIC_PATHS = new Set([
   '/login',
@@ -42,6 +44,7 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/invite',
+  '/auth/sso/callback',
   '/status',
   '/billing/success',
   '/billing/cancel',
@@ -54,6 +57,10 @@ const PUBLIC_PATHS = new Set([
  * for the same reason: the page that reports an outage cannot depend on the
  * session that may be failing. The checkout return URLs are here too: the
  * payment provider redirects the buyer to them with no guarantee about the API.
+ *
+ * `/auth/sso/callback` belongs here as well: the browser arrives from the
+ * identity provider with a one-time `code` and no session yet, so probing
+ * `/auth/me` first would only add a round-trip (and a 401) before the exchange.
  */
 const NO_PROBE_PATHS = new Set([
   '/signup',
@@ -61,6 +68,7 @@ const NO_PROBE_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/invite',
+  '/auth/sso/callback',
   '/status',
   '/billing/success',
   '/billing/cancel',
@@ -216,6 +224,11 @@ export default function App(): JSX.Element {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/invite" element={<InvitePage onAuthenticated={handleAuthenticated} />} />
+          {/* Corporate login return URL: public, no probe (see NO_PROBE_PATHS). */}
+          <Route
+            path="/auth/sso/callback"
+            element={<SsoCallbackPage onAuthenticated={handleAuthenticated} />}
+          />
           {/* Public availability page: no session, no probe (see NO_PROBE_PATHS). */}
           <Route path="/status" element={<StatusPage />} />
           {/* Hosted checkout return URLs: public, no probe. */}

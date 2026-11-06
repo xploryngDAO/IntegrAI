@@ -3,6 +3,7 @@ import type { Redis } from 'ioredis';
 import type {
   AdapterRepositories,
   IAgentRepository,
+  IAgentSsoRepository,
   ICache,
   IClock,
   IDistributedLock,
@@ -26,12 +27,14 @@ import type {
   ITenantPurgeRepository,
   ITenantRepository,
   ITenantRestoreRepository,
+  ITenantSsoConnectionRepository,
   ITwoFactorRepository,
 } from '@sac/shared';
 import type { AppConfig } from '../config';
 import {
   createRepositories,
   createAgentRepository,
+  createAgentSsoRepository,
   createBillingEventRepository,
   createEmailVerificationRepository,
   createInvitationRepository,
@@ -45,6 +48,7 @@ import {
   createTenantPurgeRepository,
   createTenantRepository,
   createTenantRestoreRepository,
+  createTenantSsoConnectionRepository,
   createTwoFactorRepository,
 } from '../application/repositories';
 import { SecretCipher } from './crypto/cipher';
@@ -93,6 +97,10 @@ export interface InfrastructureBundle {
   sessions: ISessionRepository;
   slaPolicies: ISlaPolicyRepository;
   twoFactor: ITwoFactorRepository;
+  /** Fase 5: `tenant_sso_connections` (one IdP per workspace). */
+  ssoConnections: ITenantSsoConnectionRepository;
+  /** Fase 5: JIT provisioning writes on `agents` for the SSO flow. */
+  ssoAgents: IAgentSsoRepository;
   email: IEmailService;
 }
 
@@ -169,6 +177,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const sessions = createSessionRepository(prisma);
   const slaPolicies = createSlaPolicyRepository(prisma);
   const twoFactor = createTwoFactorRepository(prisma);
+  const ssoConnections = createTenantSsoConnectionRepository(prisma);
+  const ssoAgents = createAgentSsoRepository(prisma);
 
   const email = new SmtpEmailService({
     host: config.smtp.host,
@@ -210,6 +220,8 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     sessions,
     slaPolicies,
     twoFactor,
+    ssoConnections,
+    ssoAgents,
     email,
   };
 }

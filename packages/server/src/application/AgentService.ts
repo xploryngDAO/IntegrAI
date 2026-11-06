@@ -13,6 +13,7 @@ import type {
   IClock,
   ILogger,
   IRealtimePublisher,
+  ISsoPasswordGuard,
   ITenantRepository,
   ITicketRepository,
   LoginResult,
@@ -27,6 +28,7 @@ import {
   TenantInactiveError,
   ValidationError,
   isTenantActive,
+  redactPiiForLogs,
 } from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
@@ -74,6 +76,12 @@ export interface AgentServiceDependencies {
    * omitted the service builds one from the injected `cache`/`clock`.
    */
   rateLimiter?: AuthRateLimiter;
+  /**
+   * Enterprise SSO enforcement (`enforce_sso`). Optional only so legacy unit
+   * harnesses keep compiling; the container ALWAYS wires `TenantSsoService`, and
+   * without it a workspace that enforces SSO would still accept passwords.
+   */
+  sso?: ISsoPasswordGuard;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -110,6 +118,7 @@ export class AgentService implements IAgentService {
   private readonly sessions: IAuthSessionService | undefined;
   private readonly tenants: ITenantRepository | undefined;
   private readonly rateLimiter: AuthRateLimiter;
+  private readonly sso: ISsoPasswordGuard | undefined;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -123,6 +132,7 @@ export class AgentService implements IAgentService {
     this.tickets = deps.repos.tickets;
     this.sessions = deps.sessions;
     this.tenants = deps.tenants;
+    this.sso = deps.sso;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
@@ -165,7 +175,10 @@ export class AgentService implements IAgentService {
     }
 
     if (!agent || !passwordMatches || !agent.isActive) {
-      this.logger.warn('agent.login.failed', { email: normalizedEmail });
+      // Never log the raw address: the login log is retained and the e-mail is
+      // PII (docs/SECURITY.md). The masked value still lets support correlate
+      // a burst of failures for the same account.
+      this.logger.warn('agent.login.failed', { email: redactPiiForLogs(normalizedEmail) });
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -186,6 +199,13 @@ export class AgentService implements IAgentService {
     // check runs AFTER the password so a wrong password still answers 401 and
     // the workspace status is not leaked to an unauthenticated caller.
     await this.assertTenantActive(agent.tenantId, agent.id);
+
+    // Enterprise SSO (`enforce_sso`): a member of a workspace that requires SSO
+    // cannot authenticate with a password. Runs AFTER the password was validated
+    // and AFTER the tenant lifecycle gate, so a wrong password still answers 401
+    // (no enumeration) and a suspended workspace keeps its own error. Platform
+    // administrators are exempt inside the guard (break-glass).
+    await this.assertPasswordLoginAllowed(agent);
 
     // Fase 1: 2FA-enabled operators get NOTHING but a 5 min challenge JWT.
     // No access token, no refresh session and no presence change until the
@@ -320,6 +340,19 @@ export class AgentService implements IAgentService {
       subject: agent,
       secret: this.jwtSecret,
       expiresIn: this.jwtExpiresIn,
+    });
+  }
+
+  /**
+   * Fase 5: `enforce_sso` gate. Optional dependency: a deployment/test harness
+   * without the SSO services keeps the legacy behaviour, the container always
+   * wires it.
+   */
+  private async assertPasswordLoginAllowed(agent: AgentRecord): Promise<void> {
+    if (this.sso === undefined) return;
+    await this.sso.assertPasswordLoginAllowed({
+      tenantId: agent.tenantId,
+      isPlatformAdmin: agent.isPlatformAdmin,
     });
   }
 

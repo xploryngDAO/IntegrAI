@@ -9,6 +9,7 @@ import type { TenantProfile } from '../lib/types';
 import { formatDateTime } from '../lib/labels';
 import { Alert, Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { DeleteWorkspaceDialog } from '../components/settings/DeleteWorkspaceDialog';
+import { CorporateAuthCard } from '../components/settings/CorporateAuthCard';
 import { RecoveryCodesCard } from '../components/settings/RecoveryCodesCard';
 import { TwoFactorCard } from '../components/settings/TwoFactorCard';
 
@@ -258,6 +259,23 @@ export function SettingsPage(): JSX.Element {
 
         <TwoFactorCard />
         <RecoveryCodesCard />
+      </section>
+
+      <section className="flex flex-col gap-3" aria-labelledby="corporate-auth-heading">
+        <div>
+          <h2
+            id="corporate-auth-heading"
+            className="m-0 text-[var(--cv-font-section)] font-semibold leading-[var(--cv-font-line-heading)]"
+          >
+            Autenticação corporativa
+          </h2>
+          <p className="m-0 mt-1 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
+            Login com Microsoft Entra ID (OIDC) para toda a equipe do workspace. A configuração é
+            aplicada pela API a cada tentativa de login e vale apenas para este tenant.
+          </p>
+        </div>
+
+        <CorporateAuthCard />
       </section>
 
       <section className="flex flex-col gap-3" aria-labelledby="lgpd-heading">

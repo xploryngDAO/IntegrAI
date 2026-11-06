@@ -22,6 +22,11 @@ import { createPiiVaultRepository, PrismaPiiVaultRepository } from './pii-vault'
 import { createPlatformRepository, PrismaPlatformRepository } from './platform';
 import { createSessionRepository, PrismaSessionRepository } from './sessions';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
+import { createAgentSsoRepository, PrismaAgentSsoRepository } from './sso-agents';
+import {
+  createTenantSsoConnectionRepository,
+  PrismaTenantSsoConnectionRepository,
+} from './sso-connections';
 import {
   createTenantBackupRepository,
   PrismaTenantBackupRepository,
@@ -81,6 +86,11 @@ export { createPiiVaultRepository, PrismaPiiVaultRepository };
 export { createPlatformRepository, PrismaPlatformRepository };
 export { createSessionRepository, PrismaSessionRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
+export { createAgentSsoRepository, PrismaAgentSsoRepository };
+export {
+  createTenantSsoConnectionRepository,
+  PrismaTenantSsoConnectionRepository,
+};
 export { createTenantBackupRepository, PrismaTenantBackupRepository };
 export { createTenantDataRepository, PrismaTenantDataRepository };
 export { createTenantPurgeRepository, PrismaTenantPurgeRepository };
@@ -109,12 +119,14 @@ export {
   mapPii,
   mapSession,
   mapSlaPolicy,
+  mapSsoConnection,
   mapTenant,
   mapTenantBackupRecord,
   mapTicket,
   mapTicketEvent,
   mapWebhookEvent,
   normalizeBackupCounts,
+  normalizeGroupRoleMap,
   toInputJson,
   toInputJsonArray,
   toJsonArray,

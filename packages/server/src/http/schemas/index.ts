@@ -6,6 +6,7 @@ export * from './ticket.schema';
 export * from './message.schema';
 export * from './account.schema';
 export * from './tenant.schema';
+export * from './sso.schema';
 export * from './platform.schema';
 export * from './billing.schema';
 export * from './diagnostics.schema';

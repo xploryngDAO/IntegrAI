@@ -14,12 +14,14 @@ import type {
   SupportTicket,
   Tenant,
   TenantBackup,
+  TenantSsoConnection,
   TicketEvent,
   TicketMessage,
   WebhookEvent,
 } from '@prisma/client';
 import type {
   AgentRecord,
+  AgentRole,
   BuyerPiiRecord,
   EmailVerificationRecord,
   InvitationRecord,
@@ -32,10 +34,12 @@ import type {
   PasswordResetRecord,
   SessionRecord,
   SlaPolicyRecord,
+  SsoProvider,
   SupportTicketRecord,
   TenantBackupCounts,
   TenantBackupRecord,
   TenantRecord,
+  TenantSsoConnectionRecord,
   TicketEventRecord,
   TicketMessageRecord,
   WebhookEventRecord,
@@ -427,5 +431,52 @@ export function mapSlaPolicy(record: SlaPolicy): SlaPolicyRecord {
     warningMinutes: record.warningMinutes,
     businessHoursOnly: record.businessHoursOnly,
     isActive: record.isActive,
+  };
+}
+
+/* ==========================================================================
+ * ENTERPRISE SSO
+ * ========================================================================== */
+
+const AGENT_ROLES: readonly AgentRole[] = ['ADMIN', 'SUPERVISOR', 'AGENT'];
+
+/**
+ * Normalizes the `group_role_map` JSONB column.
+ *
+ * A hand-edited row (or a legacy format) must never inject an unknown role into
+ * the authorization path: only `ADMIN | SUPERVISOR | AGENT` survive, and keys are
+ * trimmed (empty keys are dropped).
+ */
+export function normalizeGroupRoleMap(value: Prisma.JsonValue | null | undefined): Record<string, AgentRole> {
+  const source = toJsonObject(value);
+  const map: Record<string, AgentRole> = {};
+  for (const [rawKey, rawRole] of Object.entries(source)) {
+    const key = rawKey.trim();
+    if (key.length === 0 || typeof rawRole !== 'string') continue;
+    const role = rawRole.trim().toUpperCase() as AgentRole;
+    if (!AGENT_ROLES.includes(role)) continue;
+    map[key] = role;
+  }
+  return map;
+}
+
+export function mapSsoConnection(record: TenantSsoConnection): TenantSsoConnectionRecord {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    provider: record.provider as SsoProvider,
+    issuerUrl: record.issuerUrl,
+    clientId: record.clientId,
+    clientSecretEnc: record.clientSecretEnc,
+    redirectUri: record.redirectUri,
+    scopes: record.scopes,
+    allowedDomains: record.allowedDomains,
+    groupRoleMap: normalizeGroupRoleMap(record.groupRoleMap),
+    autoProvision: record.autoProvision,
+    defaultRole: record.defaultRole,
+    enforceSso: record.enforceSso,
+    enabled: record.enabled,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
   };
 }

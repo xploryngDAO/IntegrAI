@@ -40,6 +40,13 @@ function readStatusCode(error: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** Reads `details.retryAfterMs` from a `RateLimitError` payload, if present. */
+function readRetryAfterMs(details: unknown): number | null {
+  if (!isRecord(details)) return null;
+  const value = details['retryAfterMs'];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function describeClientError(error: unknown, statusCode: number): string {
   if (statusCode === 413) return 'Request payload exceeds the allowed size limit';
   if (statusCode === 415) return 'Unsupported content type';
@@ -116,6 +123,16 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
       });
     } else {
       options.logger.warn('http.rejected', meta);
+    }
+
+    // Rate limiting is only useful to a well-behaved client if it can back
+    // off: expose the window as `Retry-After` (seconds, RFC 9110) derived from
+    // the same `retryAfterMs` the limiter already returns.
+    if (failure.statusCode === 429) {
+      const retryAfterMs = readRetryAfterMs(failure.details);
+      if (retryAfterMs !== null) {
+        reply.header('retry-after', String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
+      }
     }
 
     const body: ApiErrorBody = {

@@ -59,6 +59,26 @@ export const CACHE_KEYS = {
   twoFactorChallenge: (jti: string): string => `sac:auth:2fa:challenge:${jti}`,
   /** Last accepted TOTP time-step per operator (replay protection). */
   twoFactorTotpStep: (userId: string): string => `sac:auth:2fa:totp-step:${userId}`,
+  /*
+   * Enterprise SSO (OpenID Connect).
+   *
+   * The public endpoints are throttled per IP; state/code are single-use
+   * records (TTL 10 min / 60 s) and the OIDC discovery/JWKS documents are
+   * cached for 1 h per issuer/`jwks_uri`.
+   */
+  ssoDiscoverAttempts: (ip: string): string => `sac:auth:sso:discover-attempts:${ip}`,
+  ssoStartAttempts: (ip: string): string => `sac:auth:sso:start-attempts:${ip}`,
+  ssoCallbackAttempts: (ip: string): string => `sac:auth:sso:callback-attempts:${ip}`,
+  ssoExchangeAttempts: (ip: string): string => `sac:auth:sso:exchange-attempts:${ip}`,
+  /** Single-use signed `state` (payload: PKCE verifier, nonce, connection). */
+  ssoState: (state: string): string => `sac:auth:sso:state:${state}`,
+  /** Consumed marker so a replayed `state` cannot be redeemed twice. */
+  ssoStateUsed: (state: string): string => `sac:auth:sso:state-used:${state}`,
+  /** One-time callback hand-off code, stored by SHA-256 of the raw value. */
+  ssoCode: (codeHash: string): string => `sac:auth:sso:code:${codeHash}`,
+  ssoCodeUsed: (codeHash: string): string => `sac:auth:sso:code-used:${codeHash}`,
+  ssoDiscovery: (issuerUrl: string): string => `sac:auth:sso:discovery:${issuerUrl}`,
+  ssoJwks: (jwksUri: string): string => `sac:auth:sso:jwks:${jwksUri}`,
 } as const;
 
 /** BullMQ job names (stable - used for metrics and DLQ replay). */

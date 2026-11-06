@@ -3,6 +3,7 @@ export * from './plans';
 export * from './errors';
 export * from './dto';
 export * from './constants';
+export * from './sso';
 export * from './compliance';
 export * from './adapter';
 export * from './ports/infra';

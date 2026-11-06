@@ -13,6 +13,13 @@ import type {
 } from '../enums';
 import type { BillingStatus, BillingWebhookType, TenantPlan } from '../plans';
 import type {
+  CreateSsoAgentInput,
+  SsoDomainMatch,
+  TenantSsoConnectionRecord,
+  UpdateSsoAgentInput,
+  UpsertTenantSsoConnectionInput,
+} from '../sso';
+import type {
   AgentRecord,
   BillingEventStatus,
   BuyerPiiRecord,
@@ -923,4 +930,47 @@ export interface RestoreTenantOutcome {
  */
 export interface ITenantRestoreRepository {
   restore(input: RestoreTenantInput): Promise<RestoreTenantOutcome>;
+}
+
+/* ==========================================================================
+ * ENTERPRISE SSO (OpenID Connect) - one connection per workspace
+ * ========================================================================== */
+
+/**
+ * Persistence of `tenant_sso_connections`.
+ *
+ * The repository keeps the encrypted secret as-is: only `TenantSsoService` owns
+ * the cipher, so no other component can accidentally return `clientSecretEnc`.
+ */
+export interface ITenantSsoConnectionRepository {
+  /** The workspace connection (active or disabled), or `null`. */
+  findByTenantId(tenantId: string): Promise<TenantSsoConnectionRecord | null>;
+  /** Callback lookup: resolves the `connectionId` carried by the signed state. */
+  findById(id: string): Promise<TenantSsoConnectionRecord | null>;
+  /** Insert or replace the single connection of the workspace. */
+  upsert(input: UpsertTenantSsoConnectionInput): Promise<TenantSsoConnectionRecord>;
+  /** Returns `false` when the workspace had no connection (idempotent delete). */
+  deleteByTenantId(tenantId: string): Promise<boolean>;
+  /**
+   * ENABLED connection of an ACTIVE workspace whose `allowed_domains` contains
+   * `domain` (case-insensitive value already normalized by the service).
+   * Deterministic (oldest first) even if a legacy DB has duplicates.
+   */
+  findEnabledByDomain(domain: string): Promise<SsoDomainMatch | null>;
+}
+
+/**
+ * JIT provisioning writes on the `agents` table.
+ *
+ * Kept apart from `IAgentRepository` (same rationale as
+ * `ITwoFactorRepository`): only the SSO flow may create an operator with a
+ * random password hash, mark the e-mail verified and rewrite the role from the
+ * IdP group mapping, so the profile/team surfaces stay unable to do it.
+ */
+export interface IAgentSsoRepository {
+  findByEmail(email: string): Promise<AgentRecord | null>;
+  /** Creates a verified, active operator whose password hash is random. */
+  create(input: CreateSsoAgentInput): Promise<AgentRecord>;
+  /** Refreshes name/role/verification flags of an existing operator. */
+  updateFromSso(id: string, patch: UpdateSsoAgentInput): Promise<AgentRecord>;
 }

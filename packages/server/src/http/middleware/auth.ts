@@ -36,6 +36,14 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   // The short-lived challenge JWT in the body authenticates the second factor;
   // a full access token does not exist yet at this point.
   '/api/v1/auth/2fa/challenge',
+  // Fase 5 - enterprise SSO (OpenID Connect). Exact paths only: no prefix match
+  // means `/auth/sso/anything-else` stays authenticated (404 instead of public).
+  // `discover`/`start` are called before any session exists, `callback` is the
+  // IdP redirect (has no JWT) and `exchange` trades the one-time code for tokens.
+  '/api/v1/auth/sso/discover',
+  '/api/v1/auth/sso/start',
+  '/api/v1/auth/sso/callback',
+  '/api/v1/auth/sso/exchange',
   // Payment gateway callback (Fase 4): a gateway cannot present a JWT. The
   // HMAC SHA-256 of the raw body (`x-billing-signature`) authenticates it.
   '/api/v1/billing/webhook',

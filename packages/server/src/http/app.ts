@@ -9,6 +9,8 @@ import {
   API_PREFIX,
   DEFAULT_BODY_LIMIT_BYTES,
   DEFAULT_MAX_UPLOAD_BYTES,
+  HTTP_REQUEST_TIMEOUT_MS,
+  MAX_API_JSON_BYTES,
 } from './constants';
 import type { HttpRouteContext, HttpServerOptions } from './types';
 import type { RealtimeHub } from './realtime-hub';
@@ -20,6 +22,73 @@ import { registerApiRoutes, registerRootRoutes } from './routes';
 /** Errors are sanitized unless explicitly running a dev/test build. */
 function isProductionBuild(): boolean {
   return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Content-Security-Policy for API responses.
+ *
+ * The API only emits JSON (plus the Socket.IO handshake), so the policy is
+ * maximally restrictive: nothing may be loaded, framed or executed from an API
+ * response. This is defence-in-depth against a parser-confusion/content-type
+ * bug turning a JSON body into an active document - the policy that actually
+ * protects the SPA lives on the edge (Vercel `headers`, see
+ * `docs/SECURITY.md`), because a CSP delivered by the API does not apply to
+ * documents served by another origin.
+ */
+const API_CONTENT_SECURITY_POLICY = {
+  useDefaults: false,
+  directives: {
+    defaultSrc: ["'none'"],
+    baseUri: ["'none'"],
+    connectSrc: ["'none'"],
+    fontSrc: ["'none'"],
+    formAction: ["'none'"],
+    frameAncestors: ["'none'"],
+    frameSrc: ["'none'"],
+    imgSrc: ["'none'"],
+    manifestSrc: ["'none'"],
+    mediaSrc: ["'none'"],
+    objectSrc: ["'none'"],
+    scriptSrc: ["'none'"],
+    styleSrc: ["'none'"],
+    workerSrc: ["'none'"],
+  },
+} as const;
+
+/**
+ * `Permissions-Policy` denying browser capabilities the API never needs.
+ *
+ * Helmet does not emit this header, so it is set by the `onRequest` hook below.
+ * The SPA (Vercel) should send the same policy; see `docs/SECURITY.md`.
+ */
+const PERMISSIONS_POLICY = [
+  'accelerometer=()',
+  'camera=()',
+  'display-capture=()',
+  'geolocation=()',
+  'gyroscope=()',
+  'magnetometer=()',
+  'microphone=()',
+  'payment=()',
+  'usb=()',
+].join(', ');
+
+/**
+ * Normalizes the `WEB_ORIGIN` allowlist.
+ *
+ * Entries are trimmed, trailing slashes removed (the browser `Origin` header
+ * never has one) and wildcards dropped: `Access-Control-Allow-Credentials: true`
+ * plus `*` is invalid, and silently reflecting every origin would turn the
+ * credentialed API into a cross-site data leak. An empty result means no
+ * browser origin is allowed (fail closed), never "allow all".
+ */
+export function resolveAllowedOrigins(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => entry.replace(/\/+$/, ''))
+    .filter((entry) => entry !== '*');
 }
 
 /**
@@ -90,31 +159,71 @@ export async function buildHttpApp(
   options: HttpServerOptions,
 ): Promise<FastifyInstance> {
   const maxUploadBytes = options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  const production = isProductionBuild();
 
   const app = Fastify({
     logger: false,
+    // Set by the platform ingress (Render/Vercel/Cloudflare): without it the
+    // per-IP rate limits would see the proxy address. Direct exposure must keep
+    // the edge as the only reachable entrypoint (see docs/SECURITY.md).
     trustProxy: true,
     bodyLimit: DEFAULT_BODY_LIMIT_BYTES,
+    // Backstop against slowloris/body-drip: 60 s is above the 30 s diagnostics
+    // budget and the webhook budgets, below Node's 300 s default.
+    requestTimeout: HTTP_REQUEST_TIMEOUT_MS,
     genReqId: () => randomUUID(),
   });
 
+  const requestedOrigins = options.webOrigin
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const allowedOrigins = resolveAllowedOrigins(options.webOrigin);
+  if (allowedOrigins.length !== requestedOrigins.length) {
+    options.logger.warn('http.cors.wildcard_ignored', {
+      configured: requestedOrigins.length,
+      allowed: allowedOrigins.length,
+    });
+  }
+
   await app.register(cors, {
     // `WEB_ORIGIN` accepts a comma-separated list so the same API can serve the
-    // operators app, the hosted SPA and local development at once.
-    origin: options.webOrigin
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
+    // operators app, the hosted SPA and local development at once. Never `*`:
+    // credentials are enabled and the API carries per-operator data.
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['content-type', 'authorization', 'idempotency-key', 'x-request-id'],
     exposedHeaders: ['x-request-id', 'x-sac-duration-ms'],
     maxAge: 600,
+    strictPreflight: true,
   });
 
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: API_CONTENT_SECURITY_POLICY,
+    // The API never serves a document: COEP stays off, while COOP/CORP are set
+    // to the strictest value that still lets the SPA `fetch()` JSON with CORS.
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    // Framing is denied twice (X-Frame-Options + CSP frame-ancestors).
+    frameguard: { action: 'deny' },
+    noSniff: true,
+    dnsPrefetchControl: { allow: false },
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    originAgentCluster: true,
+    xssFilter: true,
+    // HSTS only in production: sending it from localhost/dev can poison the
+    // developer's browser for other projects. 180 days, subdomains included;
+    // `preload` stays off until the domain owner opts in explicitly.
+    hsts: production ? { maxAge: 15_552_000, includeSubDomains: true, preload: false } : false,
+  });
+
+  // Helmet has no Permissions-Policy helper. Registering the hook before the
+  // routes makes it run for every response, including 401/404/429/500.
+  app.addHook('onRequest', async (_request, reply) => {
+    reply.header('permissions-policy', PERMISSIONS_POLICY);
   });
 
   await app.register(multipart, {
@@ -132,7 +241,7 @@ export async function buildHttpApp(
   registerRequestContext(app, { logger: options.logger });
   registerErrorHandler(app, {
     logger: options.logger,
-    exposeDetails: !isProductionBuild(),
+    exposeDetails: !production,
   });
   registerAuthGuard(app, {
     agents: services.agents,
@@ -148,6 +257,23 @@ export async function buildHttpApp(
       reply.header('pragma', 'no-cache');
     }
     return payload;
+  });
+
+  // Fastify resolves `bodyLimit` per ROUTE (a plugin-level option is not
+  // inherited by the nested route plugins), so the 1 MiB cap for the
+  // authenticated JSON surface is stamped here instead of editing every route
+  // module. Root-mounted `/webhooks/*` keep the 12 MiB SES/MIME allowance and
+  // multipart uploads keep their own `fileSize` limit.
+  app.addHook('onRoute', (routeOptions) => {
+    if (
+      routeOptions.url === API_PREFIX ||
+      routeOptions.url.startsWith(`${API_PREFIX}/`)
+    ) {
+      routeOptions.bodyLimit = Math.min(
+        routeOptions.bodyLimit ?? MAX_API_JSON_BYTES,
+        MAX_API_JSON_BYTES,
+      );
+    }
   });
 
   const ctx: HttpRouteContext = { services, hub, options };

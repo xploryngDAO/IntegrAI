@@ -62,6 +62,17 @@ import type {
   RouteDecision,
 } from '../adapter';
 import type { ICache, IClock, ILogger, IQueuePublisher, IRealtimePublisher } from './infra';
+import type {
+  SsoCallbackCommand,
+  SsoCallbackResult,
+  SsoDiscoveryResult,
+  SsoExchangeCommand,
+  SsoPasswordLoginSubject,
+  SsoStartCommand,
+  SsoStartResult,
+  SsoConnectionView,
+  UpdateSsoConnectionCommand,
+} from '../sso';
 
 /* ==========================================================================
  * Ticket ingestion + commands
@@ -645,6 +656,60 @@ export interface IInvitationService {
 }
 
 /* ==========================================================================
+ * Enterprise SSO (OpenID Connect) - Fase 5
+ * ========================================================================== */
+
+/**
+ * Password-login gate of a workspace with `enforce_sso`.
+ *
+ * Called by `AgentService.login` ONLY after the password was validated, so a
+ * wrong password still answers `401` and the workspace policy is never leaked to
+ * an unauthenticated caller (no account enumeration).
+ */
+export interface ISsoPasswordGuard {
+  /** 403 `SSO_REQUIRED` when the workspace enforces SSO and the caller is a member. */
+  assertPasswordLoginAllowed(subject: SsoPasswordLoginSubject): Promise<void>;
+}
+
+/**
+ * Tenant-scoped configuration of the workspace IdP plus the public discovery
+ * used to route the SPA to the right tenant before any session exists.
+ *
+ * Every write is ADMIN-only at the HTTP layer and the tenant id always comes
+ * from the JWT. The client secret is write-only: the read model exposes only
+ * `clientSecretConfigured`.
+ */
+export interface ITenantSsoService extends ISsoPasswordGuard {
+  /** 404 `SSO_NOT_CONFIGURED` when the workspace has no connection. */
+  get(tenantId: string): Promise<SsoConnectionView>;
+  /** Upsert; validates https, normalizes domains and encrypts a new secret. */
+  update(tenantId: string, command: UpdateSsoConnectionCommand): Promise<SsoConnectionView>;
+  /** 404 `SSO_NOT_CONFIGURED` when there was nothing to delete. */
+  remove(tenantId: string): Promise<void>;
+  /** Public: `{ enabled, provider, tenantSlug }` or 404 `SSO_NOT_CONFIGURED`. */
+  discover(query: { email?: string; domain?: string; ip?: string | null }): Promise<SsoDiscoveryResult>;
+}
+
+/**
+ * Public OIDC flow.
+ *
+ * - `start`: builds the authorize URL with signed single-use `state`, `nonce`
+ *   and PKCE S256.
+ * - `callback`: validates state, exchanges the code at the issuer token
+ *   endpoint, fully validates the ID token (RS256/JWKS, iss, aud, exp, nonce),
+ *   requires a verified e-mail inside `allowed_domains`, JIT provisions the
+ *   operator and returns a redirect carrying a ONE-TIME code (never a token).
+ * - `exchange`: consumes that code once and mints the session (`AuthResponse`).
+ */
+export interface ISsoAuthService {
+  start(command: SsoStartCommand): Promise<SsoStartResult>;
+  callback(command: SsoCallbackCommand): Promise<SsoCallbackResult>;
+  exchange(command: SsoExchangeCommand): Promise<LoginSuccess>;
+  /** SPA URL for post-state failures (`?error=<stable code>`). */
+  failureRedirect(errorCode: string): string;
+}
+
+/* ==========================================================================
  * Webhook ingress
  * ========================================================================== */
 
@@ -748,6 +813,10 @@ export interface IAppServices {
   readonly outbound: IOutboundRouterService;
   readonly agents: IAgentService;
   readonly auth: IAuthService;
+  /** Enterprise SSO: workspace IdP configuration + password-login gate. */
+  readonly tenantSso: ITenantSsoService;
+  /** Enterprise SSO: public OIDC login flow (start/callback/exchange). */
+  readonly sso: ISsoAuthService;
   readonly twoFactor: ITwoFactorService;
   readonly sessions: IAuthSessionService;
   readonly invitations: IInvitationService;

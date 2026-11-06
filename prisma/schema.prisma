@@ -116,6 +116,18 @@ enum WebhookProcessingStatus {
   DEAD_LETTER
 }
 
+/// Enterprise SSO (OpenID Connect) identity provider of a workspace.
+///
+/// `MICROSOFT`/`GOOGLE`/`OKTA` are presets that only drive onboarding copy and
+/// defaults; the protocol is the same generic OIDC authorization-code flow with
+/// PKCE S256. `OIDC` is the escape hatch for any other compliant provider.
+enum SsoProvider {
+  MICROSOFT
+  GOOGLE
+  OKTA
+  OIDC
+}
+
 enum SlaState {
   ON_TRACK
   AT_RISK
@@ -233,12 +245,66 @@ model Tenant {
   createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  backups TenantBackup[]
+  backups       TenantBackup[]
+  ssoConnection TenantSsoConnection?
 
   @@index([status])
   @@index([deletedAt])
   @@index([billingStatus])
   @@map("tenants")
+}
+
+// ----------------------------------------------------------------------------
+// ENTERPRISE SSO (OpenID Connect) - one connection per workspace
+// ----------------------------------------------------------------------------
+
+/// Per-tenant OpenID Connect connection (Microsoft Entra ID, Google, Okta or a
+/// generic OIDC provider).
+///
+/// Security notes
+/// - `client_secret_enc` is encrypted with the AES-256-GCM `SecretCipher`
+///   (`ISecretCipher`) and is NEVER returned by the API: the read model exposes
+///   only `clientSecretConfigured`. `null` means "public client": the token
+///   exchange then relies on PKCE alone (mandatory in every flow).
+/// - `allowed_domains` is the tenant e-mail domain allowlist, normalized to
+///   lowercase ASCII by the service; an EMPTY list matches nobody (deny by
+///   default), so SSO can never authenticate an arbitrary address.
+/// - `group_role_map` maps an IdP group (or Entra app role) to a local
+///   `AgentRole`; `default_role` is used only when the operator is created and
+///   no group matches.
+/// - `enforce_sso` blocks password login for the workspace members (the check
+///   runs AFTER the password is validated, so it cannot enumerate accounts).
+///   Platform administrators are always exempt (break-glass).
+/// - `tenant_id` is UNIQUE: one workspace, one IdP, so `discover` by e-mail
+///   domain is unambiguous.
+model TenantSsoConnection {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @unique @map("tenant_id") @db.Uuid
+  provider        SsoProvider
+  /// Normalized OIDC issuer (https, no trailing slash). Discovery is fetched
+  /// from `<issuer>/.well-known/openid-configuration`.
+  issuerUrl       String      @map("issuer_url") @db.VarChar(512)
+  clientId        String      @map("client_id") @db.VarChar(255)
+  clientSecretEnc String?     @map("client_secret_enc") @db.Text
+  /// Exact `redirect_uri` registered at the IdP (https).
+  redirectUri     String      @map("redirect_uri") @db.VarChar(512)
+  scopes          String      @default("openid profile email") @db.VarChar(255)
+  allowedDomains  String[]    @default([]) @map("allowed_domains")
+  groupRoleMap    Json        @default("{}") @map("group_role_map")
+  autoProvision   Boolean     @default(true) @map("auto_provision")
+  defaultRole     AgentRole   @default(AGENT) @map("default_role")
+  enforceSso      Boolean     @default(false) @map("enforce_sso")
+  enabled         Boolean     @default(true)
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([enabled])
+  @@index([provider])
+  /// `discover?domain=` filters enabled connections with `allowed_domains @> {domain}`.
+  @@index([allowedDomains(ops: ArrayOps)], type: Gin)
+  @@map("tenant_sso_connections")
 }
 
 // AGENTS (operators) - JWT auth + Redis presence mirror
