@@ -50,7 +50,7 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 | **Qualidade/Segurança** | 1069 testes · CI (lint de workflows, build/test, gitleaks, isolamento, sonda, a11y em 8 telas, imagens com trivy 0 HIGH/CRITICAL) |
 | **Evidência E2E** | `verify-live`, `validate:live`, `test:live-2fa`, `test:live-2fa-policy`, `test:live-sso`, `test:live-socket`, `test:live-signup`, `test:live-signup-ui`, `isolation-test` |
 
-> Handoff de go-live (o que falta e comandos): [docs/HANDOFF.md](docs/HANDOFF.md).`n> Estado detalhado, links, credenciais do ambiente, comandos e pendências:
+> Handoff de go-live (o que falta e comandos): [docs/HANDOFF.md](docs/HANDOFF.md).`n> Verificação final da baseline: [docs/FINAL_VERIFICATION.md](docs/FINAL_VERIFICATION.md).`n> Estado detalhado, links, credenciais do ambiente, comandos e pendências:
 > [docs/PRODUCT_STATUS.md](docs/PRODUCT_STATUS.md).
 ## Screenshots
 

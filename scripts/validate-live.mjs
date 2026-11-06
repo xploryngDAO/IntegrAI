@@ -9,6 +9,8 @@
  * real do marketplace (pergunta/pedido/claim) ficam documentados em
  * docs/TEST_SCENARIOS.md e não são forjados aqui.
  */
+import 'dotenv/config';
+
 const API = (process.argv[2] ?? 'https://growth-voters-independent-rca.trycloudflare.com').replace(/\/$/, '');
 const EMAIL = process.argv[3] ?? 'admin@integr-ai.local';
 const PASSWORD = process.argv[4] ?? process.env.ADMIN_PASSWORD ?? 'IntegrAI-Prod-2026!';
@@ -101,7 +103,14 @@ async function main() {
     record('A5-diagnostics', 'Diagnóstico global de infraestrutura sem fail', false, String(error.message));
   }
 
-  // 7. webhook Meli: ack rápido + formato aceito
+  // 7. webhook Meli: assinatura por segredo na URL (MELI_WEBHOOK_SECRET).
+  //    Sem segredo o adapter falha fechado (401), então o cenário esperado muda.
+  const meliSecret = (process.env.MELI_WEBHOOK_SECRET ?? '').trim();
+  const meliWebhookPath =
+    meliSecret.length > 0
+      ? `/webhooks/mercadolivre?secret=${encodeURIComponent(meliSecret)}`
+      : '/webhooks/mercadolivre';
+  const expectedWebhookStatus = meliSecret.length > 0 ? 200 : 401;
   const notification = JSON.stringify({
     _id: `validation-${Date.now()}`,
     topic: 'questions',
@@ -112,12 +121,22 @@ async function main() {
     sent: new Date().toISOString(),
   });
   try {
-    const first = await call('/webhooks/mercadolivre', { method: 'POST', body: notification });
-    record('A6-webhook-ack', 'Webhook Meli responde 200 em <500ms', first.status === 200 && first.elapsed < 500, `status ${first.status}, ${first.elapsed}ms`);
-    const replay = await call('/webhooks/mercadolivre', { method: 'POST', body: notification });
-    record('A7-webhook-replay', 'Reentrega idêntica também responde 200', replay.status === 200, `status ${replay.status}, ${replay.elapsed}ms`);
+    const first = await call(meliWebhookPath, { method: 'POST', body: notification });
+    record(
+      'A6-webhook-ack',
+      meliSecret.length > 0 ? 'Webhook Meli autenticado responde 200 em <500ms' : 'Webhook Meli sem segredo é rejeitado (fail closed)',
+      first.status === expectedWebhookStatus && first.elapsed < 500,
+      `status ${first.status}, ${first.elapsed}ms${meliSecret.length > 0 ? '' : ' (MELI_WEBHOOK_SECRET vazio)'}`,
+    );
+    const replay = await call(meliWebhookPath, { method: 'POST', body: notification });
+    record(
+      'A7-webhook-replay',
+      meliSecret.length > 0 ? 'Reentrega idêntica responde 200 (OK/DUPLICATE)' : 'Reentrega idêntica também é rejeitada sem segredo',
+      replay.status === expectedWebhookStatus,
+      `status ${replay.status}, ${replay.elapsed}ms`,
+    );
   } catch (error) {
-    record('A6-webhook-ack', 'Webhook Meli responde 200 em <500ms', false, String(error.message));
+    record('A6-webhook-ack', 'Webhook Meli responde conforme configuração', false, String(error.message));
   }
 
   // 8. assinaturas obrigatórias
