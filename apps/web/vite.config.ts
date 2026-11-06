@@ -48,5 +48,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Long-lived vendor chunks: a product deploy only invalidates the app
+        // chunk, so repeat visitors keep React/DS/icons cached. The DS and the
+        // icon set are the heaviest dependencies of the main bundle.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          convergencia: ['@xploryng/convergencia'],
+          icons: ['lucide-react'],
+        },
+      },
+    },
   },
 });
