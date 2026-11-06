@@ -104,8 +104,11 @@ class FakeCache implements ICache {
     return Math.ceil((entry.expiresAt - this.clock.now().getTime()) / 1000);
   }
 
-  async incr(): Promise<number> {
-    return 1;
+  async incr(key: string, ttlSeconds: number): Promise<number> {
+    const entry = this.alive(key);
+    const next = entry === null ? 1 : Number(entry.value) + 1;
+    await this.set(key, next, ttlSeconds);
+    return next;
   }
 
   async hset(): Promise<void> {}
@@ -264,6 +267,23 @@ class InMemoryTwoFactorRepository implements ITwoFactorRepository {
     agent.twoFactorEnabled = false;
     agent.twoFactorSecretEnc = null;
     this.deleteRecoveryCodes(userId);
+  }
+
+  async replaceRecoveryCodes(userId: string, codeHashes: string[]): Promise<void> {
+    this.deleteRecoveryCodes(userId);
+    for (const codeHash of codeHashes) {
+      this.codes.push({
+        id: `recovery-${(this.sequence += 1)}`,
+        userId,
+        codeHash,
+        usedAt: null,
+        createdAt: this.clock.now(),
+      });
+    }
+  }
+
+  async countUnusedRecoveryCodes(userId: string): Promise<number> {
+    return this.codes.filter((entry) => entry.userId === userId && entry.usedAt === null).length;
   }
 
   async consumeRecoveryCode(userId: string, codeHash: string, at: Date): Promise<boolean> {
@@ -582,6 +602,191 @@ describe('TwoFactorService.disable', () => {
     await expect(
       h.service.disable(h.agent.id, TEST_PASSWORD, '000000'),
     ).rejects.toMatchObject({ code: 'TWO_FACTOR_NOT_ENABLED', httpStatus: 409 });
+  });
+});
+
+/* ==========================================================================
+ * recovery codes: regenerate + count
+ * ========================================================================== */
+
+describe('TwoFactorService.regenerateRecoveryCodes', () => {
+  it('replaces the whole set atomically: old codes stop working, new ones work once', async () => {
+    const h = buildHarness();
+    const { secret, recoveryCodes: oldCodes } = await h.enroll();
+
+    const result = await h.service.regenerateRecoveryCodes(
+      h.agent.id,
+      TEST_PASSWORD,
+      totp(secret, h.clock.now()),
+    );
+
+    expect(result.recoveryCodes).toHaveLength(8);
+    expect(new Set(result.recoveryCodes).size).toBe(8);
+    for (const recoveryCode of result.recoveryCodes) {
+      expect(recoveryCode).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+    }
+
+    // The previous set is gone from the store (deleted in the same transaction).
+    expect(h.twoFactorRepo.codes).toHaveLength(8);
+    const hashes = h.twoFactorRepo.codes.map((row) => row.codeHash);
+    for (const oldCode of oldCodes) {
+      expect(hashes).not.toContain(hashRecoveryCode(oldCode));
+    }
+    expect(hashes).toEqual(
+      expect.arrayContaining(result.recoveryCodes.map((code) => hashRecoveryCode(code))),
+    );
+    for (const row of h.twoFactorRepo.codes) {
+      expect(row.usedAt).toBeNull();
+    }
+    expect(h.agent.twoFactorEnabled).toBe(true);
+
+    // An old recovery code no longer redeems a challenge...
+    const oldChallenge = challengeTokenFrom(
+      await h.agentService.login('ana@acme.test', TEST_PASSWORD),
+    );
+    await expect(h.service.challenge(oldChallenge, oldCodes[0])).rejects.toMatchObject({
+      code: 'INVALID_TOTP',
+      httpStatus: 401,
+    });
+
+    // ...while a regenerated code works exactly once.
+    const first = challengeTokenFrom(
+      await h.agentService.login('ana@acme.test', TEST_PASSWORD),
+    );
+    await expect(h.service.challenge(first, result.recoveryCodes[0])).resolves.toMatchObject({
+      agent: { id: h.agent.id },
+    });
+
+    const second = challengeTokenFrom(
+      await h.agentService.login('ana@acme.test', TEST_PASSWORD),
+    );
+    await expect(h.service.challenge(second, result.recoveryCodes[0])).rejects.toMatchObject({
+      code: 'INVALID_TOTP',
+      httpStatus: 401,
+    });
+  });
+
+  it('requires the correct password (401) and keeps the current codes', async () => {
+    const h = buildHarness();
+    const { secret, recoveryCodes } = await h.enroll();
+    const before = h.twoFactorRepo.codes.map((row) => row.id);
+
+    await expect(
+      h.service.regenerateRecoveryCodes(
+        h.agent.id,
+        'wrong-password',
+        totp(secret, h.clock.now()),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PASSWORD', httpStatus: 401 });
+
+    expect(h.twoFactorRepo.codes.map((row) => row.id)).toEqual(before);
+    expect(h.twoFactorRepo.codes).toHaveLength(8);
+    const hashes = h.twoFactorRepo.codes.map((row) => row.codeHash);
+    expect(hashes).toEqual(
+      expect.arrayContaining(recoveryCodes.map((code) => hashRecoveryCode(code))),
+    );
+  });
+
+  it('requires a valid TOTP or recovery code (400) and keeps the current codes', async () => {
+    const h = buildHarness();
+    const { secret, recoveryCodes } = await h.enroll();
+    const before = h.twoFactorRepo.codes.map((row) => row.id);
+
+    await expect(
+      h.service.regenerateRecoveryCodes(h.agent.id, TEST_PASSWORD, '000000'),
+    ).rejects.toMatchObject({ code: 'INVALID_TOTP', httpStatus: 400 });
+    await expect(
+      h.service.regenerateRecoveryCodes(h.agent.id, TEST_PASSWORD),
+    ).rejects.toMatchObject({ code: 'INVALID_TOTP', httpStatus: 400 });
+
+    expect(h.twoFactorRepo.codes.map((row) => row.id)).toEqual(before);
+    const hashes = h.twoFactorRepo.codes.map((row) => row.codeHash);
+    expect(hashes).toEqual(
+      expect.arrayContaining(recoveryCodes.map((code) => hashRecoveryCode(code))),
+    );
+    // The service never enables/changes 2FA state on failure.
+    expect(h.agent.twoFactorEnabled).toBe(true);
+    expect(h.cipher.decrypt(h.agent.twoFactorSecretEnc ?? '')).toBe(secret);
+  });
+
+  it('accepts a current recovery code (single-use rule) and rotates the whole set', async () => {
+    const h = buildHarness();
+    const { recoveryCodes } = await h.enroll();
+
+    const result = await h.service.regenerateRecoveryCodes(
+      h.agent.id,
+      TEST_PASSWORD,
+      recoveryCodes[0],
+    );
+
+    expect(result.recoveryCodes).toHaveLength(8);
+    expect(result.recoveryCodes).not.toContain(recoveryCodes[0]);
+    expect(h.twoFactorRepo.codes).toHaveLength(8);
+    for (const row of h.twoFactorRepo.codes) {
+      expect(row.usedAt).toBeNull();
+    }
+  });
+
+  it('rejects regeneration when 2FA is not enabled (409)', async () => {
+    const h = buildHarness();
+
+    await expect(
+      h.service.regenerateRecoveryCodes(h.agent.id, TEST_PASSWORD, '000000'),
+    ).rejects.toMatchObject({ code: 'TWO_FACTOR_NOT_ENABLED', httpStatus: 409 });
+    expect(h.twoFactorRepo.codes).toHaveLength(0);
+  });
+
+  it('answers 429 RATE_LIMITED after 5 attempts in the window', async () => {
+    const h = buildHarness();
+    const { secret } = await h.enroll();
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await expect(
+        h.service.regenerateRecoveryCodes(h.agent.id, 'wrong-password', '000000'),
+      ).rejects.toMatchObject({ code: 'INVALID_PASSWORD', httpStatus: 401 });
+    }
+
+    await expect(
+      h.service.regenerateRecoveryCodes(
+        h.agent.id,
+        TEST_PASSWORD,
+        totp(secret, h.clock.now()),
+      ),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      httpStatus: 429,
+      details: { bucket: 'auth.2fa.recovery-codes.regenerate' },
+    });
+    // The blocked request did not rotate the codes.
+    expect(h.twoFactorRepo.codes).toHaveLength(8);
+  });
+});
+
+describe('TwoFactorService.countRecoveryCodes', () => {
+  it('reports only unused codes and follows consumption/regeneration', async () => {
+    const h = buildHarness();
+    await expect(h.service.countRecoveryCodes(h.agent.id)).resolves.toEqual({ remaining: 0 });
+
+    const { secret, recoveryCodes } = await h.enroll();
+    await expect(h.service.countRecoveryCodes(h.agent.id)).resolves.toEqual({ remaining: 8 });
+
+    // One code is redeemed: the count drops.
+    expect(
+      await h.twoFactorRepo.consumeRecoveryCode(
+        h.agent.id,
+        hashRecoveryCode(recoveryCodes[0]),
+        h.clock.now(),
+      ),
+    ).toBe(true);
+    await expect(h.service.countRecoveryCodes(h.agent.id)).resolves.toEqual({ remaining: 7 });
+
+    // Regeneration restores the full set.
+    await h.service.regenerateRecoveryCodes(
+      h.agent.id,
+      TEST_PASSWORD,
+      totp(secret, h.clock.now()),
+    );
+    await expect(h.service.countRecoveryCodes(h.agent.id)).resolves.toEqual({ remaining: 8 });
   });
 });
 

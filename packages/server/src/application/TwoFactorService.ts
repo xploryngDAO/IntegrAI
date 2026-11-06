@@ -13,6 +13,8 @@ import type {
   ITwoFactorService,
   LoginSuccess,
   SessionDeviceInfo,
+  TwoFactorRecoveryCodeCountResult,
+  TwoFactorRecoveryCodesResult,
   TwoFactorSetupResult,
   TwoFactorStatusResult,
   TwoFactorVerifyResult,
@@ -54,6 +56,11 @@ import {
  *               flag and returns 8 recovery codes exactly once (SHA-256 at rest).
  *  - `disable`  requires the account password AND a valid TOTP/recovery code,
  *               then wipes the secret and every recovery code.
+ *  - `regenerateRecoveryCodes` requires the same re-authentication as `disable`
+ *               and replaces the 8 recovery codes atomically, returning the new
+ *               plaintext set exactly once.
+ *  - `countRecoveryCodes` reports how many codes are still unused so the SPA can
+ *               warn the operator to regenerate before running out.
  *  - `challenge` redeems the short-lived JWT issued by login with a TOTP code or
  *               a one-time recovery code, then issues the normal session through
  *               `AgentService.issueSession` (same AuthResponse as login).
@@ -219,34 +226,64 @@ export class TwoFactorService implements ITwoFactorService {
       );
     }
 
-    const passwordMatches = await this.safePasswordCompare(
-      password ?? '',
-      agent.passwordHash,
-    );
-    if (!passwordMatches) {
-      this.logger.warn('auth.2fa.disable_wrong_password', { userId: agent.id });
-      throw new AppError('INVALID_PASSWORD', 'Password is incorrect', 401);
-    }
-
-    const secret = this.decryptSecret(agent);
-    const now = this.clock.now();
-    const candidate = (code ?? '').trim();
-
-    let valid = candidate.length > 0 && verifyTotp(secret, candidate, now, { window: TOTP_WINDOW });
-    if (!valid && normalizeRecoveryCode(candidate).length > 0) {
-      valid = await this.twoFactor.consumeRecoveryCode(
-        agent.id,
-        hashRecoveryCode(candidate),
-        now,
-      );
-    }
-    if (!valid) {
-      this.logger.warn('auth.2fa.disable_invalid_code', { userId: agent.id });
-      throw new AppError('INVALID_TOTP', 'Invalid two-factor code', 400);
-    }
+    await this.requirePassword(agent, password, 'disable');
+    await this.requireValidSecondFactor(agent, code, 'disable');
 
     await this.twoFactor.disable(agent.id);
     this.logger.info('auth.2fa.disabled', { userId: agent.id });
+  }
+
+  /**
+   * Replaces every recovery code after re-authentication.
+   *
+   * The old set is deleted and the new one inserted in a single transaction, so
+   * the break-glass path is never empty or half-written. The plaintext codes are
+   * returned only here (at rest only their SHA-256 hashes exist).
+   */
+  async regenerateRecoveryCodes(
+    userId: string,
+    password: string,
+    code?: string,
+  ): Promise<TwoFactorRecoveryCodesResult> {
+    // Brute-force gate runs before the password/code check (and before the DB
+    // read), mirroring the challenge limiter: the window is about attempts.
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.twoFactorRecoveryRegenerate,
+      CACHE_KEYS.authTwoFactorRegenerateAttempts(userId),
+    );
+
+    const agent = await this.loadActiveAgent(userId);
+    if (!agent.twoFactorEnabled) {
+      throw new AppError(
+        'TWO_FACTOR_NOT_ENABLED',
+        'Two-factor authentication is not enabled',
+        409,
+      );
+    }
+
+    await this.requirePassword(agent, password, 'regenerate');
+    // Same anti-replay rule as `disable`: a valid TOTP is accepted inside the
+    // ±1 window, and a recovery code is consumed (single-use) before the set is
+    // replaced.
+    await this.requireValidSecondFactor(agent, code, 'regenerate');
+
+    const recoveryCodes = generateRecoveryCodes();
+    await this.twoFactor.replaceRecoveryCodes(
+      agent.id,
+      recoveryCodes.map((recoveryCode) => hashRecoveryCode(recoveryCode)),
+    );
+
+    this.logger.info('auth.2fa.recovery_codes_regenerated', {
+      userId: agent.id,
+      count: recoveryCodes.length,
+    });
+    return { recoveryCodes };
+  }
+
+  async countRecoveryCodes(userId: string): Promise<TwoFactorRecoveryCodeCountResult> {
+    const agent = await this.loadActiveAgent(userId);
+    const remaining = await this.twoFactor.countUnusedRecoveryCodes(agent.id);
+    return { remaining };
   }
 
   async status(userId: string): Promise<TwoFactorStatusResult> {
@@ -370,6 +407,47 @@ export class TwoFactorService implements ITwoFactorService {
       return await bcrypt.compare(password, passwordHash || BCRYPT_ALWAYS);
     } catch {
       return false;
+    }
+  }
+
+  /** Re-authentication prerequisite shared by `disable` and `regenerate`. */
+  private async requirePassword(
+    agent: AgentRecord,
+    password: string,
+    action: 'disable' | 'regenerate',
+  ): Promise<void> {
+    const passwordMatches = await this.safePasswordCompare(password ?? '', agent.passwordHash);
+    if (!passwordMatches) {
+      this.logger.warn(`auth.2fa.${action}_wrong_password`, { userId: agent.id });
+      throw new AppError('INVALID_PASSWORD', 'Password is incorrect', 401);
+    }
+  }
+
+  /**
+   * Second-factor prerequisite shared by `disable` and `regenerate`:
+   * a valid TOTP inside the ±1 window OR a current recovery code, which is
+   * consumed on use (single-use, matching the `disable` anti-replay rule).
+   */
+  private async requireValidSecondFactor(
+    agent: AgentRecord,
+    code: string | undefined,
+    action: 'disable' | 'regenerate',
+  ): Promise<void> {
+    const secret = this.decryptSecret(agent);
+    const now = this.clock.now();
+    const candidate = (code ?? '').trim();
+
+    let valid = candidate.length > 0 && verifyTotp(secret, candidate, now, { window: TOTP_WINDOW });
+    if (!valid && normalizeRecoveryCode(candidate).length > 0) {
+      valid = await this.twoFactor.consumeRecoveryCode(
+        agent.id,
+        hashRecoveryCode(candidate),
+        now,
+      );
+    }
+    if (!valid) {
+      this.logger.warn(`auth.2fa.${action}_invalid_code`, { userId: agent.id });
+      throw new AppError('INVALID_TOTP', 'Invalid two-factor code', 400);
     }
   }
 

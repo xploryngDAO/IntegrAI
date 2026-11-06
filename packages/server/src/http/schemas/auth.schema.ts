@@ -89,6 +89,16 @@ export const twoFactorDisableBodySchema = z.object({
   code: twoFactorCodeSchema.optional(),
 });
 
+/**
+ * `POST /auth/2fa/recovery-codes/regenerate` - password AND a valid TOTP/recovery
+ * code (JWT). Like `disable`, `code` stays optional at the schema level so the
+ * service answers the stable `INVALID_TOTP` instead of a generic 422.
+ */
+export const twoFactorRecoveryRegenerateBodySchema = z.object({
+  password: z.string().min(1).max(200),
+  code: twoFactorCodeSchema.optional(),
+});
+
 /** `POST /auth/2fa/challenge` - public redemption of the login challenge. */
 export const twoFactorChallengeBodySchema = z.object({
   challengeToken: z.string().trim().min(20).max(4096),
@@ -101,6 +111,9 @@ export type LoginBody = z.infer<typeof loginBodySchema>;
 export type PresenceBody = z.infer<typeof presenceBodySchema>;
 export type TwoFactorVerifyBody = z.infer<typeof twoFactorVerifyBodySchema>;
 export type TwoFactorDisableBody = z.infer<typeof twoFactorDisableBodySchema>;
+export type TwoFactorRecoveryRegenerateBody = z.infer<
+  typeof twoFactorRecoveryRegenerateBodySchema
+>;
 export type TwoFactorChallengeBody = z.infer<typeof twoFactorChallengeBodySchema>;
 export type SignupBody = z.infer<typeof signupBodySchema>;
 export type VerifyEmailBody = z.infer<typeof verifyEmailBodySchema>;

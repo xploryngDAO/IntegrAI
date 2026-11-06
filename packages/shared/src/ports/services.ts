@@ -493,6 +493,16 @@ export interface TwoFactorStatusResult {
   enabled: boolean;
 }
 
+export interface TwoFactorRecoveryCodesResult {
+  /** 8 fresh one-time recovery codes; returned only by the regenerate call. */
+  recoveryCodes: string[];
+}
+
+export interface TwoFactorRecoveryCodeCountResult {
+  /** Recovery codes that were never used (0 when 2FA is off). */
+  remaining: number;
+}
+
 export interface ITwoFactorService {
   /** Generates and encrypts a pending secret; 409 when 2FA is already enabled. */
   setup(userId: string): Promise<TwoFactorSetupResult>;
@@ -500,6 +510,18 @@ export interface ITwoFactorService {
   verify(userId: string, code: string): Promise<TwoFactorVerifyResult>;
   /** Requires the account password AND a valid TOTP/recovery code. */
   disable(userId: string, password: string, code?: string): Promise<void>;
+  /**
+   * Replaces the whole recovery-code set after re-authentication (password +
+   * TOTP/recovery code). The previous codes stop working atomically; the new
+   * set is returned exactly once.
+   */
+  regenerateRecoveryCodes(
+    userId: string,
+    password: string,
+    code?: string,
+  ): Promise<TwoFactorRecoveryCodesResult>;
+  /** Number of recovery codes not yet consumed (UI "running low" warning). */
+  countRecoveryCodes(userId: string): Promise<TwoFactorRecoveryCodeCountResult>;
   status(userId: string): Promise<TwoFactorStatusResult>;
   /**
    * Redeems a short-lived challenge JWT (issued by login) with a TOTP or a

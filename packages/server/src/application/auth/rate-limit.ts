@@ -12,6 +12,8 @@ import { RateLimitError, redactPiiForLogs } from '@sac/shared';
  *  - `2fa/challenge`             5 attempts / 15 min per challenge `jti` and per IP
  *  - `auth/forgot-password`      3 requests / 15 min per e-mail
  *  - `auth/resend-verification`  3 requests / 15 min per e-mail
+ *  - `auth/2fa/recovery-codes/regenerate`
+ *                                5 attempts / 15 min per operator
  *
  * Mechanics: every attempt is a `INCR` on a namespaced key with the window TTL
  * applied on the first hit (`RedisCache.incr` runs both atomically in Lua), so N
@@ -45,6 +47,11 @@ export const AUTH_RATE_LIMITS = {
   twoFactorChallengeIp: { bucket: 'auth.2fa.challenge.ip', limit: 5, windowSeconds: 15 * 60 },
   forgotPassword: { bucket: 'auth.forgot-password', limit: 3, windowSeconds: 15 * 60 },
   resendVerification: { bucket: 'auth.resend-verification', limit: 3, windowSeconds: 15 * 60 },
+  twoFactorRecoveryRegenerate: {
+    bucket: 'auth.2fa.recovery-codes.regenerate',
+    limit: 5,
+    windowSeconds: 15 * 60,
+  },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 
 export interface AuthRateLimitDecision {

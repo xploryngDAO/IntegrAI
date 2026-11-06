@@ -52,6 +52,9 @@ export const CACHE_KEYS = {
   /** Verification e-mail resends per e-mail (3/15min, on top of the 1/min key). */
   verificationResendAttempts: (email: string): string =>
     `sac:auth:email-verification:resend-attempts:${email}`,
+  /** Recovery-code regeneration attempts per operator (5/15min). */
+  authTwoFactorRegenerateAttempts: (userId: string): string =>
+    `sac:auth:2fa:recovery-codes:regenerate:${userId}`,
   /** Single-use guard for a 2FA challenge JWT (`jti`, 5 min TTL). */
   twoFactorChallenge: (jti: string): string => `sac:auth:2fa:challenge:${jti}`,
   /** Last accepted TOTP time-step per operator (replay protection). */

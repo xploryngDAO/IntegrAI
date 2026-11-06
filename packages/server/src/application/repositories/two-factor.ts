@@ -7,6 +7,8 @@ import type { ITwoFactorRepository } from '@sac/shared';
  * Security invariants enforced here:
  *  - `disable` wipes the encrypted secret and every recovery code in a single
  *    transaction, so a disabled account can never keep a usable break-glass path;
+ *  - `replaceRecoveryCodes` deletes the old set and inserts the new one in the
+ *    same transaction, so regeneration is atomic (never zero or mixed codes);
  *  - `consumeRecoveryCode` is a conditional `updateMany` (`used_at IS NULL`),
  *    which makes redemption atomic: two concurrent attempts cannot both win;
  *  - recovery codes are addressed by SHA-256 hash only (`code_hash` UNIQUE).
@@ -42,6 +44,21 @@ export class PrismaTwoFactorRepository implements ITwoFactorRepository {
       }),
       this.prisma.twoFactorRecoveryCode.deleteMany({ where: { userId } }),
     ]);
+  }
+
+  async replaceRecoveryCodes(userId: string, codeHashes: string[]): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.twoFactorRecoveryCode.deleteMany({ where: { userId } }),
+      this.prisma.twoFactorRecoveryCode.createMany({
+        data: codeHashes.map((codeHash) => ({ userId, codeHash })),
+      }),
+    ]);
+  }
+
+  async countUnusedRecoveryCodes(userId: string): Promise<number> {
+    return this.prisma.twoFactorRecoveryCode.count({
+      where: { userId, usedAt: null },
+    });
   }
 
   async consumeRecoveryCode(userId: string, codeHash: string, at: Date): Promise<boolean> {

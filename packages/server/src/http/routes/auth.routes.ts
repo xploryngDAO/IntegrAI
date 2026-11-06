@@ -28,4 +28,8 @@ export const authRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx)
   app.post('/2fa/disable', controllers.twoFactorDisable);
   app.get('/2fa/status', controllers.twoFactorStatus);
   app.post('/2fa/challenge', controllers.twoFactorChallenge);
+  // Recovery codes: regenerate returns the new plaintext set exactly once;
+  // count feeds the "running low" warning in the security settings.
+  app.post('/2fa/recovery-codes/regenerate', controllers.twoFactorRegenerateRecoveryCodes);
+  app.get('/2fa/recovery-codes/count', controllers.twoFactorRecoveryCodeCount);
 };

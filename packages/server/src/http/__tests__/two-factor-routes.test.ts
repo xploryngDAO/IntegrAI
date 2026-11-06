@@ -87,6 +87,8 @@ describe('2FA route exposure (401 contract)', () => {
     ['POST', '/api/v1/auth/2fa/verify'],
     ['POST', '/api/v1/auth/2fa/disable'],
     ['GET', '/api/v1/auth/2fa/status'],
+    ['POST', '/api/v1/auth/2fa/recovery-codes/regenerate'],
+    ['GET', '/api/v1/auth/2fa/recovery-codes/count'],
   ])('requires a JWT for %s %s', (method, path) => {
     expect(isPublicRoute(method, path)).toBe(false);
   });
@@ -213,6 +215,49 @@ describe('2FA management controllers', () => {
 
     expect(status).toHaveBeenCalledWith(AGENT.id);
     expect(result).toEqual({ data: { enabled: true } });
+  });
+
+  it('regenerate forwards password + code and returns the new codes once', async () => {
+    const regenerateRecoveryCodes = vi.fn(async () => ({
+      recoveryCodes: ['ABCD-2345', 'EFGH-6789'],
+    }));
+    const h = buildHarness({ twoFactor: { regenerateRecoveryCodes } });
+
+    const result = await h.controllers.twoFactorRegenerateRecoveryCodes(
+      fakeRequest({ password: 'correct-horse-battery', code: '123456' }, AGENT),
+      fakeReply(),
+    );
+
+    expect(regenerateRecoveryCodes).toHaveBeenCalledWith(
+      AGENT.id,
+      'correct-horse-battery',
+      '123456',
+    );
+    expect(result).toEqual({ data: { recoveryCodes: ['ABCD-2345', 'EFGH-6789'] } });
+  });
+
+  it('regenerate rejects an empty password with 422 VALIDATION_ERROR', async () => {
+    const h = buildHarness({ twoFactor: { regenerateRecoveryCodes: vi.fn() } });
+
+    await expect(
+      h.controllers.twoFactorRegenerateRecoveryCodes(
+        fakeRequest({ password: '', code: '123456' }, AGENT),
+        fakeReply(),
+      ),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', httpStatus: 422 });
+  });
+
+  it('recovery-code count returns { remaining }', async () => {
+    const countRecoveryCodes = vi.fn(async () => ({ remaining: 5 }));
+    const h = buildHarness({ twoFactor: { countRecoveryCodes } });
+
+    const result = await h.controllers.twoFactorRecoveryCodeCount(
+      fakeRequest({}, AGENT),
+      fakeReply(),
+    );
+
+    expect(countRecoveryCodes).toHaveBeenCalledWith(AGENT.id);
+    expect(result).toEqual({ data: { remaining: 5 } });
   });
 });
 

@@ -44,6 +44,8 @@ Decisões:
 | GET | `/users` | ADMIN | lista equipe do tenant |
 | PATCH | `/users/:id` | ADMIN | papel/ativo |
 | POST | `/auth/2fa/setup` \| `/auth/2fa/verify` \| `/auth/2fa/disable` | JWT | TOTP |
+| POST | `/auth/2fa/recovery-codes/regenerate` | JWT | senha + TOTP/recovery code; substitui em transação e devolve 8 códigos uma única vez |
+| GET | `/auth/2fa/recovery-codes/count` | JWT | `{ remaining }` (códigos ainda não usados) |
 | GET | `/auth/2fa/status` | JWT | `{ enabled }` |
 | POST | `/auth/2fa/challenge` | pública | troca o `challengeToken` (login) + código por `AuthResponse` |
 
@@ -75,6 +77,7 @@ Decisões:
   |---|---|---|---|
   | `POST /auth/login` | 10 tentativas / 15 min | e-mail + IP | `429 RATE_LIMITED` |
   | `POST /auth/2fa/challenge` | 5 tentativas / 15 min | `jti` do challenge **e** IP | `429 RATE_LIMITED` |
+  | `POST /auth/2fa/recovery-codes/regenerate` | 5 tentativas / 15 min | usuário (JWT) | `429 RATE_LIMITED` |
   | `POST /auth/forgot-password` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
   | `POST /auth/resend-verification` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
 

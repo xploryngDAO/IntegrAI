@@ -559,6 +559,14 @@ export interface ITwoFactorRepository {
   /** Atomically disables 2FA, wipes the secret and deletes every recovery code. */
   disable(userId: string): Promise<void>;
   /**
+   * Replaces the recovery-code set in one transaction: the old hashes are
+   * deleted and the new ones inserted together, so a failed write never leaves
+   * the operator with a partially regenerated (or empty) break-glass set.
+   */
+  replaceRecoveryCodes(userId: string, codeHashes: string[]): Promise<void>;
+  /** Recovery codes that are still redeemable (`used_at IS NULL`). */
+  countUnusedRecoveryCodes(userId: string): Promise<number>;
+  /**
    * Single-use consumption scoped to the operator: conditional `updateMany`
    * (`used_at IS NULL`) so two concurrent requests cannot redeem the same code.
    */

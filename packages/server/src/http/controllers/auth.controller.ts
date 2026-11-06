@@ -19,6 +19,7 @@ import {
   signupBodySchema,
   twoFactorChallengeBodySchema,
   twoFactorDisableBodySchema,
+  twoFactorRecoveryRegenerateBodySchema,
   twoFactorVerifyBodySchema,
   verifyEmailBodySchema,
 } from '../schemas';
@@ -44,6 +45,8 @@ export interface AuthControllers {
   twoFactorDisable: RouteHandler;
   twoFactorStatus: RouteHandler;
   twoFactorChallenge: RouteHandler;
+  twoFactorRegenerateRecoveryCodes: RouteHandler;
+  twoFactorRecoveryCodeCount: RouteHandler;
 }
 
 /** The exact `AuthResponse` shape shared by login, refresh, invite and 2FA. */
@@ -319,6 +322,36 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
     async twoFactorStatus(request) {
       const agent = requireAgent(request);
       const result = await services.twoFactor.status(agent.id);
+      return ok(result);
+    },
+
+    /**
+     * `POST /auth/2fa/recovery-codes/regenerate` - JWT.
+     *
+     * Re-authenticates with password + TOTP/recovery code, replaces the whole
+     * recovery-code set in one transaction and returns the 8 plaintext codes
+     * exactly once. The throttled/blocked path answers `429 RATE_LIMITED`.
+     */
+    async twoFactorRegenerateRecoveryCodes(request) {
+      const agent = requireAgent(request);
+      const body = parseInput(twoFactorRecoveryRegenerateBodySchema, request.body, 'body');
+      const result = await services.twoFactor.regenerateRecoveryCodes(
+        agent.id,
+        body.password,
+        body.code,
+      );
+      return ok(result);
+    },
+
+    /**
+     * `GET /auth/2fa/recovery-codes/count` - JWT.
+     *
+     * `{ remaining }`: unused recovery codes, used by the SPA to warn before the
+     * operator runs out of break-glass codes.
+     */
+    async twoFactorRecoveryCodeCount(request) {
+      const agent = requireAgent(request);
+      const result = await services.twoFactor.countRecoveryCodes(agent.id);
       return ok(result);
     },
 

@@ -234,6 +234,8 @@ function createChallengeHarness() {
     setPendingSecret: async () => {},
     enable: async () => {},
     disable: async () => {},
+    replaceRecoveryCodes: async () => {},
+    countUnusedRecoveryCodes: async () => 0,
     consumeRecoveryCode: async () => false,
   };
 
