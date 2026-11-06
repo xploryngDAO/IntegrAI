@@ -85,6 +85,15 @@ Socket.IO: conecta com token válido → logout → nova conexão com o token an
 novo login conecta normalmente (5/5 verificações)
 ```
 
+### 7.2 Logout everywhere / reset de senha (watermark por usuário)
+```
+login device A + login device B (tokens distintos)
+POST /auth/logout sem refreshToken (device A) → 204
+GET /auth/me com token A → 401 · com token B → 401 (revogado pelo watermark)
+POST /auth/login novamente → 200
+validate:live → 11/11
+```
+
 ### 8. SSO OIDC ponta a ponta (`npm run test:live-sso`)
 Com um provedor OIDC local de teste (`scripts/oidc-stub.mjs`, RSA/JWKS reais):
 ```

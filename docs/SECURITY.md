@@ -52,7 +52,7 @@ e dependências com correções apenas em major.
 | PII de comprador (nome, e-mail, documento, telefone, endereço) | `buyer_pii_vault` com `expires_at` | Dano direto ao titular, multa LGPD, quebra de confiança |
 | Mensagens e anexos | `ticket_messages`, S3 privado | Vazamento de conversa, links maliciosos, NF-e |
 | Segredos de infraestrutura | env (`ENCRYPTION_MASTER_KEY`, `JWT_SECRET`, HMACs, SMTP) | Comprometimento total |
-| Sessões de operador | JWT (12 h) + refresh opaco (30 d) | Ações não autorizadas, persistência pós-logout |
+| Sessões de operador | JWT (1 h) + refresh opaco (30 d) | Ações não autorizadas, persistência pós-logout |
 
 ### 2.2 Fronteiras de confiança
 
@@ -660,7 +660,7 @@ Escala: probabilidade (1–5) × impacto (1–5). Risco residual após controles
 | R-03 | PII de comprador exposta além da retenção | 2 | 5 | 10 | Alto | vault + purge 30 d + export sem PII; validar backups |
 | R-04 | XSS na SPA → roubo de token em `localStorage` | 2 | 5 | 10 | Alto | CSP, sem innerHTML; **migrar para cookie HttpOnly (P1)** |
 | R-05 | Push Meli forjado (sem assinatura) | 3 | 2 | 6 | Médio | resolução de conta + hidratação via API + idempotência; avaliar segredo compartilhado |
-| R-06 | Sequestro de sessão (access 12 h sem denylist) | 2 | 4 | 8 | Médio | refresh rotativo + tenant gate; reduzir TTL/denylist |
+| R-06 | Sequestro de sessão (access 1 h sem denylist) | 2 | 4 | 8 | Médio | refresh rotativo + tenant gate; reduzir TTL/denylist |
 | R-07 | SSRF via feature futura de URL | 2 | 4 | 8 | Médio | nenhuma feature hoje; regra obrigatória na seção 3.5 |
 | R-08 | Injeção SQL/NoSQL | 1 | 5 | 5 | Baixo | Prisma parametrizado + Zod |
 | R-09 | Phishing de OAuth/consentimento | 3 | 3 | 9 | Médio | state/nonce/PKCE; treinamento e comunicação |
