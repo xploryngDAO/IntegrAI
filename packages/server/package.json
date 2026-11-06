@@ -24,7 +24,7 @@
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "mailparser": "^3.7.1",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^10.3.1",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
     "prisma": "^6.1.0",
@@ -36,7 +36,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/mailparser": "^3.4.5",
     "@types/node": "^22.10.2",
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^7.0.12",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
