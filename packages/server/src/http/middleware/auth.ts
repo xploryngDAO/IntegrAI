@@ -105,6 +105,11 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         role: claims.role,
         tenantId: claims.tenantId,
         isPlatformAdmin: claims.isPlatformAdmin === true,
+        // P0: logout needs the token identity to revoke it (see auth.controller).
+        ...(claims.jti !== undefined ? { jti: claims.jti } : {}),
+        ...(claims.tokenExpiresAt !== undefined
+          ? { tokenExpiresAt: claims.tokenExpiresAt }
+          : {}),
       };
 
       // Mutations on a ticket must belong to the caller's tenant (404 otherwise).

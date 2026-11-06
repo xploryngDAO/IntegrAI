@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import jwt from 'jsonwebtoken';
 import type { SignOptions } from 'jsonwebtoken';
@@ -9,9 +9,14 @@ import type { SignOptions } from 'jsonwebtoken';
  * ============================================================================
  *
  * Single source of truth for the access-token claims/issuer/audience and for
- * the opaque-token helpers. `AgentService` (login) and `AuthSessionService`
- * (refresh) MUST sign through here, otherwise the guard would reject tokens
- * minted by one of the two paths.
+ * the opaque-token helpers. `AgentService` (login), `AuthSessionService`
+ * (refresh), `InvitationService` and the SSO/2FA exchanges all sign through
+ * here, so every access token carries the same claim shape.
+ *
+ * P0 - access-token revocation by `jti`:
+ * every token gets a fresh UUID `jti`. It is what `POST /auth/logout` writes to
+ * the Redis denylist (`CACHE_KEYS.authAccessTokenDeny`) so the stateless JWT can
+ * be invalidated before its natural `exp`. See `access-token-revocation.ts`.
  */
 
 export const JWT_ISSUER = 'sac-hub';
@@ -55,6 +60,8 @@ export function signAccessToken(input: {
   };
   return jwt.sign(
     {
+      // Unique per access token: the revocation handle used by logout.
+      jti: randomUUID(),
       email: input.subject.email,
       name: input.subject.name,
       role: input.subject.role,

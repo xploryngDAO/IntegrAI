@@ -32,6 +32,7 @@ import {
 } from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
+import { isAccessTokenDenied } from './auth/access-token-revocation';
 import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { signTwoFactorChallengeToken } from './auth/two-factor-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
@@ -101,6 +102,8 @@ interface AgentJwtClaims {
    * be accepted as a session: `verifyToken` rejects any `scope` claim.
    */
   scope?: string;
+  /** P0: unique access-token id, the revocation handle (absent on old tokens). */
+  jti?: string;
   iat?: number;
   exp?: number;
 }
@@ -273,6 +276,10 @@ export class AgentService implements IAgentService {
     role: string;
     tenantId: string | null;
     isPlatformAdmin: boolean;
+    /** Access-token id; absent on tokens minted before P0 revocation existed. */
+    jti?: string;
+    /** `exp` claim in Unix seconds; used by logout to size the denylist TTL. */
+    tokenExpiresAt?: number;
   }> {
     if (!token) throw new AuthenticationError('Missing bearer token');
     try {
@@ -289,6 +296,27 @@ export class AgentService implements IAgentService {
       if (decoded.scope !== undefined) {
         throw new AuthenticationError('Token is not an access token');
       }
+      const jti =
+        typeof decoded.jti === 'string' && decoded.jti.length > 0 ? decoded.jti : undefined;
+
+      // P0 - access-token revocation. A token whose `jti` is on the logout
+      // denylist is rejected even though its signature and `exp` are fine. The
+      // check is FAIL-OPEN on a cache outage (warn + accept) so Redis does not
+      // log every operator out; see `access-token-revocation.ts`. A legacy token
+      // without `jti` cannot be checked and stays valid until `exp`.
+      const denied = await isAccessTokenDenied({
+        jti,
+        cache: this.cache,
+        logger: this.logger,
+      });
+      if (denied) {
+        this.logger.warn('agent.session.access_token_revoked', {
+          agentId: decoded.sub,
+          jti,
+        });
+        throw new AuthenticationError('Access token has been revoked');
+      }
+
       const tenantId = typeof decoded.tenantId === 'string' ? decoded.tenantId : null;
 
       // Fase 4: every request re-checks the workspace lifecycle. A soft-deleted
@@ -303,6 +331,8 @@ export class AgentService implements IAgentService {
         role: typeof decoded.role === 'string' ? decoded.role : 'AGENT',
         tenantId,
         isPlatformAdmin: decoded.isPlatformAdmin === true,
+        ...(jti !== undefined ? { jti } : {}),
+        ...(typeof decoded.exp === 'number' ? { tokenExpiresAt: decoded.exp } : {}),
       };
     } catch (error) {
       // Domain errors (TENANT_INACTIVE, AUTHENTICATION_ERROR) keep their status;

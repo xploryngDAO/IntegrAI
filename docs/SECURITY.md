@@ -112,7 +112,7 @@ anti-CSRF (double-submit ou sincronizador). Sem isso, **não** introduzir cookie
 | OAuth de marketplace | `state` assinado, com nonce, TTL 10 min, cache server-side, **single-use** (queimado antes do exchange) | `application/AccountService.ts` (`consumeState`) |
 | SSO OIDC | `state` assinado + cache single-use, `nonce` no ID token, PKCE S256 | `application/SsoAuthService.ts`, `application/sso/*` |
 | Refresh token | rotação com revogação atômica; replay de token revogado = 401 | `application/AuthSessionService.ts` |
-| Access JWT | janela de 12 h (`JWT_EXPIRES_IN`) sem denylist por `jti` | gap: ver 3.8 |
+| Access JWT | denylist por `jti` no Redis: logout grava `sac:auth:deny:<jti>` com TTL = restante do token e `verifyToken` rejeita o replay (401) | `application/auth/access-token-revocation.ts` |
 
 ### 3.3 Enumeração de contas
 
@@ -227,8 +227,12 @@ destinatário no console (somente fora de produção). Ver seção 14.
   `innerHTML`/`eval`, dependências auditadas. **Gap P1:** migrar para cookie
   `HttpOnly`/`SameSite` (com o pacote de CSRF da 3.1) ou memória + refresh
   silencioso.
-- Access token de 12 h não tem denylist por `jti`; reduzir TTL e/ou adicionar
-  denylist Redis para revogação imediata é P2.
+- Access token (TTL `JWT_EXPIRES_IN`, default 1 h): `POST /auth/logout` grava
+  `sac:auth:deny:<jti>` com TTL igual ao tempo restante do token e
+  `AgentService.verifyToken` rejeita o `jti` denylistado (401). A leitura é
+  **fail-open** (warn + aceita) para uma indisponibilidade do Redis não
+  derrubar a API; tokens antigos **sem `jti`** continuam válidos até `exp` e não
+  são revogáveis individualmente (`application/auth/access-token-revocation.ts`).
 
 ### 3.9 Phishing de OAuth / SSO
 
@@ -719,8 +723,10 @@ Google Workspace, Okta ou OIDC genérico). A implementação atual vive em
       com `iss`/`aud`), sem token do IdP no navegador.
 - [ ] Re-vincular/atualizar e-mail só com `email_verified`, nunca por claim
       não verificado.
-- [ ] Logout/revogação do lado do IdP quando disponível; documentar que o
-      logout local revoga refresh, mas o access JWT vive até expirar.
+- [ ] Logout/revogação do lado do IdP quando disponível. O logout local revoga
+      o refresh **e** denylista o `jti` do access token atual; um access token
+      emitido por outro device segue válido até `exp` (o "logout everywhere" não
+      denylista por usuário).
 - [ ] Auditoria: `auth.sso.*` com `tenantId`, `provider`, `result`, sem token
       nem e-mail completo.
 
@@ -798,8 +804,10 @@ npm run build:shared
    de auth por e-mail, o custo de parsing/DB existe). Adotar
    `@fastify/rate-limit` com store Redis e limites distintos por prefixo
    (webhook mais generoso; auth mais rígido), retornando `Retry-After`.
-3. **Denylist de access token / TTL menor.** 12 h sem revogação imediata;
-   reduzir para 15–60 min e/ou `jti` no Redis para logout/comprometimento.
+3. **Cobertura da denylist de access token.** O logout já denylista o `jti` do
+   token apresentado (ver 3.8). Faltam: (a) denylist por usuário no "logout
+   everywhere"/reset de senha, para matar access tokens de outros devices; (b) o
+   handshake do Socket.IO valida a assinatura mas não consulta a denylist.
 
 ### P1 — próximas 2 sprints
 

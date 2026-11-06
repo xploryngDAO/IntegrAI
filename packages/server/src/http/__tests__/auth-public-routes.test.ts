@@ -1,11 +1,67 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { IAuthService, IAuthSessionService } from '@sac/shared';
+import type { IAuthService, IAuthSessionService, ICache, ILogger } from '@sac/shared';
 import { AppError } from '@sac/shared';
 
 import type { HttpRouteContext } from '../types';
 import { createAuthControllers } from '../controllers/auth.controller';
 import { isPublicRoute } from '../middleware/auth';
+
+/** Fixed instant used by the controller clock below. */
+const NOW = new Date('2026-01-01T00:00:00.000Z');
+
+const silentLogger: ILogger = {
+  child(): ILogger {
+    return this;
+  },
+  trace(): void {},
+  debug(): void {},
+  info(): void {},
+  warn(): void {},
+  error(): void {},
+};
+
+/** Records the denylist writes (key, value and TTL) made by logout. */
+class RecordingCache implements ICache {
+  readonly entries = new Map<string, unknown>();
+  readonly ttls = new Map<string, number>();
+  failSet = false;
+
+  async get<T>(key: string): Promise<T | null> {
+    return (this.entries.get(key) as T | undefined) ?? null;
+  }
+  async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+    if (this.failSet) throw new Error('redis unavailable');
+    this.entries.set(key, value);
+    this.ttls.set(key, ttlSeconds);
+  }
+  async setNx(key: string, value: string): Promise<boolean> {
+    if (this.entries.has(key)) return false;
+    this.entries.set(key, value);
+    return true;
+  }
+  async del(key: string): Promise<void> {
+    this.entries.delete(key);
+  }
+  async exists(key: string): Promise<boolean> {
+    return this.entries.has(key);
+  }
+  async ttl(key: string): Promise<number> {
+    return this.ttls.get(key) ?? -2;
+  }
+  async incr(): Promise<number> {
+    return 1;
+  }
+  async hset(): Promise<void> {}
+  async hgetall<T extends Record<string, string>>(): Promise<T | null> {
+    return null;
+  }
+  async sadd(): Promise<void> {}
+  async srem(): Promise<void> {}
+  async smembers(): Promise<string[]> {
+    return [];
+  }
+}
 
 function fakeReply(): FastifyReply {
   const reply = {
@@ -20,7 +76,15 @@ function fakeReply(): FastifyReply {
 
 function fakeRequest(
   body: unknown,
-  agent?: { id: string; email: string; name: string; role: string; tenantId: string | null },
+  agent?: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    tenantId: string | null;
+    jti?: string;
+    tokenExpiresAt?: number;
+  },
 ): FastifyRequest {
   return {
     body,
@@ -30,12 +94,18 @@ function fakeRequest(
   } as unknown as FastifyRequest;
 }
 
-function buildControllers(auth: IAuthService, sessions?: IAuthSessionService) {
+function buildControllers(
+  auth: IAuthService,
+  sessions?: IAuthSessionService,
+  cache: ICache = new RecordingCache(),
+) {
   const ctx = {
     services: {
       auth,
+      cache,
+      logger: silentLogger,
       ...(sessions !== undefined ? { sessions } : {}),
-      clock: { now: () => new Date('2026-01-01T00:00:00.000Z') },
+      clock: { now: () => NOW },
     },
     hub: { publisher: { agentPresence: vi.fn() } },
   } as unknown as HttpRouteContext;
@@ -290,6 +360,100 @@ describe('public auth routes', () => {
 
     expect(reply.statusCode).toBe(204);
     expect(revoke).not.toHaveBeenCalled();
+    expect(revokeAllForUser).toHaveBeenCalledWith('agent-1');
+  });
+
+  /* ====================================================================== */
+  /* P0: logout revokes the current ACCESS token by jti                     */
+  /* ====================================================================== */
+
+  it('denylists the current access token with its remaining TTL', async () => {
+    const cache = new RecordingCache();
+    const revoke = vi.fn(async () => true);
+    const controllers = buildControllers(
+      {} as IAuthService,
+      { revoke, revokeAllForUser: vi.fn(async () => 0) } as unknown as IAuthSessionService,
+      cache,
+    );
+    const reply = fakeReply();
+    const nowSeconds = Math.floor(NOW.getTime() / 1000);
+
+    const result = await controllers.logout(
+      fakeRequest(
+        { refreshToken: '9'.repeat(96) },
+        {
+          id: 'agent-1',
+          email: 'ana@acme.test',
+          name: 'Ana',
+          role: 'ADMIN',
+          tenantId: 'tenant-1',
+          jti: '7d9a4d5e-2f3b-4f0a-9c1e-0a1b2c3d4e5f',
+          // 15 minutes left on the token.
+          tokenExpiresAt: nowSeconds + 900,
+        },
+      ),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(result).toBeUndefined();
+    expect(cache.entries.get('sac:auth:deny:7d9a4d5e-2f3b-4f0a-9c1e-0a1b2c3d4e5f')).toBe('1');
+    expect(cache.ttls.get('sac:auth:deny:7d9a4d5e-2f3b-4f0a-9c1e-0a1b2c3d4e5f')).toBe(900);
+    // The refresh-session revocation is unchanged by the access-token denylist.
+    expect(revoke).toHaveBeenCalledWith('9'.repeat(96), 'agent-1');
+  });
+
+  it('does not write the denylist for a legacy token without jti', async () => {
+    const cache = new RecordingCache();
+    const controllers = buildControllers(
+      {} as IAuthService,
+      {
+        revoke: vi.fn(async () => true),
+        revokeAllForUser: vi.fn(async () => 0),
+      } as unknown as IAuthSessionService,
+      cache,
+    );
+    const reply = fakeReply();
+
+    await controllers.logout(
+      fakeRequest(
+        null,
+        { id: 'agent-1', email: 'ana@acme.test', name: 'Ana', role: 'ADMIN', tenantId: 'tenant-1' },
+      ),
+      reply,
+    );
+
+    expect(reply.statusCode).toBe(204);
+    expect(cache.entries.size).toBe(0);
+  });
+
+  it('keeps logout 204 when the denylist write fails (best effort)', async () => {
+    const cache = new RecordingCache();
+    cache.failSet = true;
+    const revokeAllForUser = vi.fn(async () => 2);
+    const controllers = buildControllers(
+      {} as IAuthService,
+      { revoke: vi.fn(async () => true), revokeAllForUser } as unknown as IAuthSessionService,
+      cache,
+    );
+    const reply = fakeReply();
+
+    await expect(
+      controllers.logout(
+        fakeRequest(null, {
+          id: 'agent-1',
+          email: 'ana@acme.test',
+          name: 'Ana',
+          role: 'ADMIN',
+          tenantId: 'tenant-1',
+          jti: 'jti-1',
+          tokenExpiresAt: Math.floor(NOW.getTime() / 1000) + 900,
+        }),
+        reply,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(reply.statusCode).toBe(204);
     expect(revokeAllForUser).toHaveBeenCalledWith('agent-1');
   });
 });

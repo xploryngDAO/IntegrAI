@@ -79,7 +79,7 @@ describe('AgentService tenant lifecycle gate', () => {
     if ('twoFactorRequired' in result) return;
 
     const claims = await h.service.verifyToken(result.token);
-    expect(claims).toEqual({
+    expect(claims).toMatchObject({
       agentId: agent.id,
       email: 'admin@acme.test',
       name: 'Ana Admin',
@@ -87,6 +87,9 @@ describe('AgentService tenant lifecycle gate', () => {
       tenantId: 'tenant-1',
       isPlatformAdmin: false,
     });
+    // P0: every access token carries a revocation handle and its expiry.
+    expect(claims.jti).toEqual(expect.any(String));
+    expect(claims.tokenExpiresAt).toEqual(expect.any(Number));
   });
 
   it('propagates the platform admin flag in the access token', async () => {

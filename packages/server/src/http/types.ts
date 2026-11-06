@@ -14,6 +14,13 @@ export interface AuthenticatedAgent {
   tenantId: string | null;
   /** Fase 4: JWT claim for UI gating; `/platform/*` re-checks the database. */
   isPlatformAdmin: boolean;
+  /**
+   * P0: access-token id (`jti`) and expiry (`exp`, Unix seconds) so
+   * `POST /auth/logout` can denylist THIS token for what is left of its life.
+   * Optional for legacy tokens minted before the revocation feature.
+   */
+  jti?: string;
+  tokenExpiresAt?: number;
 }
 
 declare module 'fastify' {

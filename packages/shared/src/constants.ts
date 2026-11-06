@@ -59,6 +59,12 @@ export const CACHE_KEYS = {
   twoFactorChallenge: (jti: string): string => `sac:auth:2fa:challenge:${jti}`,
   /** Last accepted TOTP time-step per operator (replay protection). */
   twoFactorTotpStep: (userId: string): string => `sac:auth:2fa:totp-step:${userId}`,
+  /**
+   * Access-token denylist (P0): set by `POST /auth/logout` with the remaining
+   * lifetime of the token and checked by `AgentService.verifyToken`. The `jti`
+   * claim is a UUID minted by `signAccessToken`.
+   */
+  authAccessTokenDeny: (jti: string): string => `sac:auth:deny:${jti}`,
   /*
    * Enterprise SSO (OpenID Connect).
    *

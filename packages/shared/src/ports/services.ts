@@ -466,6 +466,13 @@ export interface IAgentService {
     role: string;
     tenantId: string | null;
     isPlatformAdmin: boolean;
+    /**
+     * Access-token id (`jti`). Optional because tokens minted before the P0
+     * revocation feature do not carry it and are still accepted until `exp`.
+     */
+    jti?: string;
+    /** `exp` claim in Unix seconds, used by logout to size the denylist TTL. */
+    tokenExpiresAt?: number;
   }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;

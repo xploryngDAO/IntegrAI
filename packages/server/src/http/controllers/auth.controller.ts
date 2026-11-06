@@ -27,6 +27,7 @@ import { parseInput } from '../schemas/common';
 import { ok } from '../responses';
 import { requireAgent } from '../middleware/auth';
 import { toAgentRole } from '../mappers';
+import { denyAccessToken } from '../../application/auth/access-token-revocation';
 
 export interface AuthControllers {
   login: RouteHandler;
@@ -268,8 +269,14 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
      * `POST /auth/logout` - JWT required.
      *
      * Revokes the session carried in the body, or every session of the operator
-     * when the body omits `refreshToken` ("logout everywhere"). Always 204: an
-     * unknown token is not an error and does not leak whether it existed.
+     * when the body omits `refreshToken` ("logout everywhere"). It ALSO revokes
+     * the access token of the current request (P0): the JWT is stateless, so its
+     * `jti` is added to the Redis denylist for the remaining lifetime of the
+     * token, otherwise the presented bearer would keep working until `exp`.
+     *
+     * Always 204: an unknown session token is not an error, and a Redis failure
+     * on the denylist write is best effort (the refresh sessions are still
+     * revoked and the access token then survives only until its own `exp`).
      */
     async logout(request, reply) {
       const agent = requireAgent(request);
@@ -280,6 +287,15 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
       } else {
         await services.sessions.revokeAllForUser(agent.id);
       }
+
+      // Best effort by contract: `denyAccessToken` never throws.
+      await denyAccessToken({
+        jti: agent.jti,
+        expiresAt: agent.tokenExpiresAt,
+        now: services.clock.now(),
+        cache: services.cache,
+        logger: services.logger,
+      });
 
       reply.code(204);
       return undefined;
