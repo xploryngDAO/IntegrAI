@@ -166,3 +166,19 @@ docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect \
 ```
 
 Só ignore após confirmar que o valor é fixture/documentação, nunca um segredo real.
+
+## 14. Monitor de uptime (GitHub Actions)
+
+Workflow `.github/workflows/uptime.yml` roda **a cada 10 minutos** (e por
+`workflow_dispatch`) sem serviço externo:
+
+1. lê `apps/web/runtime-config.json` para descobrir a API publicada;
+2. checa `GET /api/v1/health/ready` (API) e o SPA (Vercel e Pages);
+3. se API ou SPA não responderem 200, **abre/atualiza** a issue
+   `[ops] Produção indisponível` com o payload do readiness e o link do run;
+4. quando tudo volta a 200, comenta e **fecha** a issue de incidente.
+
+Validação: primeira execução manual (commit `c643e2f`) → `Uptime: success` e
+nenhuma issue de incidente criada (sistema saudável). Esse monitor cobre o
+período em que a API pública roda em túnel; o stack self-hosted continua com
+Prometheus/Grafana (`deploy/observability/`).
