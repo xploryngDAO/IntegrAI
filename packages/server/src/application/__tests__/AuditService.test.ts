@@ -192,3 +192,65 @@ describe('AuditService.list (tenant scope, filters, pagination)', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', httpStatus: 422 });
   });
 });
+
+describe('AuditService.exportRows (CSV snapshot)', () => {
+  function seedRows() {
+    const { repo, service } = build();
+    for (let index = 0; index < 3; index += 1) {
+      repo.seed({
+        id: `audit-${index}`,
+        tenantId: 'tenant-1',
+        action: index === 2 ? 'auth.login.failure' : 'auth.login.success',
+        createdAt: new Date(T0.getTime() + index * 60_000),
+      });
+    }
+    repo.seed({
+      id: 'other-tenant',
+      tenantId: 'tenant-2',
+      action: 'auth.login.success',
+      createdAt: new Date(T0.getTime() + 10 * 60_000),
+    });
+    return { repo, service };
+  }
+
+  it('applies the same tenant scope/filters, newest first, capped at 10k', async () => {
+    const { repo, service } = seedRows();
+
+    const rows = await service.exportRows('tenant-1', {
+      action: 'auth.login.success',
+    });
+
+    expect(rows.map((entry) => entry.id)).toEqual(['audit-1', 'audit-0']);
+    expect(rows.every((entry) => entry.tenantId === 'tenant-1')).toBe(true);
+    expect(repo.lastFilter).toMatchObject({
+      tenantId: 'tenant-1',
+      offset: 0,
+      limit: 10_000,
+      action: 'auth.login.success',
+    });
+    expect(rows[0]?.createdAt).toBe(
+      new Date(T0.getTime() + 60_000).toISOString(),
+    );
+  });
+
+  it('honors a smaller limit and clamps a larger one to the hard cap', async () => {
+    const { repo, service } = seedRows();
+
+    await service.exportRows('tenant-1', {}, 2);
+    expect(repo.lastFilter?.limit).toBe(2);
+
+    await service.exportRows('tenant-1', {}, 50_000);
+    expect(repo.lastFilter?.limit).toBe(10_000);
+  });
+
+  it('rejects an inverted date window with 422 VALIDATION_ERROR', async () => {
+    const { service } = seedRows();
+
+    await expect(
+      service.exportRows('tenant-1', {
+        from: new Date(T0.getTime() + 60_000),
+        to: new Date(T0.getTime()),
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', httpStatus: 422 });
+  });
+});

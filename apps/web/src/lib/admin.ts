@@ -123,6 +123,72 @@ export function adminErrorMessage(error: unknown): string {
     : 'Não foi possível falar com a API. Tente novamente.';
 }
 
+/** Failure of `DELETE /admin/invitations/:id` (revocation of a pending invite). */
+export function invitationErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.status === 404) {
+      return 'Convite não encontrado (HTTP 404). Ele pode ter sido revogado ou removido; atualize a lista.';
+    }
+    if (error.status === 409) {
+      // The API's message is the truth (e.g. "Invitation has already been
+      // accepted"). It is shown first; the hint below explains what to do next.
+      if (error.code === 'INVITATION_ALREADY_ACCEPTED') {
+        const message = error.message.trim();
+        const sentence = /[.!?]$/.test(message) ? message : `${message}.`;
+        return `${sentence} Atualize a lista: convites aceitos não podem ser revogados.`;
+      }
+      return `${error.message} (HTTP 409). O convite mudou em outra sessão; atualize a lista e tente novamente.`;
+    }
+    if (error.status === 401) {
+      return 'Sua sessão expirou. Entre novamente para administrar os convites.';
+    }
+    if (error.status === 403) {
+      return 'Somente um ADMIN do workspace pode revogar convites (HTTP 403).';
+    }
+  }
+  return adminErrorMessage(error);
+}
+
+/* ==========================================================================
+ * Invitations (`GET /admin/invitations`)
+ * ========================================================================== */
+
+export type InvitationStatusTone = 'ok' | 'warn' | 'danger' | 'neutral';
+
+/** PT-BR label of an invitation status; an unknown code is kept verbatim. */
+export function invitationStatusLabel(status: string | null | undefined): string {
+  const value = (status ?? '').trim();
+  switch (value.toUpperCase()) {
+    case 'PENDING':
+      return 'Pendente';
+    case 'ACCEPTED':
+      return 'Aceito';
+    case 'EXPIRED':
+      return 'Expirado';
+    default:
+      return value.length > 0 ? value : '—';
+  }
+}
+
+export function invitationStatusTone(status: string | null | undefined): InvitationStatusTone {
+  switch ((status ?? '').trim().toUpperCase()) {
+    case 'PENDING':
+      return 'warn';
+    case 'ACCEPTED':
+      return 'ok';
+    case 'EXPIRED':
+      return 'danger';
+    default:
+      // An unknown status is neither success nor failure: neutral, raw label.
+      return 'neutral';
+  }
+}
+
+/** Only a PENDING invitation can be revoked (`DELETE /admin/invitations/:id`). */
+export function isInvitationPending(status: string | null | undefined): boolean {
+  return (status ?? '').trim().toUpperCase() === 'PENDING';
+}
+
 /* ==========================================================================
  * Audit trail
  * ========================================================================== */

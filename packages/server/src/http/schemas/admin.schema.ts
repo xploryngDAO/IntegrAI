@@ -36,18 +36,31 @@ const isoInstantSchema = z
 
 const optionalPositiveInt = blankAsUndefined(z.coerce.number().int().min(1));
 
-/** `GET /admin/audit-logs` - filters + pagination (+ 422 for perPage > 100). */
-export const auditLogQuerySchema = z.object({
+/**
+ * Filter fields shared by the JSON list and the CSV export. Keeping them in one
+ * object means the export validates exactly the same `action`/`actorId`/`from`/
+ * `to` contract (the export has no pagination and is capped server-side).
+ */
+const auditFilterFields = {
   action: blankAsUndefined(z.string().trim().min(1).max(96)).optional(),
   actorId: blankAsUndefined(z.string().uuid()).optional(),
   from: blankAsUndefined(isoInstantSchema).optional(),
   to: blankAsUndefined(isoInstantSchema).optional(),
+} as const;
+
+/** `GET /admin/audit-logs` - filters + pagination (+ 422 for perPage > 100). */
+export const auditLogQuerySchema = z.object({
+  ...auditFilterFields,
   page: optionalPositiveInt.default(1),
   perPage: blankAsUndefined(z.coerce.number().int().min(1).max(AUDIT_MAX_PER_PAGE)).default(
     AUDIT_DEFAULT_PER_PAGE,
   ),
 });
 
+/** `GET /admin/audit-logs/export.csv` - the same filters, no pagination. */
+export const auditExportQuerySchema = z.object({ ...auditFilterFields });
+
 export type AdminUserParams = z.infer<typeof adminUserParamsSchema>;
 export type UpdateAdminUserBody = z.infer<typeof updateAdminUserBodySchema>;
 export type AuditLogQueryInput = z.infer<typeof auditLogQuerySchema>;
+export type AuditExportQueryInput = z.infer<typeof auditExportQuerySchema>;

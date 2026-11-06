@@ -6,20 +6,32 @@ import { useWorkspace } from '../lib/store';
 import { isTenantAdmin } from '../lib/platform';
 import { adminErrorMessage, roleLabel } from '../lib/admin';
 import type { AdminUser } from '../lib/types';
-import { Button, Card, EmptyState, Skeleton } from '../components/ui';import { AdminLogsTab } from '../components/admin/AdminLogsTab';
+import { Button, Card, EmptyState, Skeleton } from '../components/ui';
+import { AdminInvitationsTab } from '../components/admin/AdminInvitationsTab';
+import { AdminLogsTab } from '../components/admin/AdminLogsTab';
 import { AdminUsersTab } from '../components/admin/AdminUsersTab';
 
-type AdminTab = 'users' | 'logs';
+type AdminTab = 'users' | 'invitations' | 'logs';
+
+const ADMIN_TABS: readonly AdminTab[] = ['users', 'invitations', 'logs'];
+
+/** Keeps the tab value inside the union (Radix hands back a plain string). */
+function asAdminTab(value: string): AdminTab {
+  return ADMIN_TABS.includes(value as AdminTab) ? (value as AdminTab) : 'users';
+}
 
 /**
  * `/admin` — workspace administration for the tenant ADMIN.
  *
- * Two tabs share one page:
+ * Three tabs share one page:
  *  - **Usuários**: the operator roster with role, activation and session
  *    revoke actions plus the invitation CTA (`GET|PATCH /admin/users`,
  *    `POST /admin/users/:id/revoke-sessions`, `POST /invitations`);
- *  - **Logs**: the administrative audit trail with action/actor/period filters
- *    and server-side pagination (`GET /admin/audit-logs`).
+ *  - **Convites**: pending/accepted/expired invitations with the revoke action
+ *    for PENDING rows (`GET|DELETE /admin/invitations`);
+ *  - **Logs**: the administrative audit trail with action/actor/period filters,
+ *    server-side pagination and the CSV export of the applied filters
+ *    (`GET /admin/audit-logs`, `GET /admin/audit-logs/export.csv`).
  *
  * The API is the real guard. A 403 anywhere (or a role that is not ADMIN)
  * renders the access-restricted state instead of a broken screen; the page
@@ -158,7 +170,7 @@ export function AdminPage(): JSX.Element {
       <Tabs
         label="Seções da administração"
         value={tab}
-        onValueChange={(value) => setTab(value === 'logs' ? 'logs' : 'users')}
+        onValueChange={(value) => setTab(asAdminTab(value))}
         items={[
           {
             value: 'users',
@@ -174,6 +186,13 @@ export function AdminPage(): JSX.Element {
                 onChanged={reloadUsers}
                 onForbidden={handleForbidden}
               />
+            ),
+          },
+          {
+            value: 'invitations',
+            label: 'Convites',
+            content: (
+              <AdminInvitationsTab onForbidden={handleForbidden} refreshKey={reloadKey} />
             ),
           },
           {

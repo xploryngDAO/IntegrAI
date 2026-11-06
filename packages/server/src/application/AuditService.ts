@@ -13,6 +13,7 @@ import type {
 } from '@sac/shared';
 import {
   AUDIT_DEFAULT_PER_PAGE,
+  AUDIT_EXPORT_MAX_ROWS,
   AUDIT_MAX_PER_PAGE,
   ValidationError,
   redactPiiForLogs,
@@ -102,6 +103,39 @@ export class AuditService implements IAuditService {
       AUDIT_DEFAULT_PER_PAGE,
     );
 
+    const filter = this.buildFilter(tenantId, query, (page - 1) * perPage, perPage);
+    const { items, total } = await this.repository.list(filter);
+    return {
+      items: items.map(toAuditView),
+      page,
+      perPage,
+      total,
+    };
+  }
+
+  /**
+   * CSV export read: same filters/tenant scope as `list`, newest first, no
+   * pagination. Always bounded by `AUDIT_EXPORT_MAX_ROWS` (10k) so a huge
+   * workspace cannot exhaust the API memory.
+   */
+  async exportRows(
+    tenantId: string,
+    query: AuditLogQuery = {},
+    limit: number = AUDIT_EXPORT_MAX_ROWS,
+  ): Promise<AuditEventView[]> {
+    const rows = clampInteger(limit, 1, AUDIT_EXPORT_MAX_ROWS, AUDIT_EXPORT_MAX_ROWS);
+    const filter = this.buildFilter(tenantId, query, 0, rows);
+    const { items } = await this.repository.list(filter);
+    return items.map(toAuditView);
+  }
+
+  /** Shared tenant-scoped filter builder + inverted-window guard. */
+  private buildFilter(
+    tenantId: string,
+    query: AuditLogQuery,
+    offset: number,
+    limit: number,
+  ): AuditListFilter {
     if (
       query.from !== undefined &&
       query.to !== undefined &&
@@ -113,25 +147,14 @@ export class AuditService implements IAuditService {
       });
     }
 
-    const filter: AuditListFilter = {
-      tenantId,
-      offset: (page - 1) * perPage,
-      limit: perPage,
-    };
+    const filter: AuditListFilter = { tenantId, offset, limit };
     const action = nonEmpty(query.action);
     if (action !== undefined) filter.action = action;
     const actorId = nonEmpty(query.actorId);
     if (actorId !== undefined) filter.actorId = actorId;
     if (query.from !== undefined) filter.from = query.from;
     if (query.to !== undefined) filter.to = query.to;
-
-    const { items, total } = await this.repository.list(filter);
-    return {
-      items: items.map(toAuditView),
-      page,
-      perPage,
-      total,
-    };
+    return filter;
   }
 }
 

@@ -22,5 +22,17 @@ export const adminRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ctx
     { preHandler: adminOnly },
     controllers.revokeUserSessions,
   );
+  app.get('/invitations', { preHandler: adminOnly }, controllers.listInvitations);
+  app.delete(
+    '/invitations/:id',
+    { preHandler: adminOnly },
+    controllers.revokeInvitation,
+  );
   app.get('/audit-logs', { preHandler: adminOnly }, controllers.listAuditLogs);
+  // Declared after `/audit-logs`: the static children never shadow the parent.
+  app.get(
+    '/audit-logs/export.csv',
+    { preHandler: adminOnly },
+    controllers.exportAuditLogsCsv,
+  );
 };

@@ -546,6 +546,14 @@ export interface IInvitationRepository {
    * link stops working immediately and the row stays visible as expired.
    */
   revoke(id: string, tenantId: string, at: Date): Promise<boolean>;
+  /**
+   * Hard-deletes a still-pending invitation of the caller tenant (the ADMIN
+   * console "revoke" is a row delete, not an in-place expiry).
+   *
+   * Conditional on `accepted_at IS NULL` and `expires_at > at`, so a concurrent
+   * acceptance/expiry wins the race and the caller sees `false`.
+   */
+  deletePending(id: string, tenantId: string, at: Date): Promise<boolean>;
 }
 
 /* ==========================================================================

@@ -30,14 +30,18 @@ import type {
   AcceptInvitationBody,
   AccountRow,
   ActionBody,
+  AdminInvitation,
+  AdminInvitationsResult,
   AdminUser,
   AdminUserUpdate,
   AdminUsersResult,
   AuditLogEntry,
+  AuditLogExportQuery,
   AuditLogPage,
   AuditLogQuery,
   ConnectAccountPayload,
   DeleteTenantBody,
+  DownloadedFile,
   InviteUserBody,
   InviteUserResult,
   IntegrationSetup,
@@ -374,6 +378,22 @@ function newIdempotencyKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Normalises a failed `fetch` (abort or network) into a typed client error. */
+function transportError(error: unknown): ApiClientError {
+  if (isAbortError(error)) {
+    return new ApiClientError(
+      0,
+      'TIMEOUT',
+      'Tempo esgotado ao falar com a API. Verifique a conexão e tente novamente.',
+    );
+  }
+  return new ApiClientError(
+    0,
+    'NETWORK_ERROR',
+    'Falha de rede ao falar com a API. Verifique a conexão e tente novamente.',
+  );
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
@@ -399,18 +419,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         signal: controller.signal,
       });
     } catch (error) {
-      if (isAbortError(error)) {
-        throw new ApiClientError(
-          0,
-          'TIMEOUT',
-          'Tempo esgotado ao falar com a API. Verifique a conexão e tente novamente.',
-        );
-      }
-      throw new ApiClientError(
-        0,
-        'NETWORK_ERROR',
-        'Falha de rede ao falar com a API. Verifique a conexão e tente novamente.',
-      );
+      throw transportError(error);
     }
 
     // 204 has no body by definition; parsing it would surface a false
@@ -430,6 +439,114 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       );
     }
     return unwrap<T>(payload);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+/* ==========================================================================
+ * Authenticated file download (`GET /admin/audit-logs/export.csv`)
+ *
+ * `request()` always parses JSON, so binary/text artifacts travel through this
+ * dedicated path: same bearer token, same error envelope, but the body is kept
+ * as a Blob and the file name comes from `Content-Disposition` when present.
+ * ========================================================================== */
+
+/** Export of a whole trail can take longer than a page read. */
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/** Strips path separators/control chars so the server name is safe on disk. */
+function sanitizeFileName(value: string): string | null {
+  const name = value
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .trim();
+  return name.length > 0 ? name : null;
+}
+
+/**
+ * Reads `Content-Disposition` honoring both `filename=` and the RFC 5987
+ * `filename*=UTF-8''…` form. Returns null when the header has no usable name.
+ */
+function fileNameFromDisposition(header: string | null): string | null {
+  if (header === null || header.trim().length === 0) return null;
+
+  const extended = /filename\*\s*=\s*([^;]+)/i.exec(header);
+  if (extended !== null) {
+    const value = extended[1].trim().replace(/^["']|["']$/g, '');
+    // RFC 5987 shape: charset'language'percent-encoded-value.
+    const parts = value.split("''");
+    const raw = parts.length > 1 ? parts.slice(1).join("''") : value;
+    try {
+      return sanitizeFileName(decodeURIComponent(raw));
+    } catch {
+      return sanitizeFileName(raw);
+    }
+  }
+
+  const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(header);
+  if (plain !== null) {
+    return sanitizeFileName((plain[1] ?? plain[2] ?? '').trim());
+  }
+  return null;
+}
+
+async function downloadFile(
+  path: string,
+  options: { timeoutMs?: number } = {},
+): Promise<DownloadedFile> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DOWNLOAD_TIMEOUT_MS,
+  );
+  // The route is authenticated like any other one: the bearer token goes in the
+  // header (never in the URL) and the browser receives the bytes, so the SPA can
+  // name the download from the server's `Content-Disposition`.
+  const headers: Record<string, string> = {
+    Accept: 'text/csv, application/octet-stream;q=0.9, */*;q=0.8',
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw transportError(error);
+    }
+
+    if (!response.ok) {
+      // Error bodies are still the JSON envelope on the CSV route, so the real
+      // `code`/`message` (403/409/…) reaches the screen.
+      const payload: unknown = await response.json().catch(() => null);
+      throw apiErrorFrom(response.status, payload);
+    }
+
+    const contentType = response.headers.get('content-type');
+    // A deployment behind the contract may answer JSON on the CSV route: saving
+    // that as `.csv` would hide the problem, so it is surfaced as an error.
+    if (contentType !== null && /json/i.test(contentType)) {
+      throw new ApiClientError(
+        0,
+        'INVALID_RESPONSE',
+        'A API respondeu JSON em vez do arquivo CSV. Confirme a versão do servidor e tente novamente.',
+      );
+    }
+
+    // A zero-row export can legitimately be a header-only (or empty) CSV, so an
+    // empty body is still a successful download — not an invented error.
+    const blob = await response.blob();
+    return {
+      blob,
+      fileName: fileNameFromDisposition(response.headers.get('content-disposition')),
+      contentType,
+    };
   } finally {
     window.clearTimeout(timeout);
   }
@@ -631,6 +748,18 @@ export interface ApiClient {
   /** `GET /admin/audit-logs` — filtered, paginated administrative trail. */
   auditLogs(query: AuditLogQuery): Promise<AuditLogPage>;
   /**
+   * `GET /admin/audit-logs/export.csv` — the whole trail matching the filters
+   * that are active in the tab, as an authenticated download (`text/csv`).
+   */
+  exportAuditLogsCsv(query: AuditLogExportQuery): Promise<DownloadedFile>;
+  /** `GET /admin/invitations` — pending/accepted/expired invitations. */
+  adminInvitations(): Promise<AdminInvitationsResult>;
+  /**
+   * `DELETE /admin/invitations/:id` (204) — revokes a **pending** invitation.
+   * `409 INVITATION_ALREADY_ACCEPTED` means the invitee accepted meanwhile.
+   */
+  revokeInvitation(id: string): Promise<void>;
+  /**
    * `POST /invitations` (Fase 1, ADMIN) — mails the invitation link. Used by the
    * "Convidar operador" CTA of `/admin`.
    */
@@ -753,6 +882,52 @@ function normalizeAuditLog(raw: unknown): AuditLogEntry | null {
     userAgent: asTextOrNull(raw.userAgent),
     metadata: raw.metadata ?? null,
     createdAt: asIsoOrNull(raw.createdAt) ?? '',
+  };
+}
+
+/**
+ * Status of an invitation.
+ *
+ * The server enum wins. When a deployment answers without `status`, the obvious
+ * state is derived from the timestamps the API did return (acceptedAt / expiry)
+ * instead of hardcoding PENDING; an unknown status string is preserved verbatim
+ * so a newer API is shown as-is rather than mislabelled.
+ */
+function normalizeInvitationStatus(
+  raw: unknown,
+  acceptedAt: string | null,
+  expiresAt: string,
+): AdminInvitation['status'] {
+  const value = asTextOrNull(raw);
+  if (value !== null) {
+    const upper = value.toUpperCase();
+    if (upper === 'PENDING' || upper === 'EXPIRED' || upper === 'ACCEPTED') return upper;
+    return value;
+  }
+  if (acceptedAt !== null) return 'ACCEPTED';
+  const expiry = new Date(expiresAt).getTime();
+  if (Number.isFinite(expiry) && expiry < Date.now()) return 'EXPIRED';
+  return 'PENDING';
+}
+
+function normalizeAdminInvitation(raw: unknown): AdminInvitation | null {
+  if (!isRecord(raw)) return null;
+  const id = asTextOrNull(raw.id);
+  // Without the id the row cannot be revoked or re-read, so it is dropped
+  // instead of rendered as an action that would always fail.
+  if (id === null) return null;
+  const acceptedAt = asIsoOrNull(raw.acceptedAt);
+  const expiresAt = asIsoOrNull(raw.expiresAt) ?? '';
+  return {
+    id,
+    // A missing e-mail is rendered as "—"; it is not a reason to hide the row.
+    email: asTextOrNull(raw.email) ?? '',
+    // An absent role is shown as "—" (roleLabel('')), never invented.
+    role: asTextOrNull(raw.role) ?? '',
+    createdAt: asIsoOrNull(raw.createdAt) ?? '',
+    expiresAt,
+    acceptedAt,
+    status: normalizeInvitationStatus(raw.status, acceptedAt, expiresAt),
   };
 }
 
@@ -1489,6 +1664,46 @@ export const api: ApiClient = {
     };
   },
 
+  exportAuditLogsCsv(query) {
+    const search = encodeQuery({
+      action: query.action,
+      actorId: query.actorId,
+      from: query.from,
+      to: query.to,
+    });
+    return downloadFile(`/admin/audit-logs/export.csv${search}`);
+  },
+
+  async adminInvitations() {
+    const payload = await request<unknown>('/admin/invitations', {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
+    const container = isRecord(payload) ? payload : {};
+    const items = Array.isArray(container.items)
+      ? container.items
+          .map((entry) => normalizeAdminInvitation(entry))
+          .filter((entry): entry is AdminInvitation => entry !== null)
+      : [];
+    return {
+      items,
+      total:
+        typeof container.total === 'number' && Number.isFinite(container.total)
+          ? Math.max(0, Math.trunc(container.total))
+          : items.length,
+    };
+  },
+
+  async revokeInvitation(id) {
+    // 204 with no body: `request` already treats it as success. A 409 keeps its
+    // real code (`INVITATION_ALREADY_ACCEPTED`) so the UI can explain it.
+    await request<unknown>(`/admin/invitations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      allowEmpty: true,
+      timeoutMs: 12_000,
+    });
+  },
+
   async inviteUser(body) {
     const payload = await request<unknown>('/invitations', {
       method: 'POST',
@@ -1541,11 +1756,14 @@ export type {
   AccountDiagnosis,
   AccountRow,
   ActionBody,
+  AdminInvitation,
+  AdminInvitationsResult,
   AdminUser,
   AdminUserUpdate,
   AdminUsersResult,
   AgentPresenceStatus,
   AuditLogEntry,
+  AuditLogExportQuery,
   AuditLogPage,
   AuditLogQuery,
   AuthResponse,
@@ -1555,11 +1773,13 @@ export type {
   ConnectorDescriptor,
   DiagnosisCheck,
   DiagnosisStatus,
+  DownloadedFile,
   IAgentSummary,
   IntegrationSetup,
   IntegrationSetupChannel,
   InviteUserBody,
   InviteUserResult,
+  KnownInvitationStatus,
   PlatformAlert,
   PlatformAlertsResult,
   PlatformBillingEvent,

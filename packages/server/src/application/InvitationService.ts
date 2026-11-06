@@ -3,8 +3,12 @@ import bcrypt from 'bcryptjs';
 import type {
   AcceptInvitationCommand,
   AcceptInvitationResult,
+  AdminInvitationListResult,
+  AdminInvitationStatus,
+  AdminInvitationView,
   AgentRecord,
   AgentRole,
+  AuditActorContext,
   CreateInvitationCommand,
   CreateInvitationResult,
   IAgentRepository,
@@ -29,6 +33,7 @@ import {
   ConflictError,
   NotFoundError,
   ValidationError,
+  redactPiiForLogs,
 } from '@sac/shared';
 
 import { hashToken, randomToken, signAccessToken } from './auth/access-token';
@@ -49,6 +54,8 @@ import { isUniqueConstraintViolation } from './repositories/errors';
  *  - `list`   : tenant-scoped projection with `pending | accepted | expired`.
  *  - `revoke` : expires a still-pending invitation in place (single-use), 404
  *    when the row does not belong to the caller tenant.
+ *  - `listForAdmin` / `revokeForAdmin`: ADMIN console projection (uppercase
+ *    status) and the hard-delete revoke, audited as `invitation.revoked`.
  *  - `accept` : public flow. The token proves ownership of the e-mail, so the
  *    new operator is created already verified, in the invitation tenant and
  *    with the invited role; a session (JWT + rotating refresh token) is opened
@@ -261,6 +268,89 @@ export class InvitationService implements IInvitationService {
   }
 
   /* ==================================================================== */
+  /* ADMIN console (list + hard-delete revoke)                            */
+  /* ==================================================================== */
+
+  /**
+   * Admin console projection: uppercase status, ISO instants and an explicit
+   * `acceptedAt`. Always tenant-scoped and newest first.
+   */
+  async listForAdmin(tenantId: string): Promise<AdminInvitationListResult> {
+    const records = await this.invitations.listByTenant(tenantId);
+    const now = this.clock.now();
+    const items = records
+      .slice()
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id),
+      )
+      .map((record) => this.toAdminView(record, now));
+    return { items, total: items.length };
+  }
+
+  /**
+   * ADMIN revoke: hard-deletes a PENDING invitation of the caller tenant.
+   *
+   * Only a still-pending row is deleted (the link stops working because the row
+   * is gone). An already accepted row answers 409 `INVITATION_ALREADY_ACCEPTED`
+   * and an expired one is an idempotent no-op — neither is PENDING anymore.
+   * Every effective deletion is audited as `invitation.revoked`.
+   */
+  async revokeForAdmin(
+    tenantId: string,
+    actor: AuditActorContext,
+    invitationId: string,
+  ): Promise<void> {
+    if (!UUID_PATTERN.test((invitationId ?? '').trim())) {
+      throw new NotFoundError('Invitation', invitationId);
+    }
+
+    const invitation = await this.invitations.findById(invitationId);
+    // Cross-tenant ids are indistinguishable from unknown ids (no enumeration).
+    if (invitation === null || invitation.tenantId !== tenantId) {
+      throw new NotFoundError('Invitation', invitationId);
+    }
+    if (invitation.acceptedAt !== null) {
+      throw this.alreadyAcceptedError();
+    }
+
+    const now = this.clock.now();
+    if (invitation.expiresAt.getTime() <= now.getTime()) {
+      // No longer PENDING: nothing to revoke, keep the endpoint idempotent.
+      return;
+    }
+
+    const deleted = await this.invitations.deletePending(invitation.id, tenantId, now);
+    if (!deleted) {
+      // A concurrent acceptance/expiry won the race.
+      throw this.alreadyAcceptedError();
+    }
+
+    this.logger.info('invitation.revoked', {
+      invitationId: invitation.id,
+      tenantId,
+      actorId: actor.id,
+    });
+
+    this.audit?.record({
+      action: AUDIT_ACTIONS.invitationRevoked,
+      tenantId,
+      actorId: actor.id,
+      // The actor e-mail is a first-class audited column (full); the invitee
+      // e-mail stays in metadata but is redacted before it reaches the store.
+      actorEmail: actor.email ?? null,
+      resourceType: 'invitation',
+      resourceId: invitation.id,
+      ip: actor.ip ?? null,
+      userAgent: actor.userAgent ?? null,
+      metadata: {
+        email: redactPiiForLogs(invitation.email),
+        role: invitation.role,
+      },
+    });
+  }
+
+  /* ==================================================================== */
   /* Accept                                                               */
   /* ==================================================================== */
 
@@ -400,6 +490,33 @@ export class InvitationService implements IInvitationService {
       expiresAt: record.expiresAt,
       acceptedAt: record.acceptedAt,
     };
+  }
+
+  private toAdminView(record: InvitationRecord, now: Date): AdminInvitationView {
+    const status: AdminInvitationStatus =
+      record.acceptedAt !== null
+        ? 'ACCEPTED'
+        : record.expiresAt.getTime() <= now.getTime()
+          ? 'EXPIRED'
+          : 'PENDING';
+
+    return {
+      id: record.id,
+      email: record.email,
+      role: record.role,
+      createdAt: record.createdAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+      acceptedAt: record.acceptedAt?.toISOString() ?? null,
+      status,
+    };
+  }
+
+  private alreadyAcceptedError(): AppError {
+    return new AppError(
+      'INVITATION_ALREADY_ACCEPTED',
+      'Invitation has already been accepted',
+      409,
+    );
   }
 
   private assertPassword(password: string): void {

@@ -4,6 +4,7 @@ import type {
   AgentRole,
   AuditEventInput,
   AuditEventRecord,
+  AuditEventView,
   AuditListFilter,
   AuditLogPage,
   CreateAuditEventInput,
@@ -30,6 +31,8 @@ export class InMemoryAuditEventRepository implements IAuditEventRepository {
   failNextCreate = false;
   /** Every input received by `create`, including the scrubbed metadata. */
   readonly createInputs: CreateAuditEventInput[] = [];
+  /** Last filter received by `list` (lets tests assert the export cap). */
+  lastFilter: AuditListFilter | null = null;
   private sequence = 0;
 
   constructor(private readonly clock: IClock) {}
@@ -60,6 +63,7 @@ export class InMemoryAuditEventRepository implements IAuditEventRepository {
   async list(
     filter: AuditListFilter,
   ): Promise<{ items: AuditEventRecord[]; total: number }> {
+    this.lastFilter = filter;
     const matches = this.rows
       .filter((row) => row.tenantId === filter.tenantId)
       .filter((row) => filter.action === undefined || row.action === filter.action)
@@ -101,6 +105,12 @@ export class RecordingAuditService implements IAuditService {
   readonly recorded: AuditEventInput[] = [];
   listResult: AuditLogPage = { items: [], page: 1, perPage: 25, total: 0 };
   readonly listCalls: Array<{ tenantId: string; query: Parameters<IAuditService['list']>[1] }> = [];
+  exportRowsResult: AuditEventView[] = [];
+  readonly exportCalls: Array<{
+    tenantId: string;
+    query: Parameters<IAuditService['exportRows']>[1];
+    limit: Parameters<IAuditService['exportRows']>[2];
+  }> = [];
 
   record(input: AuditEventInput): void {
     this.recorded.push(input);
@@ -112,6 +122,15 @@ export class RecordingAuditService implements IAuditService {
   ): Promise<AuditLogPage> {
     this.listCalls.push({ tenantId, query });
     return this.listResult;
+  }
+
+  async exportRows(
+    tenantId: string,
+    query?: Parameters<IAuditService['exportRows']>[1],
+    limit?: Parameters<IAuditService['exportRows']>[2],
+  ): Promise<AuditEventView[]> {
+    this.exportCalls.push({ tenantId, query, limit });
+    return this.exportRowsResult;
   }
 
   async flush(): Promise<void> {

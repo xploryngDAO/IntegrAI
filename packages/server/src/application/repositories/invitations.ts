@@ -96,6 +96,16 @@ export class PrismaInvitationRepository implements IInvitationRepository {
     });
     return result.count > 0;
   }
+
+  async deletePending(id: string, tenantId: string, at: Date): Promise<boolean> {
+    // Conditional `deleteMany` (not `delete`): the same predicate as `revoke`
+    // keeps the operation race-safe and tenant-scoped. `0` means the row was
+    // already accepted/expired or belongs to another tenant.
+    const result = await this.prisma.invitation.deleteMany({
+      where: { id, tenantId, acceptedAt: null, expiresAt: { gt: at } },
+    });
+    return result.count > 0;
+  }
 }
 
 export function createInvitationRepository(

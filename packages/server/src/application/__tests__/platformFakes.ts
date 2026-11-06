@@ -422,4 +422,17 @@ export class StubInvitationRepository implements IInvitationRepository {
     row.expiresAt = at;
     return true;
   }
+
+  async deletePending(id: string, tenantId: string, at: Date): Promise<boolean> {
+    const index = this.rows.findIndex(
+      (entry) =>
+        entry.id === id &&
+        entry.tenantId === tenantId &&
+        entry.acceptedAt === null &&
+        entry.expiresAt.getTime() > at.getTime(),
+    );
+    if (index < 0) return false;
+    this.rows.splice(index, 1);
+    return true;
+  }
 }

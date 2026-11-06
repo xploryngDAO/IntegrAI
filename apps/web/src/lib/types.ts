@@ -707,6 +707,54 @@ export interface InviteUserResult {
 }
 
 /* ==========================================================================
+ * Convites pendentes (`/admin/invitations`) + exportação da trilha
+ *
+ *   GET    /admin/invitations      -> { items: AdminInvitation[], total }
+ *   DELETE /admin/invitations/:id  -> 204 (409 INVITATION_ALREADY_ACCEPTED)
+ *   GET    /admin/audit-logs/export.csv?action=&actorId=&from=&to= -> text/csv
+ * ========================================================================== */
+
+/** Status known by this UI; the API owns the enum. */
+export type KnownInvitationStatus = 'PENDING' | 'EXPIRED' | 'ACCEPTED';
+
+/** One invitation row of `GET /admin/invitations`. */
+export interface AdminInvitation {
+  id: string;
+  email: string;
+  /** Role the invitee receives on acceptance (`ADMIN` | `SUPERVISOR` | `AGENT`). */
+  role: string;
+  /** ISO instant the invitation was created (empty when the API omitted it). */
+  createdAt: string;
+  /** ISO instant the single-use link stops working. */
+  expiresAt: string;
+  /** ISO instant the invitee accepted (null while pending/expired). */
+  acceptedAt: string | null;
+  /**
+   * Known status, or the raw code when the API introduces a new one — the table
+   * shows it verbatim instead of guessing.
+   */
+  status: KnownInvitationStatus | (string & {});
+}
+
+/** `GET /admin/invitations` envelope. */
+export interface AdminInvitationsResult {
+  items: AdminInvitation[];
+  total: number;
+}
+
+/** Query of `GET /admin/audit-logs/export.csv` (same filters as the trail). */
+export type AuditLogExportQuery = Omit<AuditLogQuery, 'page' | 'perPage'>;
+
+/** Authenticated binary download returned by the API. */
+export interface DownloadedFile {
+  blob: Blob;
+  /** File name parsed from `Content-Disposition` (already sanitised); null when absent. */
+  fileName: string | null;
+  /** Effective `Content-Type` header (e.g. `text/csv; charset=utf-8`). */
+  contentType: string | null;
+}
+
+/* ==========================================================================
  * Store shape (single zustand hook — see docs/UI_KIT.md §3)
  * ========================================================================== */
 

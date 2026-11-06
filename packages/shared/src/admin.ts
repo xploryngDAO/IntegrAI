@@ -11,7 +11,10 @@ import type { AgentRole } from './enums';
  *   GET   /api/v1/admin/users               -> AdminUserListResult
  *   PATCH /api/v1/admin/users/:id           -> AdminUserView
  *   POST  /api/v1/admin/users/:id/revoke-sessions -> { revoked }
+ *   GET   /api/v1/admin/invitations         -> AdminInvitationListResult
+ *   DELETE /api/v1/admin/invitations/:id    -> 204
  *   GET   /api/v1/admin/audit-logs          -> AuditLogPage
+ *   GET   /api/v1/admin/audit-logs/export.csv -> text/csv attachment
  *   GET   /api/v1/auth/sessions             -> { items: UserSessionView[] }
  *   POST  /api/v1/auth/sessions/revoke-others -> { revoked }
  *
@@ -38,6 +41,7 @@ export const AUDIT_ACTIONS = {
   profileUpdated: 'auth.profile.updated',
   invitationCreated: 'invitation.created',
   invitationAccepted: 'invitation.accepted',
+  invitationRevoked: 'invitation.revoked',
   adminUserRoleChanged: 'admin.user.role_changed',
   adminUserActivated: 'admin.user.activated',
   adminUserDeactivated: 'admin.user.deactivated',
@@ -52,6 +56,13 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 /** Hard cap of the audit/team endpoints; the request is rejected above it. */
 export const AUDIT_MAX_PER_PAGE = 100;
 export const AUDIT_DEFAULT_PER_PAGE = 25;
+
+/**
+ * Hard cap of `GET /admin/audit-logs/export.csv`. The export is a bounded
+ * snapshot (no pagination): the newest 10k matching rows are written and the
+ * response stays memory-safe regardless of the tenant history size.
+ */
+export const AUDIT_EXPORT_MAX_ROWS = 10_000;
 
 /* ==========================================================================
  * Audit trail
@@ -175,6 +186,18 @@ export interface IAuditEventRepository {
 export interface IAuditService {
   record(input: AuditEventInput): void;
   list(tenantId: string, query?: AuditLogQuery): Promise<AuditLogPage>;
+  /**
+   * Flat, capped read used by `GET /admin/audit-logs/export.csv`.
+   *
+   * Applies the same tenant scope/filters as `list` (newest first) but without
+   * pagination, returning at most `limit` rows; the limit is hard-capped at
+   * `AUDIT_EXPORT_MAX_ROWS`.
+   */
+  exportRows(
+    tenantId: string,
+    query?: AuditLogQuery,
+    limit?: number,
+  ): Promise<AuditEventView[]>;
   /** Resolves once every queued write settled (never rejects). */
   flush(): Promise<void>;
 }
@@ -249,6 +272,30 @@ export interface IAdminUserService {
     actor: AuditActorContext,
     userId: string,
   ): Promise<{ revoked: number }>;
+}
+
+/* ==========================================================================
+ * Invitations (`/admin/invitations`)
+ * ========================================================================== */
+
+/** Console status: derived from `acceptedAt` and `expiresAt` vs. "now". */
+export type AdminInvitationStatus = 'PENDING' | 'EXPIRED' | 'ACCEPTED';
+
+/** One invite row of `GET /admin/invitations` (ISO-8601 instants). */
+export interface AdminInvitationView {
+  id: string;
+  email: string;
+  role: AgentRole;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  status: AdminInvitationStatus;
+}
+
+export interface AdminInvitationListResult {
+  items: AdminInvitationView[];
+  /** Total rows of the caller tenant (`items.length`, no pagination). */
+  total: number;
 }
 
 /* ==========================================================================

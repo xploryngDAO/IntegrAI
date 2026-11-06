@@ -21,9 +21,12 @@ import type {
   UpsertInvitationInput,
 } from '@sac/shared';
 
+import { redactPiiForLogs } from '@sac/shared';
+
 import { AuthSessionService } from '../AuthSessionService';
 import { INVITATION_TTL_MS, InvitationService } from '../InvitationService';
 import { InMemorySessionRepository } from './authFakes';
+import { RecordingAuditService } from './adminFakes';
 
 /* ==========================================================================
  * Test doubles
@@ -324,6 +327,19 @@ class InMemoryInvitationRepository implements IInvitationRepository {
     row.expiresAt = at;
     return true;
   }
+
+  async deletePending(id: string, tenantId: string, at: Date): Promise<boolean> {
+    const index = this.rows.findIndex(
+      (entry) =>
+        entry.id === id &&
+        entry.tenantId === tenantId &&
+        entry.acceptedAt === null &&
+        entry.expiresAt.getTime() > at.getTime(),
+    );
+    if (index < 0) return false;
+    this.rows.splice(index, 1);
+    return true;
+  }
 }
 
 /* ==========================================================================
@@ -355,6 +371,7 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
   const invitations = new InMemoryInvitationRepository(clock);
   const email = new FakeEmailService();
   const sessions = new InMemorySessionRepository(clock);
+  const audit = new RecordingAuditService();
 
   const acme = tenants.seed({ slug: 'acme', name: 'Acme' });
   const other = tenants.seed({ slug: 'other', name: 'Other' });
@@ -387,6 +404,7 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
       appBaseUrl: overrides?.appBaseUrl ?? APP_BASE_URL,
     },
     sessions: authSessions,
+    audit,
     repos: { invitations, agents, tenants },
   });
 
@@ -398,6 +416,7 @@ function buildHarness(overrides?: { webOrigin?: string; appBaseUrl?: string }) {
     email,
     sessions,
     authSessions,
+    audit,
     service,
     acme,
     other,
@@ -650,6 +669,176 @@ describe('InvitationService.revoke', () => {
     h.clock.advance(INVITATION_TTL_MS + 1000);
 
     await expect(h.service.revoke(created.invitationId, h.acme.id)).resolves.toBeUndefined();
+  });
+});
+
+/* ==========================================================================
+ * admin console (list + hard-delete revoke)
+ * ========================================================================== */
+
+/** Request provenance of the ADMIN calling the console endpoints. */
+function adminActor(h: Harness) {
+  return {
+    id: h.admin.id,
+    email: h.admin.email,
+    tenantId: h.acme.id,
+    ip: '203.0.113.9',
+    userAgent: 'Vitest/1.0',
+  };
+}
+
+describe('InvitationService.listForAdmin', () => {
+  it('derives the uppercase status, newest first, tenant-scoped with ISO instants', async () => {
+    const h = buildHarness();
+
+    await invite(h, 'expired@acme.test');
+    h.clock.advance(INVITATION_TTL_MS + 1000);
+    await invite(h, 'pending@acme.test');
+    h.clock.advance(1000);
+    await invite(h, 'accepted@acme.test');
+
+    const acceptedToken = extractToken(
+      h.email.invitations.find((entry) => entry.to === 'accepted@acme.test')?.link ?? '',
+    );
+    await h.service.accept({ token: acceptedToken, name: 'Accepted', password: NEW_PASSWORD });
+
+    // A pending invite of another workspace must never leak into the listing.
+    await h.service.create({
+      email: 'outsider@other.test',
+      role: 'AGENT',
+      actor: { id: h.admin.id, name: h.admin.name, tenantId: h.other.id },
+    });
+
+    const result = await h.service.listForAdmin(h.acme.id);
+    const byEmail = new Map(result.items.map((entry) => [entry.email, entry]));
+
+    expect(result.total).toBe(3);
+    expect(result.items.map((entry) => entry.email)).toEqual([
+      'accepted@acme.test',
+      'pending@acme.test',
+      'expired@acme.test',
+    ]);
+    expect(byEmail.get('pending@acme.test')).toMatchObject({
+      status: 'PENDING',
+      acceptedAt: null,
+      role: 'AGENT',
+    });
+    expect(byEmail.get('accepted@acme.test')).toMatchObject({ status: 'ACCEPTED' });
+    expect(byEmail.get('expired@acme.test')).toMatchObject({ status: 'EXPIRED' });
+    expect(byEmail.get('accepted@acme.test')?.acceptedAt).toBe(
+      h.clock.now().toISOString(),
+    );
+    expect(byEmail.get('pending@acme.test')?.createdAt).toBe(
+      new Date(h.clock.now().getTime() - 1000).toISOString(),
+    );
+    expect(byEmail.has('outsider@other.test')).toBe(false);
+  });
+});
+
+describe('InvitationService.revokeForAdmin', () => {
+  it('hard-deletes a pending invitation and audits invitation.revoked', async () => {
+    const h = buildHarness();
+    const created = await invite(h, 'revoke-me@acme.test', 'SUPERVISOR');
+    const token = extractToken(h.email.invitations[0].link);
+    // The create itself is audited; this test asserts only the revoke event.
+    h.audit.recorded.length = 0;
+
+    await h.service.revokeForAdmin(h.acme.id, adminActor(h), created.invitationId);
+
+    // Row deleted (not merely expired): the link is burned with it.
+    expect(h.invitations.rows).toHaveLength(0);
+    await expect(
+      h.service.accept({ token, name: 'Op', password: NEW_PASSWORD }),
+    ).rejects.toMatchObject({ code: 'INVALID_INVITATION_TOKEN', httpStatus: 400 });
+
+    expect(h.audit.actions()).toEqual(['invitation.revoked']);
+    expect(h.audit.recorded[0]).toMatchObject({
+      action: 'invitation.revoked',
+      tenantId: h.acme.id,
+      actorId: h.admin.id,
+      // Full actor e-mail on its own column; the invitee e-mail is redacted.
+      actorEmail: h.admin.email,
+      resourceType: 'invitation',
+      resourceId: created.invitationId,
+      ip: '203.0.113.9',
+      userAgent: 'Vitest/1.0',
+      metadata: {
+        email: redactPiiForLogs('revoke-me@acme.test'),
+        role: 'SUPERVISOR',
+      },
+    });
+  });
+
+  it('refuses an accepted invitation with 409 INVITATION_ALREADY_ACCEPTED and keeps the row', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    const token = extractToken(h.email.invitations[0].link);
+    await h.service.accept({ token, name: 'Op', password: NEW_PASSWORD });
+    h.audit.recorded.length = 0;
+
+    await expect(
+      h.service.revokeForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({
+      code: 'INVITATION_ALREADY_ACCEPTED',
+      httpStatus: 409,
+    });
+
+    expect(h.invitations.rows).toHaveLength(1);
+    expect(h.invitations.rows[0]?.acceptedAt).not.toBeNull();
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 404 for a foreign, unknown or malformed id without auditing', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    h.audit.recorded.length = 0;
+
+    await expect(
+      h.service.revokeForAdmin(h.other.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+    await expect(
+      h.service.revokeForAdmin(
+        h.acme.id,
+        adminActor(h),
+        '00000000-0000-4000-8000-000000000000',
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+    await expect(
+      h.service.revokeForAdmin(h.acme.id, adminActor(h), 'not-a-uuid'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', httpStatus: 404 });
+
+    expect(h.invitations.rows).toHaveLength(1);
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+
+  it('is an idempotent no-op for an already expired invitation', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    h.clock.advance(INVITATION_TTL_MS + 1000);
+    h.audit.recorded.length = 0;
+
+    await expect(
+      h.service.revokeForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).resolves.toBeUndefined();
+
+    // Only PENDING rows are revoked: the expired row stays visible as history.
+    expect(h.invitations.rows).toHaveLength(1);
+    expect(h.audit.recorded).toHaveLength(0);
+  });
+
+  it('answers 409 when a concurrent acceptance wins the delete race', async () => {
+    const h = buildHarness();
+    const created = await invite(h);
+    h.audit.recorded.length = 0;
+    h.invitations.deletePending = async () => false;
+
+    await expect(
+      h.service.revokeForAdmin(h.acme.id, adminActor(h), created.invitationId),
+    ).rejects.toMatchObject({
+      code: 'INVITATION_ALREADY_ACCEPTED',
+      httpStatus: 409,
+    });
+    expect(h.audit.recorded).toHaveLength(0);
   });
 });
 

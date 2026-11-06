@@ -62,7 +62,14 @@ import type {
   RouteDecision,
 } from '../adapter';
 import type { ICache, IClock, ILogger, IQueuePublisher, IRealtimePublisher } from './infra';
-import type { IAdminUserService, IAuditService, RevokeSessionResult, UserSessionView } from '../admin';
+import type {
+  AdminInvitationListResult,
+  AuditActorContext,
+  IAdminUserService,
+  IAuditService,
+  RevokeSessionResult,
+  UserSessionView,
+} from '../admin';
 import type {
   SsoCallbackCommand,
   SsoCallbackResult,
@@ -686,6 +693,20 @@ export interface IInvitationService {
   list(tenantId: string): Promise<InvitationSummary[]>;
   /** Revokes a pending invitation (expires it now); 404 when out of scope. */
   revoke(invitationId: string, tenantId: string): Promise<void>;
+  /**
+   * ADMIN console list: uppercase derived status + ISO instants, newest first,
+   * always scoped to the caller tenant.
+   */
+  listForAdmin(tenantId: string): Promise<AdminInvitationListResult>;
+  /**
+   * ADMIN console revoke: hard-deletes a PENDING row, 404 out of scope and
+   * 409 `INVITATION_ALREADY_ACCEPTED` once consumed. Audits `invitation.revoked`.
+   */
+  revokeForAdmin(
+    tenantId: string,
+    actor: AuditActorContext,
+    invitationId: string,
+  ): Promise<void>;
   /** Consumes the token, creates the verified operator and opens a session. */
   accept(
     command: AcceptInvitationCommand,

@@ -15,6 +15,11 @@ import { Alert, Button, Card, EmptyState, Input, Select, Skeleton } from '../ui'
 
 const PER_PAGE = 25;
 
+/** Fallback name when the API omits `Content-Disposition`: `auditoria-<YYYY-MM-DD>.csv`. */
+function defaultExportName(): string {
+  return `auditoria-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
 interface AppliedFilters {
   action: string;
   actorId: string;
@@ -53,6 +58,9 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, perPage)));
   const hasFilters =
@@ -131,12 +139,16 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
       return;
     }
     setFormError(null);
+    setExportError(null);
+    setExportNotice(null);
     setPage(1);
     setApplied({ ...draft });
   }
 
   function clearFilters(): void {
     setFormError(null);
+    setExportError(null);
+    setExportNotice(null);
     setDraft(EMPTY_FILTERS);
     setPage(1);
     setApplied({ ...EMPTY_FILTERS });
@@ -149,6 +161,51 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
       else next.add(id);
       return next;
     });
+  }
+
+  /**
+   * Downloads the CSV of the **applied** filters (not just the visible page).
+   *
+   * The file is fetched with the bearer token and saved from a Blob, so the
+   * authenticated route works without putting the JWT in the URL. The name comes
+   * from `Content-Disposition` when the API sends it.
+   */
+  async function handleExport(): Promise<void> {
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
+    setExportNotice(null);
+    try {
+      const file = await api.exportAuditLogsCsv({
+        action: applied.action.length > 0 ? applied.action : undefined,
+        actorId: applied.actorId.length > 0 ? applied.actorId : undefined,
+        from: applied.from.length > 0 ? (startOfDayIso(applied.from) ?? undefined) : undefined,
+        to: applied.to.length > 0 ? (endOfDayIso(applied.to) ?? undefined) : undefined,
+      });
+      const url = URL.createObjectURL(file.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.fileName ?? defaultExportName();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      setExportNotice(
+        `Download iniciado: ${anchor.download}. ${
+          hasFilters
+            ? 'O arquivo respeita os filtros aplicados (todas as páginas do resultado).'
+            : 'Sem filtros: a trilha completa do workspace foi solicitada.'
+        }`,
+      );
+    } catch (failure) {
+      if (failure instanceof ApiClientError && failure.status === 403) {
+        onForbidden();
+        return;
+      }
+      setExportError(adminErrorMessage(failure));
+    } finally {
+      setExporting(false);
+    }
   }
 
   const columns = [
@@ -289,6 +346,15 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
           >
             Atualizar
           </Button>
+          <Button
+            variant="secondary"
+            icon="file"
+            loading={exporting}
+            title="Baixa o CSV de todos os registros que correspondem aos filtros aplicados."
+            onClick={() => void handleExport()}
+          >
+            Exportar CSV
+          </Button>
           <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
             {hasFilters ? 'Filtros ativos · ' : ''}
             {loading ? 'consultando…' : `${total} registro(s)`}
@@ -298,6 +364,25 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
         {formError !== null ? (
           <Alert title="Revise o período" tone="warning">
             {formError}
+          </Alert>
+        ) : null}
+
+        {exportError !== null ? (
+          <Alert title="Não foi possível exportar o CSV" tone="danger">
+            <div className="flex flex-col gap-2">
+              <span>{exportError}</span>
+              <div>
+                <Button size="sm" icon="file" loading={exporting} onClick={() => void handleExport()}>
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
+          </Alert>
+        ) : null}
+
+        {exportNotice !== null ? (
+          <Alert title="Exportação iniciada" tone="success">
+            {exportNotice}
           </Alert>
         ) : null}
 
@@ -357,7 +442,9 @@ export function AdminLogsTab({ users, onForbidden, refreshKey = 0 }: AdminLogsTa
         )}
 
         <p className="m-0 text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
-          Chamada: <span className="sac-num">GET /admin/audit-logs?action=&amp;actorId=&amp;page=&amp;perPage=&amp;from=&amp;to=</span>
+          Chamadas: <span className="sac-num">GET /admin/audit-logs?action=&amp;actorId=&amp;page=&amp;perPage=&amp;from=&amp;to=</span>{' '}
+          · <span className="sac-num">GET /admin/audit-logs/export.csv?action=&amp;actorId=&amp;from=&amp;to=</span>{' '}
+          (download autenticado)
         </p>
       </div>
     </Card>
