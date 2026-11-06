@@ -1,6 +1,7 @@
 import type {
   AdminOverview,
   AgentRecord,
+  AgentRole,
   AdminSessionListQuery,
   AdminSessionListResult,
   AdminSessionRecord,
@@ -16,8 +17,10 @@ import type {
   IAuditService,
   ICache,
   IClock,
+  IEmailService,
   ILogger,
   ISessionRepository,
+  ITenantRepository,
   UpdateAdminUserCommand,
 } from '@sac/shared';
 import {
@@ -57,6 +60,10 @@ import { setUserRevocationWatermark } from './auth/access-token-revocation';
  *    access-token watermark, so live JWTs of the target die immediately.
  *
  * Every mutation is audited through the best-effort `AuditService`.
+ *
+ * An effective role/active-flag change also e-mails the AFFECTED operator (never
+ * the actor) through the best-effort `IEmailService`: the response never waits
+ * for the relay and a delivery failure is only logged.
  */
 
 export const ADMIN_USER_ERROR_CODES = {
@@ -76,6 +83,10 @@ export interface AdminUserServiceDependencies {
   };
   /** Optional only so legacy unit harnesses keep compiling. */
   audit?: IAuditService;
+  /** Optional only so legacy unit harnesses keep compiling (no SMTP needed). */
+  email?: IEmailService;
+  /** Workspace display name for the alert body; optional for the same reason. */
+  tenants?: ITenantRepository;
 }
 
 export class AdminUserService implements IAdminUserService {
@@ -85,6 +96,8 @@ export class AdminUserService implements IAdminUserService {
   private readonly adminUsers: IAdminUserRepository;
   private readonly sessions: ISessionRepository;
   private readonly audit: IAuditService | undefined;
+  private readonly email: IEmailService | undefined;
+  private readonly tenants: ITenantRepository | undefined;
 
   constructor(deps: AdminUserServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AdminUserService' });
@@ -93,6 +106,8 @@ export class AdminUserService implements IAdminUserService {
     this.adminUsers = deps.repos.adminUsers;
     this.sessions = deps.repos.sessions;
     this.audit = deps.audit;
+    this.email = deps.email;
+    this.tenants = deps.tenants;
   }
 
   /* ==================================================================== */
@@ -252,6 +267,17 @@ export class AdminUserService implements IAdminUserService {
       role: updated.role,
     });
 
+    // Best effort, fire-and-forget: the change is already persisted and audited,
+    // so the HTTP response never waits for (nor fails with) the relay.
+    this.notifyAccountChanges({
+      tenantId,
+      actor,
+      target: updated,
+      previousRole,
+      roleChanged,
+      activeChanged,
+    });
+
     return this.projectOne(tenantId, updated.id);
   }
 
@@ -396,6 +422,96 @@ export class AdminUserService implements IAdminUserService {
   /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
+
+  /**
+   * Schedules the account-change e-mails (never awaited).
+   *
+   * Contract:
+   *  - fire-and-forget: the response/audit row are already produced, so a slow
+   *    or broken relay can never delay or fail the administrative operation;
+   *  - the recipient is the AFFECTED operator, never the actor. A self-change is
+   *    already refused above; the guard is kept so relaxing that rule can never
+   *    e-mail the person who performed the change;
+   *  - at most one message per dimension that effectively changed.
+   */
+  private notifyAccountChanges(input: {
+    tenantId: string;
+    actor: AuditActorContext;
+    target: AgentRecord;
+    previousRole: AgentRole;
+    roleChanged: boolean;
+    activeChanged: boolean;
+  }): void {
+    if (this.email === undefined) return;
+    if (input.target.id === input.actor.id) return;
+
+    // `deliverAccountChangeEmails` swallows every failure, so this promise never
+    // rejects (same pattern as the new-device login alert).
+    void this.deliverAccountChangeEmails(input);
+  }
+
+  private async deliverAccountChangeEmails(input: {
+    tenantId: string;
+    actor: AuditActorContext;
+    target: AgentRecord;
+    previousRole: AgentRole;
+    roleChanged: boolean;
+    activeChanged: boolean;
+  }): Promise<void> {
+    const email = this.email;
+    if (email === undefined) return;
+
+    try {
+      const tenantName = await this.resolveTenantName(input.tenantId);
+      // Unknown actor e-mail is rendered as "um administrador" by the template.
+      const changedBy = input.actor.email ?? null;
+      const recipient = {
+        to: input.target.email,
+        name: input.target.name,
+        changedBy,
+        tenantName,
+      };
+
+      if (input.roleChanged) {
+        await email.sendRoleChangedAlert({
+          ...recipient,
+          previousRole: input.previousRole,
+          newRole: input.target.role,
+        });
+      }
+
+      if (input.activeChanged) {
+        if (input.target.isActive) {
+          await email.sendAccountReactivatedAlert(recipient);
+        } else {
+          await email.sendAccountDeactivatedAlert(recipient);
+        }
+      }
+    } catch (error) {
+      // Best effort: the mutation already succeeded, so this only warns. No
+      // token/link is involved; identifiers are the ones already in the log.
+      this.logger.warn('admin.user.account_alert_failed', {
+        tenantId: input.tenantId,
+        userId: input.target.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Workspace display name for the alert body; never fatal. */
+  private async resolveTenantName(tenantId: string): Promise<string | null> {
+    if (this.tenants === undefined) return null;
+    try {
+      const tenant = await this.tenants.findById(tenantId);
+      return tenant?.name ?? null;
+    } catch (error) {
+      this.logger.warn('admin.user.account_alert_tenant_lookup_failed', {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
 
   /** Tenant boundary: an id from another workspace is a 404, never a 403. */
   private async requireTenantUser(tenantId: string, userId: string): Promise<AgentRecord> {

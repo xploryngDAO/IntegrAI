@@ -311,12 +311,15 @@ export function createContainer(args: ContainerArgs): IAppServices {
   });
 
   // Fase 6: workspace team administration (`/admin/users`). The last-admin and
-  // self-change guards live in the service; mutations go through `audit`.
+  // self-change guards live in the service; mutations go through `audit` and an
+  // effective role/active change e-mails the affected operator (best effort).
   const adminUsers = new AdminUserService({
     logger: infra.logger,
     clock: infra.clock,
     cache: infra.cache,
     audit,
+    email: infra.email,
+    tenants: infra.tenants,
     repos: {
       adminUsers: infra.adminUsers,
       sessions: infra.sessions,

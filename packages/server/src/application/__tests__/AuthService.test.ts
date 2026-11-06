@@ -201,6 +201,18 @@ class FakeEmailService implements IEmailService {
     }
     this.newSessionAlerts.push(input);
   }
+
+  async sendRoleChangedAlert(): Promise<void> {
+    // Account-management alerts are covered by AdminUsers.test.ts.
+  }
+
+  async sendAccountDeactivatedAlert(): Promise<void> {
+    // Account-management alerts are covered by AdminUsers.test.ts.
+  }
+
+  async sendAccountReactivatedAlert(): Promise<void> {
+    // Account-management alerts are covered by AdminUsers.test.ts.
+  }
 }
 
 class InMemoryTenantRepository implements ITenantRepository {

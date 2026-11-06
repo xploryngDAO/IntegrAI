@@ -72,6 +72,9 @@ class RecordingEmailService implements IEmailService {
   }
   async sendInvitationEmail(): Promise<void> {}
   async sendNewSessionAlert(): Promise<void> {}
+  async sendRoleChangedAlert(): Promise<void> {}
+  async sendAccountDeactivatedAlert(): Promise<void> {}
+  async sendAccountReactivatedAlert(): Promise<void> {}
 }
 
 class InMemoryVerificationRepository implements IEmailVerificationRepository {

@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import type { AgentRecord, ILogger } from '@sac/shared';
+import { describe, expect, it, vi } from 'vitest';
+import type {
+  AccountStatusAlertEmail,
+  AgentRecord,
+  IEmailService,
+  ILogger,
+  ITenantRepository,
+  RoleChangedAlertEmail,
+} from '@sac/shared';
 import { ADMIN_USERS_EXPORT_MAX_ROWS } from '@sac/shared';
 
 import { userRevocationWatermarkKey } from '../auth/access-token-revocation';
@@ -14,7 +21,9 @@ import { InMemoryAdminUserRepository, RecordingAuditService } from './adminFakes
  *  - self-change and self-revocation are refused (409);
  *  - the last ACTIVE ADMIN can neither be demoted nor deactivated (409);
  *  - every effective mutation is audited with the right action code;
- *  - bulk revocation closes the refresh sessions AND stamps the JWT watermark.
+ *  - bulk revocation closes the refresh sessions AND stamps the JWT watermark;
+ *  - an effective role/active change e-mails the AFFECTED operator (never the
+ *    actor) without ever blocking the response.
  */
 
 const silentLogger: ILogger = {
@@ -30,20 +39,93 @@ const silentLogger: ILogger = {
 
 const T0 = new Date('2026-11-06T12:00:00.000Z');
 
-function build() {
+const TENANT_NAME = 'Acme Ltda';
+
+/** Records the account-management alerts, in delivery order. */
+class RecordingAccountEmailService implements IEmailService {
+  readonly roleChanges: RoleChangedAlertEmail[] = [];
+  readonly deactivated: AccountStatusAlertEmail[] = [];
+  readonly activated: AccountStatusAlertEmail[] = [];
+  /** Every attempt, including the ones that throw (failure-path assertions). */
+  attempts = 0;
+  failNextAlert = false;
+
+  async sendVerificationEmail(): Promise<void> {}
+
+  async sendPasswordResetEmail(): Promise<void> {}
+
+  async sendInvitationEmail(): Promise<void> {}
+
+  async sendNewSessionAlert(): Promise<void> {
+    // New-device alerts are covered by AuthService.test.ts.
+  }
+
+  async sendRoleChangedAlert(input: RoleChangedAlertEmail): Promise<void> {
+    this.attempts += 1;
+    this.failIfRequested();
+    this.roleChanges.push(input);
+  }
+
+  async sendAccountDeactivatedAlert(input: AccountStatusAlertEmail): Promise<void> {
+    this.attempts += 1;
+    this.failIfRequested();
+    this.deactivated.push(input);
+  }
+
+  async sendAccountReactivatedAlert(input: AccountStatusAlertEmail): Promise<void> {
+    this.attempts += 1;
+    this.failIfRequested();
+    this.activated.push(input);
+  }
+
+  /** Delivered messages (any kind), for "nothing was sent" assertions. */
+  delivered(): number {
+    return this.roleChanges.length + this.deactivated.length + this.activated.length;
+  }
+
+  private failIfRequested(): void {
+    if (!this.failNextAlert) return;
+    this.failNextAlert = false;
+    throw new Error('smtp unavailable');
+  }
+}
+
+/**
+ * Only `findById` is exercised (the alert body needs the workspace name); the
+ * remaining `ITenantRepository` methods are intentionally absent and the double
+ * is cast at the seam, like the other narrow fakes in this suite.
+ */
+class FakeTenantDirectory {
+  readonly names = new Map<string, string>();
+  failLookup = false;
+
+  async findById(id: string): Promise<{ name: string } | null> {
+    if (this.failLookup) throw new Error('tenant store unavailable');
+    const name = this.names.get(id);
+    return name === undefined ? null : { name };
+  }
+}
+
+function build(options: { withEmail?: boolean } = {}) {
   const clock = { now: () => new Date(T0.getTime()) };
   const cache = new InMemoryCache();
   const audit = new RecordingAuditService();
   const sessions = new InMemorySessionRepository(clock);
   const repo = new InMemoryAdminUserRepository(clock);
+  const email = new RecordingAccountEmailService();
+  const tenants = new FakeTenantDirectory();
+  tenants.names.set('tenant-1', TENANT_NAME);
+
   const service = new AdminUserService({
     logger: silentLogger,
     clock,
     cache,
     audit,
+    ...(options.withEmail === false ? {} : { email }),
+    tenants: tenants as unknown as ITenantRepository,
     repos: { adminUsers: repo, sessions },
   });
-  return { clock, cache, audit, sessions, repo, service };
+  return { clock, cache, audit, sessions, repo, service, email, tenants };
 }
 
 const ACTOR = { id: 'admin-1', email: 'admin@acme.test', tenantId: 'tenant-1', ip: '203.0.113.7' };
@@ -351,6 +433,187 @@ describe('AdminUserService.update', () => {
 
     expect(result.role).toBe('AGENT');
     expect(audit.recorded).toHaveLength(0);
+  });
+});
+
+describe('AdminUserService.update + account alert e-mails', () => {
+  /**
+   * Lets every fire-and-forget continuation run before a "nothing was sent"
+   * assertion. The alert chain awaits only in-memory doubles, so one macrotask
+   * is enough.
+   */
+  async function flushAlerts(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it('e-mails the target about an effective role change with the full payload', async () => {
+    const { repo, email, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, { id: 'agent-2', role: 'AGENT', name: 'Ana', email: 'ana@acme.test' });
+
+    const result = await service.update('tenant-1', ACTOR, 'agent-2', {
+      role: 'SUPERVISOR',
+    });
+    expect(result.role).toBe('SUPERVISOR');
+
+    await vi.waitFor(() => expect(email.roleChanges).toHaveLength(1));
+    expect(email.roleChanges[0]).toEqual({
+      to: 'ana@acme.test',
+      name: 'Ana',
+      previousRole: 'AGENT',
+      newRole: 'SUPERVISOR',
+      changedBy: 'admin@acme.test',
+      tenantName: TENANT_NAME,
+    });
+    expect(email.deactivated).toHaveLength(0);
+    expect(email.activated).toHaveLength(0);
+    // The existing audit is untouched and never duplicated by the alert path.
+    expect(audit.actions()).toEqual(['admin.user.role_changed']);
+  });
+
+  it('e-mails the target when the account is deactivated', async () => {
+    const { repo, email, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, {
+      id: 'agent-2',
+      role: 'AGENT',
+      name: 'Bruno',
+      email: 'bruno@acme.test',
+    });
+
+    const result = await service.update('tenant-1', ACTOR, 'agent-2', { isActive: false });
+    expect(result.isActive).toBe(false);
+
+    await vi.waitFor(() => expect(email.deactivated).toHaveLength(1));
+    expect(email.deactivated[0]).toEqual({
+      to: 'bruno@acme.test',
+      name: 'Bruno',
+      changedBy: 'admin@acme.test',
+      tenantName: TENANT_NAME,
+    });
+    expect(email.roleChanges).toHaveLength(0);
+    expect(email.activated).toHaveLength(0);
+    expect(audit.actions()).toEqual(['admin.user.deactivated']);
+  });
+
+  it('e-mails the target when the account is reactivated', async () => {
+    const { repo, email, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, {
+      id: 'agent-2',
+      role: 'AGENT',
+      name: 'Carla',
+      email: 'carla@acme.test',
+      isActive: false,
+    });
+
+    const result = await service.update('tenant-1', ACTOR, 'agent-2', { isActive: true });
+    expect(result.isActive).toBe(true);
+
+    await vi.waitFor(() => expect(email.activated).toHaveLength(1));
+    expect(email.activated[0]).toEqual({
+      to: 'carla@acme.test',
+      name: 'Carla',
+      changedBy: 'admin@acme.test',
+      tenantName: TENANT_NAME,
+    });
+    expect(email.roleChanges).toHaveLength(0);
+    expect(email.deactivated).toHaveLength(0);
+    expect(audit.actions()).toEqual(['admin.user.activated']);
+  });
+
+  it('sends one alert per changed dimension when role AND active flag change together', async () => {
+    const { repo, email, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, {
+      id: 'agent-2',
+      role: 'AGENT',
+      name: 'Diego',
+      email: 'diego@acme.test',
+    });
+
+    await service.update('tenant-1', ACTOR, 'agent-2', {
+      role: 'SUPERVISOR',
+      isActive: false,
+    });
+
+    await vi.waitFor(() => expect(email.delivered()).toBe(2));
+    expect(email.roleChanges).toHaveLength(1);
+    expect(email.deactivated).toHaveLength(1);
+    expect(email.activated).toHaveLength(0);
+    expect(email.roleChanges[0]).toMatchObject({
+      previousRole: 'AGENT',
+      newRole: 'SUPERVISOR',
+    });
+    expect(email.deactivated[0]).toMatchObject({ to: 'diego@acme.test' });
+  });
+
+  it('does NOT e-mail when nothing effectively changed (same role / same status)', async () => {
+    const { repo, email, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, { id: 'agent-2', role: 'AGENT', isActive: true });
+
+    await service.update('tenant-1', ACTOR, 'agent-2', { role: 'AGENT' });
+    await service.update('tenant-1', ACTOR, 'agent-2', { isActive: true });
+    await service.update('tenant-1', ACTOR, 'agent-2', {});
+
+    await flushAlerts();
+    expect(email.attempts).toBe(0);
+    expect(email.delivered()).toBe(0);
+  });
+
+  it('never e-mails when an administrator tries to change its own account', async () => {
+    const { repo, email, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN', email: 'admin@acme.test' });
+
+    await expect(
+      service.update('tenant-1', ACTOR, 'admin-1', { role: 'AGENT' }),
+    ).rejects.toMatchObject({ code: 'CANNOT_MODIFY_SELF', httpStatus: 409 });
+
+    await flushAlerts();
+    expect(email.attempts).toBe(0);
+  });
+
+  it('keeps the update successful when the alert e-mail fails', async () => {
+    const { repo, email, audit, service } = build();
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, { id: 'agent-2', role: 'AGENT', email: 'ana@acme.test' });
+    email.failNextAlert = true;
+
+    const result = await service.update('tenant-1', ACTOR, 'agent-2', {
+      role: 'SUPERVISOR',
+    });
+
+    expect(result.role).toBe('SUPERVISOR');
+    expect(audit.actions()).toEqual(['admin.user.role_changed']);
+    await vi.waitFor(() => expect(email.attempts).toBe(1));
+    expect(email.roleChanges).toHaveLength(0);
+  });
+
+  it('still sends the alert (without workspace name) when the tenant lookup fails', async () => {
+    const { repo, email, tenants, service } = build();
+    tenants.failLookup = true;
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, { id: 'agent-2', role: 'AGENT', email: 'ana@acme.test' });
+
+    await service.update('tenant-1', ACTOR, 'agent-2', { isActive: false });
+
+    await vi.waitFor(() => expect(email.deactivated).toHaveLength(1));
+    expect(email.deactivated[0]).toMatchObject({
+      to: 'ana@acme.test',
+      changedBy: 'admin@acme.test',
+      tenantName: null,
+    });
+  });
+
+  it('works when the e-mail dependency is not wired (legacy harness)', async () => {
+    const { repo, service } = build({ withEmail: false });
+    seedAgent(repo, { id: 'admin-1', role: 'ADMIN' });
+    seedAgent(repo, { id: 'agent-2', role: 'AGENT' });
+
+    const result = await service.update('tenant-1', ACTOR, 'agent-2', { role: 'SUPERVISOR' });
+
+    expect(result.role).toBe('SUPERVISOR');
   });
 });
 

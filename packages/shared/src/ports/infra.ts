@@ -126,6 +126,35 @@ export interface NewSessionAlertEmail {
 }
 
 /**
+ * Role-change alert payload (ADMIN changed the role of another operator).
+ *
+ * Sent to the AFFECTED operator's inbox - never to the actor - after the change
+ * was persisted. `previousRole`/`newRole` are the raw role codes (the template
+ * localizes them); `changedBy` is the actor e-mail, absent when the caller has
+ * no operator identity; `tenantName` is the workspace display name resolved
+ * best effort by the caller.
+ */
+export interface RoleChangedAlertEmail {
+  to: string;
+  name?: string;
+  previousRole: string;
+  newRole: string;
+  changedBy?: string | null;
+  tenantName?: string | null;
+}
+
+/**
+ * Account activation/deactivation alert payload. One interface for both
+ * directions: the caller picks the method, the body only varies by verb.
+ */
+export interface AccountStatusAlertEmail {
+  to: string;
+  name?: string;
+  changedBy?: string | null;
+  tenantName?: string | null;
+}
+
+/**
  * Transactional e-mail port.
  *
  * Implementations must never log the raw token/link in production and must
@@ -143,6 +172,15 @@ export interface IEmailService {
    * keep the dev-only log fallback when SMTP is not configured.
    */
   sendNewSessionAlert(input: NewSessionAlertEmail): Promise<void>;
+  /**
+   * Account-management alerts (ADMIN acts on ANOTHER operator's account).
+   * Best effort by contract, exactly like `sendNewSessionAlert`: the change is
+   * already persisted, so implementations must never throw and must keep the
+   * dev-only log fallback when SMTP is not configured.
+   */
+  sendRoleChangedAlert(input: RoleChangedAlertEmail): Promise<void>;
+  sendAccountDeactivatedAlert(input: AccountStatusAlertEmail): Promise<void>;
+  sendAccountReactivatedAlert(input: AccountStatusAlertEmail): Promise<void>;
 }
 
 export interface ISecretCipher {

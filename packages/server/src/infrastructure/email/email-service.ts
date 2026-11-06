@@ -1,7 +1,13 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 
-import type { IEmailService, ILogger, NewSessionAlertEmail } from '@sac/shared';
+import type {
+  AccountStatusAlertEmail,
+  IEmailService,
+  ILogger,
+  NewSessionAlertEmail,
+  RoleChangedAlertEmail,
+} from '@sac/shared';
 
 /**
  * ============================================================================
@@ -305,6 +311,172 @@ export class SmtpEmailService implements IEmailService {
     }
   }
 
+  /**
+   * "Seu papel no workspace mudou" - an ADMIN changed the role of ANOTHER
+   * operator and the e-mail goes to the AFFECTED inbox, never to the actor.
+   *
+   * Best effort by contract, exactly like `sendNewSessionAlert`: the change is
+   * already persisted when this runs, so a relay failure is only logged and the
+   * caller uses fire-and-forget. There is no token/link here, so the dev
+   * fallback prints the summary instead of a secret.
+   */
+  async sendRoleChangedAlert(input: RoleChangedAlertEmail): Promise<void> {
+    const greeting = greetingName(input.name);
+    const workspaceSuffix = workspaceLabel(input.tenantName);
+    const changedBy = describeChangedBy(input.changedBy);
+    const previousRole = describeRole(input.previousRole);
+    const newRole = describeRole(input.newRole);
+
+    const subject = 'Seu papel no workspace mudou - IntegrAI';
+    const text = [
+      `Olá, ${greeting}!`,
+      '',
+      `Seu papel${workspaceSuffix} mudou de ${previousRole} para ${newRole}.`,
+      `A alteração foi feita por ${changedBy}.`,
+      '',
+      'O novo papel vale a partir do próximo acesso.',
+      'Se você não reconhece esta alteração, fale com um administrador do workspace.',
+    ].join('\n');
+    const html = [
+      `<p>Olá, ${escapeHtml(greeting)}!</p>`,
+      `<p>Seu papel${escapeHtml(workspaceSuffix)} mudou de <strong>${escapeHtml(previousRole)}</strong> para <strong>${escapeHtml(newRole)}</strong>.</p>`,
+      `<p>A alteração foi feita por ${escapeHtml(changedBy)}.</p>`,
+      '<p>O novo papel vale a partir do próximo acesso.</p>',
+      '<p>Se você não reconhece esta alteração, fale com um administrador do workspace.</p>',
+    ].join('\n');
+
+    await this.dispatchAccountAlert({
+      to: input.to,
+      subject,
+      text,
+      html,
+      event: 'email.role_changed_alert',
+      devSummary: `${previousRole} -> ${newRole} by=${changedBy}`,
+    });
+  }
+
+  /** "Sua conta foi desativada" - best effort, same contract as above. */
+  async sendAccountDeactivatedAlert(input: AccountStatusAlertEmail): Promise<void> {
+    const greeting = greetingName(input.name);
+    const workspaceSuffix = workspaceLabel(input.tenantName);
+    const changedBy = describeChangedBy(input.changedBy);
+
+    const subject = 'Sua conta foi desativada - IntegrAI';
+    const text = [
+      `Olá, ${greeting}!`,
+      '',
+      `Sua conta${workspaceSuffix} foi desativada por ${changedBy}.`,
+      'Você não conseguirá entrar no IntegrAI enquanto ela estiver desativada.',
+      '',
+      'Se você não reconhece esta alteração, fale com um administrador do workspace.',
+    ].join('\n');
+    const html = [
+      `<p>Olá, ${escapeHtml(greeting)}!</p>`,
+      `<p>Sua conta${escapeHtml(workspaceSuffix)} foi desativada por ${escapeHtml(changedBy)}.</p>`,
+      '<p>Você não conseguirá entrar no IntegrAI enquanto ela estiver desativada.</p>',
+      '<p>Se você não reconhece esta alteração, fale com um administrador do workspace.</p>',
+    ].join('\n');
+
+    await this.dispatchAccountAlert({
+      to: input.to,
+      subject,
+      text,
+      html,
+      event: 'email.account_deactivated_alert',
+      devSummary: `deactivated by=${changedBy}`,
+    });
+  }
+
+  /** "Sua conta foi reativada" - best effort, same contract as above. */
+  async sendAccountReactivatedAlert(input: AccountStatusAlertEmail): Promise<void> {
+    const greeting = greetingName(input.name);
+    const workspaceSuffix = workspaceLabel(input.tenantName);
+    const changedBy = describeChangedBy(input.changedBy);
+
+    const subject = 'Sua conta foi reativada - IntegrAI';
+    const text = [
+      `Olá, ${greeting}!`,
+      '',
+      `Sua conta${workspaceSuffix} foi reativada por ${changedBy}.`,
+      'Você já pode entrar no IntegrAI novamente.',
+      '',
+      'Se você não reconhece esta alteração, fale com um administrador do workspace.',
+    ].join('\n');
+    const html = [
+      `<p>Olá, ${escapeHtml(greeting)}!</p>`,
+      `<p>Sua conta${escapeHtml(workspaceSuffix)} foi reativada por ${escapeHtml(changedBy)}.</p>`,
+      '<p>Você já pode entrar no IntegrAI novamente.</p>',
+      '<p>Se você não reconhece esta alteração, fale com um administrador do workspace.</p>',
+    ].join('\n');
+
+    await this.dispatchAccountAlert({
+      to: input.to,
+      subject,
+      text,
+      html,
+      event: 'email.account_reactivated_alert',
+      devSummary: `reactivated by=${changedBy}`,
+    });
+  }
+
+  /**
+   * Shared delivery gate for the account-management alerts.
+   *
+   * Mirrors the `sendNewSessionAlert` contract in one place: empty recipient,
+   * `NODE_ENV=test` and unconfigured SMTP all short-circuit before touching the
+   * network, and every transport failure is swallowed into a warning. The
+   * caller has already persisted the change, so this method never throws.
+   */
+  private async dispatchAccountAlert(input: {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+    /** Log event prefix, e.g. `email.role_changed_alert`. */
+    event: string;
+    /** Dev-only summary printed when SMTP is not configured. */
+    devSummary: string;
+  }): Promise<void> {
+    const recipient = (input.to ?? '').trim();
+    if (recipient.length === 0) return;
+
+    if (this.options.nodeEnv === 'test') {
+      // Never reach a real SMTP server from tests.
+      this.logger.debug(`${input.event}.skipped_in_test`, { to: recipient });
+      return;
+    }
+
+    if (!this.isConfigured()) {
+      if (this.options.nodeEnv === 'production') {
+        this.logger.error('email.smtp.not_configured', {
+          hint: 'Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD (and SMTP_FROM) to deliver account alerts.',
+        });
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[email:dev] ${input.event} for ${recipient}: ${input.devSummary}`);
+      return;
+    }
+
+    try {
+      const transporter = this.getTransporter();
+      await transporter.sendMail({
+        from: this.options.from,
+        to: recipient,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+      });
+    } catch (error) {
+      // Best effort: the administrative change already succeeded. No
+      // token/link exists here, so the warning carries only recipient + reason.
+      this.logger.warn(`${input.event}.failed`, {
+        to: recipient,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private getTransporter(): Transporter {
     if (this.transporter !== null) return this.transporter;
 
@@ -335,6 +507,41 @@ function escapeHtml(value: string): string {
 function describeDevice(userAgent: string | null | undefined): string {
   const raw = (userAgent ?? '').trim();
   return raw.length > 0 ? raw : 'Dispositivo não identificado';
+}
+
+/** Greeting fallback shared by the account-management alerts. */
+function greetingName(name: string | undefined): string {
+  return name !== undefined && name.trim().length > 0 ? name.trim() : 'olá';
+}
+
+/** `" no workspace Acme"` when known, empty otherwise (keeps the sentence valid). */
+function workspaceLabel(tenantName: string | null | undefined): string {
+  const name = (tenantName ?? '').trim();
+  return name.length > 0 ? ` no workspace ${name}` : '';
+}
+
+/** Actor display for the body when the request carries no operator e-mail. */
+function describeChangedBy(changedBy: string | null | undefined): string {
+  const email = (changedBy ?? '').trim();
+  return email.length > 0 ? email : 'um administrador';
+}
+
+/**
+ * pt-BR label for the role codes the console manages. An unknown code is shown
+ * verbatim rather than hidden: a future role must still produce a readable
+ * alert instead of a blank line.
+ */
+function describeRole(role: string): string {
+  switch (role) {
+    case 'ADMIN':
+      return 'Administrador';
+    case 'SUPERVISOR':
+      return 'Supervisor';
+    case 'AGENT':
+      return 'Atendente';
+    default:
+      return role;
+  }
 }
 
 /**
