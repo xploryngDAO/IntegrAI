@@ -86,8 +86,16 @@ Runbook: [RUNBOOK.md](RUNBOOK.md).
 ## 6. SMTP (issue #4)
 
 1. Configurar `SMTP_HOST/PORT/SECURE/USER/PASSWORD/FROM` no `.env.prod` (SES, SendGrid ou corporativo).
-2. SPF/DKIM/DMARC do domínio remetente.
-3. Validar:\n   ```bash\n   node --env-file=.env.prod scripts/email-check.mjs --to=seu-email@empresa.com\n   ```\n   Depois: `POST /auth/forgot-password` (link abre no SPA), convite em `/admin`, login de novo dispositivo.
+   - **Hostinger (plano atual):** `SMTP_HOST=smtp.hostinger.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`,
+     `SMTP_USER=<caixa@dominio>`, `SMTP_PASSWORD=<senha da caixa>`,
+     `SMTP_FROM="IntegrAI <nao-responda@dominio>"`. Requer uma caixa de e-mail criada no hPanel.
+2. SPF/DKIM/DMARC do domínio remetente (o Hostinger publica os registros ao criar a caixa;
+   conferir no DNS do domínio). Para volume alto, SES com domínio verificado é a opção mais barata.
+3. Validar:
+   ```bash
+   node --env-file=.env.prod scripts/email-check.mjs --to=seu-email@empresa.com
+   ```
+   Depois: `POST /auth/forgot-password` (link abre no SPA), convite em `/admin`, login de novo dispositivo.
 
 ## 7. Redeploy do SPA (issue #5)
 
