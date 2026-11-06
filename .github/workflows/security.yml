@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Security takes longer than CI (browser + local stack). Cancel the outdated
+# run when a newer commit lands, otherwise the free runner queue piles up.
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-probe:
     runs-on: ubuntu-latest

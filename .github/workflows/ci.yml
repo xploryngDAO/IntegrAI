@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Keep only the newest run per branch/PR: the matrix is deterministic and the
+# free runner queue must not accumulate obsolete revisions.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
