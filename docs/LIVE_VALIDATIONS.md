@@ -747,3 +747,10 @@ landing completa (h1, secoes, planos, footer), links com base /IntegrAI,
 landmarks banner/main/contentinfo; console errors = 0
 confirma o fallback em engine diferente do Edge/puppeteer usado no CI
 ```
+
+### 82. Dark mode 21/21 e Lighthouse 100 no Pages (bundle atual)
+```
+node scripts/a11y-audit.mjs https://integrai-dev.vercel.app --dark -> exit 0, violations []
+lighthouse https://xploryngdao.github.io/IntegrAI/ -> 100/100/100/100
+bundle: assets/index-CEInSfKG.js (texto de sessoes corrigido)
+```
