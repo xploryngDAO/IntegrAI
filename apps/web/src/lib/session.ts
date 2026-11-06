@@ -74,6 +74,20 @@ function notifySessionEnded(): void {
   }
 }
 
+// The API client dispatches this when the refresh token is missing or revoked
+// and the access token can no longer be renewed. The local session must end
+// immediately, without calling the API again (the refresh already failed).
+if (typeof window !== 'undefined') {
+  window.addEventListener('sac:session-expired', () => {
+    clearSessionTokens();
+    resetSessionProbe();
+    resetWorkspaceSession();
+    flushSync(() => {
+      notifySessionEnded();
+    });
+  });
+}
+
 /* ==========================================================================
  * Logout
  * ========================================================================== */

@@ -472,6 +472,56 @@ function transportError(error: unknown): ApiClientError {
   );
 }
 
+/**
+ * Single-flight refresh: several concurrent 401s must rotate the session once,
+ * not race each other (the API rotates the refresh token on every call).
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function rotateSession(): Promise<boolean> {
+  if (refreshToken === null) return false;
+  if (refreshInFlight !== null) return refreshInFlight;
+
+  const pending = (async (): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return false;
+      const payload: unknown = await response.json().catch(() => null);
+      if (payload === null) return false;
+      const auth = unwrap<AuthResponse>(payload);
+      if (typeof auth?.token !== 'string' || auth.token.length === 0) return false;
+      persistSession(auth);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  refreshInFlight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (refreshInFlight === pending) refreshInFlight = null;
+  }
+}
+
+/**
+ * The refresh token is gone or revoked: drop every local credential and notify
+ * the app so the router renders the login screen (never keep a dead session).
+ */
+function expireSession(): void {
+  clearSessionTokens();
+  try {
+    window.dispatchEvent(new Event('sac:session-expired'));
+  } catch {
+    // No window (SSR/tests): clearing the tokens is still enough.
+  }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
@@ -499,6 +549,38 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       });
     } catch (error) {
       throw transportError(error);
+    }
+
+    // Access token expired mid-session: rotate the refresh token once and
+    // replay the request. Auth endpoints are excluded so a wrong password (401)
+    // never triggers a silent refresh loop.
+    if (
+      response.status === 401 &&
+      authToken !== null &&
+      options.bearerToken === undefined &&
+      !path.startsWith('/auth/')
+    ) {
+      const rotated = await rotateSession();
+      if (!rotated) {
+        expireSession();
+        throw new ApiClientError(
+          401,
+          'SESSION_EXPIRED',
+          'Sua sessão expirou. Entre novamente para continuar.',
+        );
+      }
+      headers.Authorization = `Bearer ${authToken ?? ''}`;
+      try {
+        response = await fetch(`${API_BASE}${path}`, {
+          method: options.method ?? 'GET',
+          headers,
+          body,
+          cache: options.cache,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        throw transportError(error);
+      }
     }
 
     // 204 has no body by definition; parsing it would surface a false
