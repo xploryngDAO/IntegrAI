@@ -56,6 +56,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks fingerprints reference the introducing commits, so the
+          # full history must be present (a shallow clone re-attributes them).
+          fetch-depth: 0
       - name: Secret scan (gitleaks)
         run: >-
           docker run --rm -v "$PWD:/repo"
