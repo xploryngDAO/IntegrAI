@@ -145,3 +145,14 @@ landingVisible=true · loginVisible=true · authenticated=true · localStorageTo
 logout pelo menu da conta -> /login e token removido (onLogin=true, tokenCleared=true)
 ```
 Script: `node scripts/verify-live.mjs https://integrai-dev.vercel.app <email> <senha>`
+
+### 12. Convites e exportacao CSV da auditoria (API real + Edge)
+```
+POST /invitations (admin) -> e-mail criado
+GET  /admin/invitations   -> status PENDING
+DELETE /admin/invitations/:id -> 204
+GET  /admin/invitations   -> total 0 (convite removido)
+GET  /admin/audit-logs/export.csv -> 200 text/csv; attachment; filename=audit-logs-2026-11-06.csv
+  header: created_at,action,actor_email,resource_type,resource_id,ip,user_agent (18 linhas)
+Edge limpo: /admin -> abas Usuários/Convites/Logs; "Exportar CSV" presente (com filtros)
+```
