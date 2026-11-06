@@ -73,3 +73,7 @@ npm run security:probe     # 18 checagens
 node scripts/a11y-audit.mjs       # WCAG AA (0 violações)
 node scripts/verify-live.mjs https://<app> <email> <senha>
 ```
+
+## Release candidate
+
+Evidencias desta baseline, opcoes de deploy, bloqueios externos e decisao GO/NO-GO: [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md).
