@@ -20,6 +20,7 @@ import type {
 
 import { api } from './api';
 import { ROUTE_LABEL } from './labels';
+import { runtimeWsUrl } from './runtimeConfig';
 import { DEFAULT_FILTERS } from './types';
 import type {
   ActionBody,
@@ -91,7 +92,10 @@ function connectSocket(): void {
   const token = readAuthToken();
   if (!token) return;
 
-  const wsUrl = (import.meta.env.VITE_WS_URL as string | undefined) ?? window.location.origin;
+  // Precedence: runtime config (tunnel host may change) -> build-time env ->
+  // same origin (self-hosted stack behind the same reverse proxy).
+  const wsUrl =
+    runtimeWsUrl() ?? (import.meta.env.VITE_WS_URL as string | undefined) ?? window.location.origin;
   const connection = io(wsUrl, {
     path: '/socket.io',
     auth: { token },

@@ -94,13 +94,36 @@ import type {
   UserSession,
   WorkspaceFilters,
 } from './types';
+import { runtimeApiBase } from './runtimeConfig';
 
 /* ==========================================================================
  * Configuration
+ *
+ * The base URL is mutable on purpose: `runtime-config.json` (see
+ * `lib/runtimeConfig.ts`) is resolved once at boot and applied here before
+ * React renders, so a tunnel restart never requires a new deployment. The
+ * build-time `VITE_API_BASE_URL` is only the fallback when the runtime config
+ * is unavailable.
  * ========================================================================== */
 
-const API_BASE: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') ?? '/api/v1';
+function buildTimeApiBase(): string {
+  const fromEnv = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+  return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv.replace(/\/+$/, '') : '/api/v1';
+}
+
+let API_BASE: string = buildTimeApiBase();
+
+/**
+ * Applies the API base resolved from `runtime-config.json`.
+ *
+ * Called exactly once by `main.tsx` after `loadRuntimeConfig()`, before the
+ * first render, so every request of the boot sequence already targets the
+ * current API host.
+ */
+export function applyRuntimeApiBase(): void {
+  const fromRuntime = runtimeApiBase();
+  if (fromRuntime !== null) API_BASE = fromRuntime;
+}
 
 const TOKEN_STORAGE_KEY = 'sac.auth.token';
 /**

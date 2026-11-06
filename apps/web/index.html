@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f3f5fc" />
+    <!-- The deployed SPA resolves the API/WS endpoints at boot from
+         runtime-config.json (GitHub raw); preconnect hides that DNS/TLS cost. -->
+    <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
+    <link rel="dns-prefetch" href="https://raw.githubusercontent.com" />
+
     <meta
       name="description"
       content="IntegrAI — central de atendimento omnichannel com IA para Amazon, Mercado Livre e Shopee. SSO corporativo (Microsoft Entra), 2FA, auditoria e LGPD."

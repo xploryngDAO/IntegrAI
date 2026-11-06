@@ -46,7 +46,9 @@
         "test:isolation": "node scripts/isolation-test.mjs",
         "db:up": "docker compose up -d postgres redis minio minio-init mailpit",
         "db:down": "docker compose down",
-        "docker:up": "docker compose up -d --build"
+        "docker:up": "docker compose up -d --build",
+        "tunnel:sync": "node scripts/tunnel-sync.mjs",
+        "deploy:vercel": "node scripts/deploy-vercel.mjs"
     },
     "devDependencies": {
         "@types/node": "^22.10.2",

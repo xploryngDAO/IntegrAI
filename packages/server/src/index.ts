@@ -75,7 +75,9 @@ async function bootstrap(): Promise<void> {
     await startSchedulers(workerDependencies);
 
     // --- Listen ---------------------------------------------------------
-    await app.listen({ port: config.port, host: '0.0.0.0' });
+    // `HOST` defaults to 0.0.0.0 (containers/self-hosted). A tunnel-only MVP
+    // binds 127.0.0.1 so `TRUST_PROXY=true` cannot be spoofed from the LAN.
+    await app.listen({ port: config.port, host: config.host });
 
     await logStartupBanner(services, config, logger);
 

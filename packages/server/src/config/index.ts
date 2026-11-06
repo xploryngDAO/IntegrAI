@@ -15,6 +15,8 @@ import type { Env, TrustProxySetting } from './env.schema';
 export interface AppConfig extends ChannelRuntimeConfig {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
+  /** Interface the HTTP server binds to (`HOST`, default `0.0.0.0`). */
+  host: string;
   webOrigin: string;
   databaseUrl: string;
   redisUrl: string;
@@ -176,6 +178,7 @@ function buildConfig(env: Env): AppConfig {
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
+    host: env.HOST,
     webOrigin: env.WEB_ORIGIN,
     appBaseUrl: env.APP_BASE_URL,
     databaseUrl: env.DATABASE_URL,
