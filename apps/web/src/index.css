@@ -719,11 +719,20 @@ body {
   font-size: var(--cv-font-meta);
 }
 
-.sac-kv span {
+/* Only the row's own label/value pair is de-emphasised. The descendant
+ * combinators matter: a badge nested in the value must keep its own tone
+ * instead of inheriting `text-muted` (that inheritance pushed the neutral pill
+ * below AA on `.cv-tone--neutral`). */
+.sac-kv > span,
+.sac-kv > dt {
   color: var(--cv-color-text-muted);
 }
 
-.sac-kv strong {
+/* `dt`/`dd` rows are the semantic form (inside `<dl>`); `span`/`strong` stay
+ * supported for the cockpit cards that are not definition lists. */
+.sac-kv > strong,
+.sac-kv > dd {
+  margin: 0;
   font-weight: var(--cv-font-medium);
   text-align: right;
 }
@@ -782,7 +791,8 @@ body {
   font-size: var(--cv-font-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--cv-color-text-muted);
+  /* WCAG AA on subtle surfaces: the raw muted token sits at ~4.3:1 there. */
+  color: color-mix(in srgb, var(--cv-color-text-muted) 85%, var(--cv-color-text));
 }
 
 .sac-row {
@@ -1341,6 +1351,20 @@ body {
   color: var(--cv-color-text);
 }
 
+/* -------------------------------------------------- anchor-based buttons --- */
+/* Convergência resets `.cv-root a { color: inherit }` *after* the `.cv-button--*`
+ * rules, so a `<Link class="cv-button cv-button--primary">` loses its own colour
+ * and renders `--cv-color-text` on the accent fill (2.6:1 in light). The higher
+ * specificity below restores the DS contract using the DS tokens themselves —
+ * no new colour is introduced and both themes keep following their tokens. */
+.cv-root a.cv-button--primary {
+  color: var(--cv-color-on-accent);
+}
+
+.cv-root a.cv-button--ghost {
+  color: var(--cv-color-accent-text);
+}
+
 /* ---------------------------------------------------------- landing page --- */
 .sac-landing {
   flex: 1;
@@ -1348,6 +1372,11 @@ body {
   overflow-y: auto;
   background: var(--cv-color-background);
   scroll-behavior: smooth;
+  /* Secondary copy that sits on `.sac-landing__section--subtle` needs a little
+   * more contrast than `--cv-color-text-muted` alone provides (4.43:1 there,
+   * below AA for normal text). Mixing 15% of the body text colour into the
+   * muted token reaches ~5:1 light / ~6.3:1 dark without a new palette colour. */
+  --sac-landing-muted: color-mix(in srgb, var(--cv-color-text-muted) 85%, var(--cv-color-text));
 }
 
 .sac-landing__container {
@@ -1630,7 +1659,7 @@ body {
 
 .sac-landing__preview-meta {
   font-size: var(--cv-font-micro);
-  color: var(--cv-color-text-muted);
+  color: var(--sac-landing-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1780,7 +1809,7 @@ body {
   margin: 16px 0 0;
   font-size: var(--cv-font-meta);
   line-height: 1.5;
-  color: var(--cv-color-text-muted);
+  color: var(--sac-landing-muted);
 }
 
 .sac-landing__shots-note .cv-icon {
@@ -1819,7 +1848,7 @@ body {
   margin: 0;
   font-size: var(--cv-font-body);
   line-height: 1.6;
-  color: var(--cv-color-text-muted);
+  color: var(--sac-landing-muted);
 }
 
 .sac-landing__grid {
@@ -1954,6 +1983,9 @@ body {
   padding: 1px 4px;
   border-radius: var(--cv-radius-small);
   background: var(--cv-color-surface-subtle);
+  /* The inline chip sits on `surface-subtle`; inheriting `text-muted` from the
+   * paragraph would land at 4.34:1. */
+  color: var(--sac-landing-muted);
 }
 
 .sac-landing__config {

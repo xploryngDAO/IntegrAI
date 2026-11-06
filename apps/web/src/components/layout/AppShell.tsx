@@ -60,8 +60,12 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
   return (
     <div className="sac-shell">
       <aside className="sac-rail" aria-label="Navegação principal">
-        <NavLink to="/" className="sac-rail__brand" aria-label="SAC Hub — início">
+        {/* The visible "SH" is the accessible name's own content: an
+            `aria-label` that omits it fails WCAG 2.5.3 (label in name), so the
+            descriptive part is added as screen-reader-only text instead. */}
+        <NavLink to="/" className="sac-rail__brand">
           SH
+          <span className="cv-sr-only">SAC Hub — início</span>
         </NavLink>
 
         <nav className="sac-rail__nav">

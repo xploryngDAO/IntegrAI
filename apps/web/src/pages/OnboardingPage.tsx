@@ -407,22 +407,22 @@ export function OnboardingPage(): JSX.Element {
           <Card title="Resumo do workspace">
             <dl className="m-0 flex flex-col gap-1.5">
               <div className="sac-kv">
-                <span>Lojas conectadas</span>
-                <strong className="sac-num">
+                <dt>Lojas conectadas</dt>
+                <dd className="sac-num">
                   {connectedCount} de {accounts.length}
-                </strong>
+                </dd>
               </div>
               <div className="sac-kv">
-                <span>Diagnóstico</span>
-                <strong>
+                <dt>Diagnóstico</dt>
+                <dd>
                   {diagnosisOverall !== null ? DIAGNOSIS_LABEL[diagnosisOverall] : 'Não executado'}
-                </strong>
+                </dd>
               </div>
               <div className="sac-kv">
-                <span>Fila</span>
-                <strong>
+                <dt>Fila</dt>
+                <dd>
                   {totalTickets > 0 ? `${totalTickets} atendimento(s)` : 'Aguardando evento real'}
-                </strong>
+                </dd>
               </div>
             </dl>
 

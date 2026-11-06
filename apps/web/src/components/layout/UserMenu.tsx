@@ -176,7 +176,6 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
   const name = agent?.name ?? 'Operador';
   const email = agent?.email ?? '';
   const role = agent?.role ?? 'AGENT';
-  const triggerLabel = open ? 'Fechar menu da conta' : 'Abrir menu da conta';
   const portalTarget =
     typeof document === 'undefined'
       ? null
@@ -288,11 +287,16 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
         className={cx('sac-user__trigger', variant === 'rail' && 'sac-user__trigger--rail')}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${triggerLabel} — ${name}`}
         title={variant === 'rail' ? `${name} · ${roleLabel(role)}` : undefined}
         onClick={toggle}
       >
-        <Avatar name={name} size="sm" />
+        {/* The topbar repeats the operator name as text next to the avatar, so
+            the avatar is decorative there and must not duplicate the name in
+            the accessible name. In the rail the avatar is the only visible
+            identity, so it keeps its own label. */}
+        <span className="inline-flex" aria-hidden={variant === 'topbar' ? 'true' : undefined}>
+          <Avatar name={name} size="sm" />
+        </span>
         {variant === 'topbar' ? (
           <>
             <span className="sac-user__text">
@@ -303,7 +307,9 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
               <Icon name="down" size={14} />
             </span>
           </>
-        ) : null}
+        ) : (
+          <span className="cv-sr-only">Menu da conta</span>
+        )}
       </button>
 
       {menu !== null && portalTarget !== null ? createPortal(menu, portalTarget) : null}

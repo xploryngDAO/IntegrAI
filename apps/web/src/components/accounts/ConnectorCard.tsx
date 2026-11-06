@@ -143,26 +143,24 @@ export function ConnectorCard({
     >
       <dl className="mt-1 flex flex-col gap-1.5">
         <div className="sac-kv">
-          <span>{idLabel}</span>
-          <strong className="sac-num truncate" title={account?.externalSellerId ?? '—'}>
+          <dt>{idLabel}</dt>
+          <dd className="sac-num truncate" title={account?.externalSellerId ?? '—'}>
             {account?.externalSellerId ?? '—'}
-          </strong>
+          </dd>
         </div>
         <div className="sac-kv">
-          <span>Site</span>
-          <strong className="sac-num">{account?.marketplaceSiteId ?? '—'}</strong>
+          <dt>Site</dt>
+          <dd className="sac-num">{account?.marketplaceSiteId ?? '—'}</dd>
         </div>
         <div className="sac-kv">
-          <span>Token expira</span>
-          <strong
-            className={`sac-num ${tokenExpired ? 'text-[var(--cv-color-danger)]' : ''}`}
-          >
+          <dt>Token expira</dt>
+          <dd className={`sac-num ${tokenExpired ? 'text-[var(--cv-color-danger)]' : ''}`}>
             {formatDateTime(tokenExpiresAt)}
-          </strong>
+          </dd>
         </div>
         <div className="sac-kv">
-          <span>Último sync</span>
-          <strong className="sac-num">{formatDateTime(lastSync)}</strong>
+          <dt>Último sync</dt>
+          <dd className="sac-num">{formatDateTime(lastSync)}</dd>
         </div>
       </dl>
 

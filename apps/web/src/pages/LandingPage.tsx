@@ -202,7 +202,9 @@ export function LandingPage(): JSX.Element {
     <div className="sac-landing">
       <header className="sac-landing__header">
         <div className="sac-landing__header-inner">
-          <Link to="/" className="sac-landing__brand" aria-label="SAC Hub — início">
+          {/* No `aria-label`: the visible wordmark and tagline already name the
+              link, and an aria-label that omits them fails WCAG 2.5.3. */}
+          <Link to="/" className="sac-landing__brand">
             <span className="sac-landing__brand-mark" aria-hidden="true">
               SH
             </span>
@@ -469,24 +471,24 @@ export function LandingPage(): JSX.Element {
               </div>
               <dl className="sac-landing__config-list">
                 <div className="sac-kv">
-                  <span>Provedor</span>
-                  <strong>Microsoft Entra ID</strong>
+                  <dt>Provedor</dt>
+                  <dd>Microsoft Entra ID</dd>
                 </div>
                 <div className="sac-kv">
-                  <span>Protocolo</span>
-                  <strong>OIDC · PKCE S256</strong>
+                  <dt>Protocolo</dt>
+                  <dd>OIDC · PKCE S256</dd>
                 </div>
                 <div className="sac-kv">
-                  <span>Provisionamento</span>
-                  <strong>JIT por grupo</strong>
+                  <dt>Provisionamento</dt>
+                  <dd>JIT por grupo</dd>
                 </div>
                 <div className="sac-kv">
-                  <span>Segredo do cliente</span>
-                  <strong>AES-256-GCM</strong>
+                  <dt>Segredo do cliente</dt>
+                  <dd>AES-256-GCM</dd>
                 </div>
                 <div className="sac-kv">
-                  <span>Enforcement</span>
-                  <strong>Configurável</strong>
+                  <dt>Enforcement</dt>
+                  <dd>Configurável</dd>
                 </div>
               </dl>
               <p className="sac-landing__config-note">

@@ -204,26 +204,26 @@ export function SettingsPage(): JSX.Element {
           <div className="flex flex-col gap-3">
             <dl className="m-0 flex flex-col gap-1.5">
               <div className="sac-kv">
-                <span>Nome</span>
-                <strong>{profile.name}</strong>
+                <dt>Nome</dt>
+                <dd>{profile.name}</dd>
               </div>
               <div className="sac-kv">
-                <span>Slug</span>
-                <strong className="sac-num">{profile.slug}</strong>
+                <dt>Slug</dt>
+                <dd className="sac-num">{profile.slug}</dd>
               </div>
               <div className="sac-kv">
-                <span>ID do tenant</span>
-                <strong className="sac-num truncate" title={profile.id}>
+                <dt>ID do tenant</dt>
+                <dd className="sac-num truncate" title={profile.id}>
                   {profile.id}
-                </strong>
+                </dd>
               </div>
               <div className="sac-kv">
-                <span>Onboarding</span>
-                <strong>
+                <dt>Onboarding</dt>
+                <dd>
                   {profile.onboardingCompletedAt
                     ? `Concluído em ${formatDateTime(profile.onboardingCompletedAt)}`
                     : 'Pendente'}
-                </strong>
+                </dd>
               </div>
             </dl>
 

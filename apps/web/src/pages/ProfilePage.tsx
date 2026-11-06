@@ -288,20 +288,20 @@ export function ProfilePage(): JSX.Element {
 
             <dl className="m-0 flex flex-col gap-1.5" aria-label="Dados somente leitura">
               <div className="sac-kv">
-                <span>E-mail</span>
-                <strong className="truncate" title={currentAgent.email}>
+                <dt>E-mail</dt>
+                <dd className="truncate" title={currentAgent.email}>
                   {currentAgent.email.length > 0 ? currentAgent.email : '—'}
-                </strong>
+                </dd>
               </div>
               <div className="sac-kv">
-                <span>Papel</span>
-                <span className="flex items-center">
+                <dt>Papel</dt>
+                <dd className="flex items-center">
                   <Pill tone="neutral">{roleLabel(currentAgent.role)}</Pill>
-                </span>
+                </dd>
               </div>
               <div className="sac-kv">
-                <span>Workspace</span>
-                <strong>
+                <dt>Workspace</dt>
+                <dd>
                   {tenantLoading ? (
                     <span className="text-[var(--cv-color-text-muted)]">Carregando…</span>
                   ) : tenant !== null ? (
@@ -309,19 +309,19 @@ export function ProfilePage(): JSX.Element {
                   ) : (
                     '—'
                   )}
-                </strong>
+                </dd>
               </div>
               {tenant !== null ? (
                 <div className="sac-kv">
-                  <span>Slug</span>
-                  <strong className="sac-num">{tenant.slug}</strong>
+                  <dt>Slug</dt>
+                  <dd className="sac-num">{tenant.slug}</dd>
                 </div>
               ) : null}
               <div className="sac-kv">
-                <span>ID do operador</span>
-                <strong className="sac-num truncate" title={currentAgent.id}>
+                <dt>ID do operador</dt>
+                <dd className="sac-num truncate" title={currentAgent.id}>
                   {currentAgent.id}
-                </strong>
+                </dd>
               </div>
             </dl>
 

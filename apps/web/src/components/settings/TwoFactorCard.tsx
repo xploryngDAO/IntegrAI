@@ -276,16 +276,16 @@ export function TwoFactorCard(): JSX.Element {
         <div className="flex flex-col gap-3">
           <dl className="m-0 flex flex-col gap-1.5">
             <div className="sac-kv">
-              <span>Situação</span>
-              <strong>Ativada</strong>
+              <dt>Situação</dt>
+              <dd>Ativada</dd>
             </div>
             <div className="sac-kv">
-              <span>Método</span>
-              <strong>TOTP · app autenticador</strong>
+              <dt>Método</dt>
+              <dd>TOTP · app autenticador</dd>
             </div>
             <div className="sac-kv">
-              <span>Códigos de recuperação</span>
-              <strong>8 códigos de uso único</strong>
+              <dt>Códigos de recuperação</dt>
+              <dd>8 códigos de uso único</dd>
             </div>
           </dl>
 
