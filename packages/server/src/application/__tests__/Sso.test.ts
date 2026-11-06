@@ -95,6 +95,8 @@ class StubOidcHttp implements IHttpClient {
   tokenStatus = 200;
   tokenResponse: Record<string, unknown> = {};
   jwks: Record<string, unknown> = { keys: [publicJwk] };
+  /** Optional per-call sequence (first call old key, second the rotated one). */
+  jwksResponses: Record<string, unknown>[] = [];
   jwksCalls = 0;
   failDiscovery = false;
 
@@ -123,7 +125,8 @@ class StubOidcHttp implements IHttpClient {
     }
     if (url === `${ISSUER}/jwks`) {
       this.jwksCalls += 1;
-      return respond(200, this.jwks);
+      const next = this.jwksResponses.shift();
+      return respond(200, next ?? this.jwks);
     }
     if (url === `${ISSUER}/token`) {
       return respond(this.tokenStatus, this.tokenResponse);
@@ -844,6 +847,32 @@ describe('SsoAuthService - callback (ID token + JIT)', () => {
       code: 'SSO_TOKEN_INVALID',
       details: { reason: 'signature' },
     });
+  });
+
+  it('refreshes the JWKS once when the signing key rotates reusing the same kid', async () => {
+    const harness = buildHarness();
+    await seedConnection(harness);
+    const { state, nonce } = await beginFlow(harness);
+
+    // Same `kid`, different key pair — exactly what the stub IdP does when it
+    // restarts. The cached JWKS has the old key, so the first verification
+    // fails on the signature and the client must fetch the JWKS again.
+    const rotated = generateKeyPairSync('rsa', { modulusLength: 2_048 });
+    const rotatedJwk = {
+      ...(rotated.publicKey.export({ format: 'jwk' }) as Record<string, unknown>),
+      kid: KID,
+      use: 'sig',
+      alg: 'RS256',
+    };
+    harness.http.jwksResponses = [{ keys: [publicJwk] }, { keys: [rotatedJwk] }];
+    harness.http.tokenResponse = {
+      id_token: idTokenFor(nonce, {}, { key: rotated.privateKey }),
+    };
+
+    const result = await harness.sso.callback({ code: 'auth-code-1', state });
+
+    expect(result.provisioned).toBe(true);
+    expect(harness.http.jwksCalls).toBe(2);
   });
 
   it('refuses an unsigned/HS256 token', async () => {

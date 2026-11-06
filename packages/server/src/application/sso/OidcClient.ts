@@ -335,17 +335,28 @@ export class OidcClient {
     }
     if (jwk === null) throw this.invalidToken('unknown_kid');
 
-    let valid = false;
-    try {
-      const key = importRsaJwk(jwk);
-      valid = verifySignature(
-        'RSA-SHA256',
-        Buffer.from(`${rawHeader}.${rawPayload}`, 'ascii'),
-        key,
-        Buffer.from(rawSignature, 'base64url'),
-      );
-    } catch {
-      valid = false;
+    const verifyWith = (candidate: Jwk): boolean => {
+      try {
+        const key = importRsaJwk(candidate);
+        return verifySignature(
+          'RSA-SHA256',
+          Buffer.from(`${rawHeader}.${rawPayload}`, 'ascii'),
+          key,
+          Buffer.from(rawSignature, 'base64url'),
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    let valid = verifyWith(jwk);
+    if (!valid) {
+      // A rotation can REUSE the same `kid` (the test IdP restarts with a new
+      // key pair; some providers rotate in place). The only signal is the
+      // signature failure, so refresh the JWKS once before giving up.
+      const refreshed = await this.getJwks(input.discovery.jwksUri, { forceRefresh: true });
+      const refreshedJwk = selectKey(refreshed, kid);
+      if (refreshedJwk !== null) valid = verifyWith(refreshedJwk);
     }
     if (!valid) throw this.invalidToken('signature');
 

@@ -44,6 +44,7 @@
         "test:live-2fa-ui": "node scripts/live-2fa-ui-test.mjs",
         "test:live-reset-ui": "node scripts/live-reset-ui-test.mjs",
         "test:live-sso": "node scripts/live-sso-test.mjs",
+        "test:live-sso-ui": "node scripts/live-sso-ui-test.mjs",
         "test:live-socket": "node scripts/live-socket-revoke-test.mjs",
         "test:live-2fa-policy": "node scripts/live-2fa-policy-test.mjs",
         "security:probe": "node scripts/security-probe.mjs",

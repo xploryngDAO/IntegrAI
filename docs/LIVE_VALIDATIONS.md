@@ -613,3 +613,12 @@ node scripts/live-all.mjs --reset-login-limit -> 13/13 etapas OK em 217s
 a11y dark na producao (--dark) -> 10/10 telas, 0 violacoes
 Lighthouse (rodada anterior) -> 100/100/100/100
 ```
+
+### 62. SSO corporativo pela UI (stub OIDC) e rotacao de JWKS
+```
+tenant temporario -> PUT /tenants/me/sso (stub) -> /login "Entrar com Microsoft"
+-> stub authorize -> callback -> sessao JIT (sso-live@integrai.test); cleanup total
+9/9 (npm run test:live-sso-ui)
+Bug real encontrado: JWKS com mesmo kid apos rotacao -> signature falhava sem refresh.
+Fix: OidcClient refaz o fetch do JWKS uma vez ao falhar a assinatura; teste unitario cobre.
+```
