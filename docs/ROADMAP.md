@@ -89,16 +89,18 @@ Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md).
 
 - Console interno: tenants, planos, limites, uso, suspensão. ✅ (sem UI ainda)
-- Billing (assinatura) e quotas por plano. ✅ quotas; ⏳ billing
-- Métricas por tenant (SLA, volume, erros), alertas e status page. ✅ métricas globais; ⏳ alertas/status page
+- Billing (assinatura) e quotas por plano. ✅ quotas; ✅ base de billing (status/trial/contato + summary MRR); ⏳ gateway
+- Métricas por tenant (SLA, volume, erros), alertas e status page. ✅ métricas globais e por tenant; ✅ alertas derivados; ⏳ status page
 - Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete + purga física (job diário); ⏳ restore
 
 > **Fase 4 (parcial) concluída:** `plan`/quotas por tenant, gate de
 > `max_agents`/`max_accounts`, console `/platform/*` (JWT + `is_platform_admin`)
-> com busca server-side e purge manual, métricas globais, exportação LGPD, soft
+> com busca server-side e purge manual, métricas globais e por tenant, alertas
+> derivados de dados reais, base de billing (sem gateway), exportação LGPD, soft
 > delete com `403 TENANT_INACTIVE` e purga física diária (`queue.tenant.purge`,
-> 03:00, após 30 dias). Pendências: billing, UI do console, limpeza dos
-> artefatos S3 da purga, restore e cache do check de tenant por request.
+> 03:00, após 30 dias). Pendências: gateway de pagamento, UI do console,
+> limpeza dos artefatos S3 da purga, restore e cache do check de tenant por
+> request.
 
 ## CI
 
@@ -126,5 +128,6 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 1 — rate limit real de auth sensível (login 10/15min por e-mail+IP; 2FA 5/15min por jti+IP; reset/reenvio 3/15min) com fallback em memória
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados
-- [x] Fase 4 — planos/quotas, console `/platform` (busca + purge manual), métricas e LGPD (export + soft delete + purga física)
-- [ ] Fase 4 — billing, UI do console, alertas/status page, limpeza S3 da purga, restore
+- [x] Fase 4 — planos/quotas, console `/platform` (busca + purge manual), métricas (global e por tenant) e LGPD (export + soft delete + purga física)
+- [x] Fase 4 — alertas operacionais derivados (contas/quotas/SLA/lifecycle) e base de billing (status/trial/contato + summary MRR)
+- [ ] Fase 4 — gateway de pagamento, UI do console, status page, limpeza S3 da purga, restore

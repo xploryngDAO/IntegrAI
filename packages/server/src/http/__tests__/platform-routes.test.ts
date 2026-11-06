@@ -5,9 +5,13 @@ import type {
   ILogger,
   IPlatformService,
   ITenantPurgeService,
+  PlatformAlertsResult,
+  PlatformBillingSummary,
   PlatformMetrics,
   PlatformTenantListResult,
   PlatformTenantView,
+  TenantBillingView,
+  TenantMetrics,
   TenantPurgeResult,
 } from '@sac/shared';
 import { AuthorizationError, ConflictError, NotFoundError } from '@sac/shared';
@@ -90,6 +94,65 @@ const METRICS: PlatformMetrics = {
   slaRiskHorizonMinutes: 120,
 };
 
+const TENANT_METRICS: TenantMetrics = {
+  accounts: 3,
+  agents: 5,
+  ticketsByStatus: {
+    UNREAD: 2,
+    OPEN_WAITING_AGENT: 1,
+    WAITING_BUYER: 4,
+    NO_RESPONSE_NEEDED: 1,
+    MEDIATION: 3,
+    RESOLVED: 9,
+  },
+  openTickets: 10,
+  slaAtRisk: 6,
+  slaBreached: 2,
+  avgFirstResponseMinutes: 42.3,
+  messagesLast7d: 120,
+  ticketsLast14d: [{ date: '2026-11-05', count: 2 }],
+  plan: 'PRO',
+  limits: { maxAccounts: 10, maxAgents: 25 },
+  usagePct: { accounts: 30, agents: 20 },
+};
+
+const ALERTS: PlatformAlertsResult = {
+  generatedAt: '2026-11-05T12:00:00.000Z',
+  total: 1,
+  alerts: [
+    {
+      severity: 'warning',
+      tenantId: TENANT_ID,
+      tenantSlug: 'acme',
+      type: 'SLA_AT_RISK',
+      message: '11 open tickets are at SLA risk',
+      value: 11,
+    },
+  ],
+};
+
+const BILLING_SUMMARY: PlatformBillingSummary = {
+  mrr: 2_097,
+  byPlan: [
+    { plan: 'FREE', tenants: 2, mrr: 0 },
+    { plan: 'PRO', tenants: 2, mrr: 598 },
+    { plan: 'ENTERPRISE', tenants: 1, mrr: 1_499 },
+  ],
+  trialing: 3,
+  pastDue: 1,
+};
+
+const BILLING_VIEW: TenantBillingView = {
+  tenantId: TENANT_ID,
+  slug: 'acme',
+  plan: 'PRO',
+  billingStatus: 'ACTIVE',
+  trialEndsAt: '2026-12-01T00:00:00.000Z',
+  billingEmail: 'finance@acme.test',
+  monthlyPriceBrl: 299,
+  updatedAt: '2026-11-05T12:00:00.000Z',
+};
+
 describe('platform console routes', () => {
   let app: FastifyInstance;
   let requirePlatformAdmin: ReturnType<typeof vi.fn>;
@@ -97,6 +160,10 @@ describe('platform console routes', () => {
   let updateTenant: ReturnType<typeof vi.fn>;
   let purgeTenant: ReturnType<typeof vi.fn>;
   let metrics: ReturnType<typeof vi.fn>;
+  let tenantMetrics: ReturnType<typeof vi.fn>;
+  let alerts: ReturnType<typeof vi.fn>;
+  let billingSummary: ReturnType<typeof vi.fn>;
+  let updateBilling: ReturnType<typeof vi.fn>;
 
   beforeAll(async () => {
     requirePlatformAdmin = vi.fn(async (actorId: string) => {
@@ -107,10 +174,23 @@ describe('platform console routes', () => {
     updateTenant = vi.fn(async () => TENANT_VIEW);
     purgeTenant = vi.fn(async () => PURGE_RESULT);
     metrics = vi.fn(async () => METRICS);
+    tenantMetrics = vi.fn(async () => TENANT_METRICS);
+    alerts = vi.fn(async () => ALERTS);
+    billingSummary = vi.fn(async () => BILLING_SUMMARY);
+    updateBilling = vi.fn(async () => BILLING_VIEW);
 
     const ctx = {
       services: {
-        platform: { requirePlatformAdmin, listTenants, updateTenant, metrics } as unknown as IPlatformService,
+        platform: {
+          requirePlatformAdmin,
+          listTenants,
+          updateTenant,
+          metrics,
+          tenantMetrics,
+          alerts,
+          billingSummary,
+          updateBilling,
+        } as unknown as IPlatformService,
         tenantPurge: { purgeTenant } as unknown as ITenantPurgeService,
         logger: noopLogger,
       },
@@ -148,6 +228,10 @@ describe('platform console routes', () => {
     updateTenant.mockClear();
     purgeTenant.mockClear();
     metrics.mockClear();
+    tenantMetrics.mockClear();
+    alerts.mockClear();
+    billingSummary.mockClear();
+    updateBilling.mockClear();
   });
 
   it('is not reachable without a JWT', () => {
@@ -156,6 +240,10 @@ describe('platform console routes', () => {
       ['PATCH', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111'],
       ['POST', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111/purge'],
       ['GET', '/api/v1/platform/metrics'],
+      ['GET', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111/metrics'],
+      ['GET', '/api/v1/platform/alerts'],
+      ['GET', '/api/v1/platform/billing/summary'],
+      ['PATCH', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111/billing'],
     ] as const) {
       expect(isPublicRoute(method, path)).toBe(false);
     }
@@ -182,6 +270,17 @@ describe('platform console routes', () => {
         method: 'POST' as const,
         url: '/platform/tenants/11111111-1111-4111-8111-111111111111/purge',
       },
+      {
+        method: 'GET' as const,
+        url: '/platform/tenants/11111111-1111-4111-8111-111111111111/metrics',
+      },
+      { method: 'GET' as const, url: '/platform/alerts' },
+      { method: 'GET' as const, url: '/platform/billing/summary' },
+      {
+        method: 'PATCH' as const,
+        url: '/platform/tenants/11111111-1111-4111-8111-111111111111/billing',
+        payload: { billingStatus: 'ACTIVE' },
+      },
     ]) {
       const response = await app.inject({
         ...request,
@@ -195,6 +294,10 @@ describe('platform console routes', () => {
     expect(updateTenant).not.toHaveBeenCalled();
     expect(purgeTenant).not.toHaveBeenCalled();
     expect(metrics).not.toHaveBeenCalled();
+    expect(tenantMetrics).not.toHaveBeenCalled();
+    expect(alerts).not.toHaveBeenCalled();
+    expect(billingSummary).not.toHaveBeenCalled();
+    expect(updateBilling).not.toHaveBeenCalled();
   });
 
   it('GET /platform/tenants forwards pagination and returns tenants + counts', async () => {
@@ -323,6 +426,165 @@ describe('platform console routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ data: METRICS });
     expect(metrics).toHaveBeenCalledTimes(1);
+  });
+
+  it('GET /platform/tenants/:id/metrics returns the workspace snapshot', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/platform/tenants/${TENANT_ID}/metrics`,
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: TENANT_METRICS });
+    expect(tenantMetrics).toHaveBeenCalledWith(TENANT_ID);
+    expect(requirePlatformAdmin).toHaveBeenCalledWith('platform-admin');
+  });
+
+  it('GET /platform/tenants/:id/metrics rejects a non-UUID tenant id with 422', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/platform/tenants/not-a-uuid/metrics',
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(tenantMetrics).not.toHaveBeenCalled();
+  });
+
+  it('GET /platform/tenants/:id/metrics propagates an unknown workspace as 404', async () => {
+    tenantMetrics.mockRejectedValueOnce(new NotFoundError('Tenant', TENANT_ID));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/platform/tenants/${TENANT_ID}/metrics`,
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+  });
+
+  it('GET /platform/alerts returns the derived alert list with metadata', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/platform/alerts',
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: ALERTS.alerts,
+      meta: { generatedAt: ALERTS.generatedAt, total: ALERTS.total },
+    });
+    expect(alerts).toHaveBeenCalledTimes(1);
+  });
+
+  it('GET /platform/billing/summary returns the MRR base', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/platform/billing/summary',
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: BILLING_SUMMARY });
+    expect(billingSummary).toHaveBeenCalledTimes(1);
+  });
+
+  describe('PATCH /platform/tenants/:id/billing', () => {
+    it('forwards the subscription fields and returns the billing view', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/platform/tenants/${TENANT_ID}/billing`,
+        headers: { 'x-test-agent': 'platform-admin' },
+        payload: {
+          billingStatus: 'ACTIVE',
+          trialEndsAt: '2026-12-01T00:00:00.000Z',
+          billingEmail: 'finance@acme.test',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ data: BILLING_VIEW });
+      expect(updateBilling).toHaveBeenCalledWith(TENANT_ID, {
+        billingStatus: 'ACTIVE',
+        trialEndsAt: new Date('2026-12-01T00:00:00.000Z'),
+        billingEmail: 'finance@acme.test',
+      });
+    });
+
+    it('forwards null to clear the trial end and the billing e-mail', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/platform/tenants/${TENANT_ID}/billing`,
+        headers: { 'x-test-agent': 'platform-admin' },
+        payload: { trialEndsAt: null, billingEmail: null },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(updateBilling).toHaveBeenCalledWith(TENANT_ID, {
+        trialEndsAt: null,
+        billingEmail: null,
+      });
+    });
+
+    it('rejects an empty body, unknown fields and invalid values with 422', async () => {
+      const cases = [
+        {},
+        { billingStatus: 'ACTIVE', tenantId: 'tenant-2' },
+        { billingStatus: 'PAST' },
+        { billingEmail: 'not-an-email' },
+        { billingEmail: '' },
+        { trialEndsAt: 'not-a-date' },
+      ];
+
+      for (const payload of cases) {
+        const response = await app.inject({
+          method: 'PATCH',
+          url: `/platform/tenants/${TENANT_ID}/billing`,
+          headers: { 'x-test-agent': 'platform-admin' },
+          payload,
+        });
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+      }
+      expect(updateBilling).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-UUID tenant id with 422', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/platform/tenants/not-a-uuid/billing',
+        headers: { 'x-test-agent': 'platform-admin' },
+        payload: { billingStatus: 'ACTIVE' },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(updateBilling).not.toHaveBeenCalled();
+    });
+
+    it('maps a soft-deleted workspace refusal to 409', async () => {
+      updateBilling.mockRejectedValueOnce(
+        new ConflictError('Deleted workspaces cannot change billing', {
+          code: 'TENANT_DELETED',
+        }),
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/platform/tenants/${TENANT_ID}/billing`,
+        headers: { 'x-test-agent': 'platform-admin' },
+        payload: { billingStatus: 'ACTIVE' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        error: { code: 'CONFLICT', details: { code: 'TENANT_DELETED' } },
+      });
+    });
   });
 
   describe('POST /platform/tenants/:id/purge (manual LGPD purge)', () => {

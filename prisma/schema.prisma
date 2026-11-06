@@ -128,6 +128,15 @@ enum TenantPlan {
   ENTERPRISE
 }
 
+/// Fase 4 - subscription state of a workspace. Payment gateway is a follow-up;
+/// these columns are the billing base read by the platform console.
+enum BillingStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -197,25 +206,32 @@ model Session {
 // ----------------------------------------------------------------------------
 
 model Tenant {
-  id        String   @id @default(uuid()) @db.Uuid
-  slug      String   @unique @db.VarChar(80)
-  name      String   @db.VarChar(160)
+  id                    String        @id @default(uuid()) @db.Uuid
+  slug                  String        @unique @db.VarChar(80)
+  name                  String        @db.VarChar(160)
   /// ACTIVE | SUSPENDED | DELETED (platform console / LGPD soft delete).
-  status    String   @default("ACTIVE") @db.VarChar(24)
+  status                String        @default("ACTIVE") @db.VarChar(24)
   /// Fase 4: commercial plan (label/billing key) and effective numeric quotas.
-  plan        TenantPlan @default(FREE)
-  maxAccounts Int        @default(1) @map("max_accounts")
-  maxAgents   Int        @default(3) @map("max_agents")
+  plan                  TenantPlan    @default(FREE)
+  maxAccounts           Int           @default(1) @map("max_accounts")
+  maxAgents             Int           @default(3) @map("max_agents")
+  /// Fase 4: subscription state (default TRIALING until billing activates it).
+  billingStatus         BillingStatus @default(TRIALING) @map("billing_status")
+  /// Fase 4: end of the trial window (null = no time-boxed trial).
+  trialEndsAt           DateTime?     @map("trial_ends_at") @db.Timestamptz(6)
+  /// Fase 4: billing contact e-mail (nullable).
+  billingEmail          String?       @map("billing_email") @db.VarChar(180)
   /// Fase 2: first completion of the guided onboarding wizard (null = pending).
-  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(6)
+  onboardingCompletedAt DateTime?     @map("onboarding_completed_at") @db.Timestamptz(6)
   /// Fase 4/LGPD: soft delete marker. Data is preserved for audit; the physical
   /// purge is a future platform job (see docs/PHASE4_PLATFORM.md).
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([status])
   @@index([deletedAt])
+  @@index([billingStatus])
   @@map("tenants")
 }
 
@@ -241,7 +257,7 @@ model Agent {
   twoFactorEnabled   Boolean             @default(false) @map("two_factor_enabled")
   /// Fase 4: internal platform console operator (cross-tenant access). Granted
   /// only by the bootstrap/seed (`ADMIN_EMAIL` / `PLATFORM_ADMIN_EMAILS`).
-  isPlatformAdmin     Boolean             @default(false) @map("is_platform_admin")
+  isPlatformAdmin    Boolean             @default(false) @map("is_platform_admin")
   createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 

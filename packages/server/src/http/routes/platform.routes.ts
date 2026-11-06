@@ -21,4 +21,9 @@ export const platformRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, 
   // set). The automatic path is the daily `queue.tenant.purge` scheduler.
   app.post('/tenants/:id/purge', { preHandler: platformOnly }, controllers.purgeTenant);
   app.get('/metrics', { preHandler: platformOnly }, controllers.metrics);
+  // Fase 4 - per-tenant observability and billing base.
+  app.get('/tenants/:id/metrics', { preHandler: platformOnly }, controllers.tenantMetrics);
+  app.get('/alerts', { preHandler: platformOnly }, controllers.alerts);
+  app.get('/billing/summary', { preHandler: platformOnly }, controllers.billingSummary);
+  app.patch('/tenants/:id/billing', { preHandler: platformOnly }, controllers.updateBilling);
 };

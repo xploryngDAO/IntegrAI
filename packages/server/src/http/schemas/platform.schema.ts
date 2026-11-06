@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ENTERPRISE_UNLIMITED, TENANT_PLANS, TENANT_SEARCH_MAX_LENGTH } from '@sac/shared';
+import {
+  BILLING_STATUSES,
+  ENTERPRISE_UNLIMITED,
+  TENANT_PLANS,
+  TENANT_SEARCH_MAX_LENGTH,
+} from '@sac/shared';
 import { uuidSchema } from './enums.schema';
 import { blankAsUndefined } from './common';
 
@@ -50,5 +55,28 @@ export const platformTenantUpdateBodySchema = z
     { message: 'At least one of plan, maxAccounts, maxAgents or status is required' },
   );
 
+/**
+ * `PATCH /platform/tenants/:id/billing`.
+ *
+ * `trialEndsAt` and `billingEmail` accept `null` to clear the value; at least
+ * one of the three fields is required. The payment gateway is a follow-up, so
+ * this only persists the commercial state.
+ */
+export const platformTenantBillingBodySchema = z
+  .object({
+    billingStatus: z.enum(BILLING_STATUSES).optional(),
+    trialEndsAt: z.union([z.null(), z.coerce.date()]).optional(),
+    billingEmail: z.union([z.null(), z.string().trim().email().max(180)]).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.billingStatus !== undefined ||
+      value.trialEndsAt !== undefined ||
+      value.billingEmail !== undefined,
+    { message: 'At least one of billingStatus, trialEndsAt or billingEmail is required' },
+  );
+
 export type PlatformTenantListQuery = z.infer<typeof platformTenantListQuerySchema>;
 export type PlatformTenantUpdateBody = z.infer<typeof platformTenantUpdateBodySchema>;
+export type PlatformTenantBillingBody = z.infer<typeof platformTenantBillingBodySchema>;

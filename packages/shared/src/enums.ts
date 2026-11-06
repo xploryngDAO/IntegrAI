@@ -48,6 +48,16 @@ export type TicketStatus =
   | 'MEDIATION'
   | 'RESOLVED';
 
+/** Every ticket status, in lifecycle order (used to zero-fill status counters). */
+export const TICKET_STATUSES = [
+  'UNREAD',
+  'OPEN_WAITING_AGENT',
+  'WAITING_BUYER',
+  'NO_RESPONSE_NEEDED',
+  'MEDIATION',
+  'RESOLVED',
+] as const satisfies readonly TicketStatus[];
+
 export const OPEN_TICKET_STATUSES: readonly TicketStatus[] = [
   'UNREAD',
   'OPEN_WAITING_AGENT',

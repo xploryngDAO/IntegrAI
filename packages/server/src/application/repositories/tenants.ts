@@ -6,6 +6,7 @@ import type {
   ITenantRepository,
   Paginated,
   PlatformTenantListQuery,
+  TenantBillingPatch,
   TenantPolicyPatch,
   TenantRecord,
   UpdateTenantInput,
@@ -127,6 +128,20 @@ export class PrismaTenantRepository implements ITenantRepository, IPlatformTenan
     if (patch.maxAgents !== undefined) data.maxAgents = patch.maxAgents;
     if (patch.status !== undefined) data.status = patch.status;
     if (patch.deletedAt !== undefined) data.deletedAt = patch.deletedAt;
+
+    const record = await this.prisma.tenant.update({ where: { id }, data });
+    return mapTenant(record);
+  }
+
+  /**
+   * Billing-only update. Kept apart from `applyPolicies` so the plan/quota
+   * console path cannot change the subscription by accident.
+   */
+  async applyBilling(id: string, patch: TenantBillingPatch): Promise<TenantRecord> {
+    const data: Prisma.TenantUpdateInput = {};
+    if (patch.billingStatus !== undefined) data.billingStatus = patch.billingStatus;
+    if (patch.trialEndsAt !== undefined) data.trialEndsAt = patch.trialEndsAt;
+    if (patch.billingEmail !== undefined) data.billingEmail = patch.billingEmail;
 
     const record = await this.prisma.tenant.update({ where: { id }, data });
     return mapTenant(record);

@@ -11,8 +11,14 @@ import type {
   ITenantRepository,
   InvitationRecord,
   Paginated,
+  PlatformAlertQuery,
+  PlatformAlertSnapshot,
+  PlatformBillingPlanCount,
   PlatformMetricsRecord,
   PlatformTenantListQuery,
+  TenantBillingPatch,
+  TenantMetricsQuery,
+  TenantMetricsRecord,
   TenantPolicyPatch,
   TenantRecord,
   TenantUsageCounts,
@@ -40,6 +46,9 @@ export function makeTenant(overrides: Partial<TenantRecord> = {}): TenantRecord 
     plan,
     maxAccounts: overrides.maxAccounts ?? PLAN_LIMITS[plan].maxAccounts,
     maxAgents: overrides.maxAgents ?? PLAN_LIMITS[plan].maxAgents,
+    billingStatus: overrides.billingStatus ?? 'TRIALING',
+    trialEndsAt: overrides.trialEndsAt ?? null,
+    billingEmail: overrides.billingEmail ?? null,
     onboardingCompletedAt: overrides.onboardingCompletedAt ?? null,
     deletedAt: overrides.deletedAt ?? null,
     createdAt: overrides.createdAt ?? at,
@@ -166,6 +175,16 @@ export class InMemoryPlatformTenantRepository implements IPlatformTenantReposito
     return row;
   }
 
+  async applyBilling(id: string, patch: TenantBillingPatch): Promise<TenantRecord> {
+    const row = this.tenants.rows.find((entry) => entry.id === id);
+    if (row === undefined) throw new Error(`Tenant not found: ${id}`);
+    if (patch.billingStatus !== undefined) row.billingStatus = patch.billingStatus;
+    if (patch.trialEndsAt !== undefined) row.trialEndsAt = patch.trialEndsAt;
+    if (patch.billingEmail !== undefined) row.billingEmail = patch.billingEmail;
+    row.updatedAt = this.now();
+    return row;
+  }
+
   async softDelete(id: string, at: Date): Promise<TenantRecord> {
     return this.applyPolicies(id, { status: 'DELETED', deletedAt: at });
   }
@@ -182,8 +201,36 @@ export class StubPlatformRepository implements IPlatformRepository {
     messagesLast24h: 0,
     slaAtRisk: 0,
   };
+  tenantMetricsRecord: TenantMetricsRecord = {
+    accounts: 0,
+    agents: 0,
+    ticketsByStatus: {
+      UNREAD: 0,
+      OPEN_WAITING_AGENT: 0,
+      WAITING_BUYER: 0,
+      NO_RESPONSE_NEEDED: 0,
+      MEDIATION: 0,
+      RESOLVED: 0,
+    },
+    slaAtRisk: 0,
+    slaBreached: 0,
+    avgFirstResponseMinutes: null,
+    messagesLast7d: 0,
+    ticketsByDay: [],
+  };
+  alertSnapshotRecord: PlatformAlertSnapshot = {
+    tenants: [],
+    accounts: [],
+    usage: {},
+    slaAtRisk: {},
+    expiringInvitations: {},
+  };
+  billingRows: PlatformBillingPlanCount[] = [];
   readonly usageRequests: string[][] = [];
   readonly metricsInputs: Array<{ messagesSince: Date; slaHorizon: Date }> = [];
+  readonly tenantMetricsRequests: Array<{ tenantId: string; input: TenantMetricsQuery }> = [];
+  readonly alertInputs: PlatformAlertQuery[] = [];
+  billingRequests = 0;
 
   async usageFor(tenantIds: string[]): Promise<Record<string, TenantUsageCounts>> {
     this.usageRequests.push(tenantIds);
@@ -200,6 +247,24 @@ export class StubPlatformRepository implements IPlatformRepository {
   }): Promise<PlatformMetricsRecord> {
     this.metricsInputs.push(input);
     return this.metricsRecord;
+  }
+
+  async tenantMetrics(
+    tenantId: string,
+    input: TenantMetricsQuery,
+  ): Promise<TenantMetricsRecord> {
+    this.tenantMetricsRequests.push({ tenantId, input });
+    return this.tenantMetricsRecord;
+  }
+
+  async alertSnapshot(input: PlatformAlertQuery): Promise<PlatformAlertSnapshot> {
+    this.alertInputs.push(input);
+    return this.alertSnapshotRecord;
+  }
+
+  async billingByPlanAndStatus(): Promise<PlatformBillingPlanCount[]> {
+    this.billingRequests += 1;
+    return this.billingRows;
   }
 }
 

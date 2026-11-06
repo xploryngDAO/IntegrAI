@@ -11,7 +11,7 @@ import type {
   TicketStatus,
   TicketType,
 } from '../enums';
-import type { TenantPlan } from '../plans';
+import type { BillingStatus, TenantPlan } from '../plans';
 import type {
   AgentRecord,
   BuyerPiiRecord,
@@ -545,6 +545,80 @@ export interface PlatformMetricsRecord {
   slaAtRisk: number;
 }
 
+/** Input of the per-tenant operational aggregates. */
+export interface TenantMetricsQuery {
+  /** Lower bound of the rolling 7-day message window. */
+  messagesSince: Date;
+  /** First calendar day (UTC) of the 14-day ticket series. */
+  ticketsSince: Date;
+  /** Max SLA deadline considered "at risk" (now + warning horizon). */
+  slaHorizon: Date;
+}
+
+/** Raw per-tenant aggregates mapped by `PlatformService.tenantMetrics`. */
+export interface TenantMetricsRecord {
+  accounts: number;
+  agents: number;
+  ticketsByStatus: Record<TicketStatus, number>;
+  slaAtRisk: number;
+  slaBreached: number;
+  avgFirstResponseMinutes: number | null;
+  messagesLast7d: number;
+  /** Days that actually have tickets; the service zero-fills the 14-day window. */
+  ticketsByDay: Array<{ date: string; count: number }>;
+}
+
+/** Minimal tenant row read by the alert derivation (no business rows). */
+export interface PlatformAlertTenantRecord {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  plan: TenantPlan;
+  maxAccounts: number;
+  maxAgents: number;
+}
+
+/** Marketplace account signals used by `/platform/alerts`. */
+export interface PlatformAlertAccountRecord {
+  id: string;
+  tenantId: string | null;
+  marketplace: Marketplace;
+  displayName: string;
+  status: AccountStatus;
+  lastErrorAt: Date | null;
+  lastError: string | null;
+}
+
+/** Cross-tenant raw data behind `/platform/alerts` (no alert table). */
+export interface PlatformAlertSnapshot {
+  tenants: PlatformAlertTenantRecord[];
+  accounts: PlatformAlertAccountRecord[];
+  usage: Record<string, { accounts: number; agents: number }>;
+  /** Open, non-breached tickets inside the SLA warning horizon, per tenant. */
+  slaAtRisk: Record<string, number>;
+  /** Pending invitations that expire inside the alert horizon, per tenant. */
+  expiringInvitations: Record<string, number>;
+}
+
+export interface PlatformAlertQuery {
+  /** Only errors at/after this instant are considered recent. */
+  errorSince: Date;
+  /** SLA warning horizon (`now + 120 min`). */
+  slaHorizon: Date;
+  /** Pending invitations expiring before this instant are flagged. */
+  invitationHorizon: Date;
+  /** Lower bound so an already-expired invitation is not reported as "expiring". */
+  now: Date;
+}
+
+/** One (plan, billing status) bucket of the billing summary. */
+export interface PlatformBillingPlanCount {
+  plan: TenantPlan;
+  billingStatus: BillingStatus;
+  tenants: number;
+}
+
 /**
  * Cross-tenant aggregates.
  *
@@ -556,9 +630,22 @@ export interface IPlatformRepository {
   /** Usage counts per tenant; unknown ids resolve to `{ 0, 0, 0 }`. */
   usageFor(tenantIds: string[]): Promise<Record<string, TenantUsageCounts>>;
   metrics(input: { messagesSince: Date; slaHorizon: Date }): Promise<PlatformMetricsRecord>;
+  /** Per-tenant metrics; every query is filtered by `tenantId`. */
+  tenantMetrics(tenantId: string, input: TenantMetricsQuery): Promise<TenantMetricsRecord>;
+  /** Cross-tenant snapshot for the alert derivation (read-only, no new table). */
+  alertSnapshot(input: PlatformAlertQuery): Promise<PlatformAlertSnapshot>;
+  /** (plan, billing status) buckets for `GET /platform/billing/summary`. */
+  billingByPlanAndStatus(): Promise<PlatformBillingPlanCount[]>;
 }
 
-/** Admin-only tenant writes (plan, quota, status, soft delete). */
+/** Fields the console may change on the subscription of a workspace. */
+export interface TenantBillingPatch {
+  billingStatus?: BillingStatus;
+  trialEndsAt?: Date | null;
+  billingEmail?: string | null;
+}
+
+/** Admin-only tenant writes (plan, quota, status, billing, soft delete). */
 export interface IPlatformTenantRepository {
   /**
    * Newest first, tenant-level pagination (the console list).
@@ -569,6 +656,12 @@ export interface IPlatformTenantRepository {
   list(query: PlatformTenantListQuery): Promise<Paginated<TenantRecord>>;
   /** Applies plan/quota/status; unknown id throws (Prisma P2025). */
   applyPolicies(id: string, patch: TenantPolicyPatch): Promise<TenantRecord>;
+  /**
+   * Applies billing fields only (subscription status, trial end, billing
+   * e-mail). Kept out of `applyPolicies` so the plan/quota console path cannot
+   * change billing by accident.
+   */
+  applyBilling(id: string, patch: TenantBillingPatch): Promise<TenantRecord>;
   /** Soft delete: `status='DELETED'`, `deleted_at=at`; data is preserved. */
   softDelete(id: string, at: Date): Promise<TenantRecord>;
 }

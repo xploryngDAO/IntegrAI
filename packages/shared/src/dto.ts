@@ -11,7 +11,7 @@ import type {
   TicketStatus,
   TicketType,
 } from './enums';
-import type { PlanLimits, TenantPlan } from './plans';
+import type { BillingStatus, PlanLimits, TenantPlan } from './plans';
 
 /* ==========================================================================
  * Persistence records (Date-based, consumed by repositories + services)
@@ -217,6 +217,12 @@ export interface TenantRecord {
   plan: TenantPlan;
   maxAccounts: number;
   maxAgents: number;
+  /** Fase 4: subscription state (TRIALING until billing activates it). */
+  billingStatus: BillingStatus;
+  /** End of the trial; null when the workspace is not time-boxed. */
+  trialEndsAt: Date | null;
+  /** Billing contact e-mail (nullable; the gateway integration is a follow-up). */
+  billingEmail: string | null;
   /** Fase 2: first time the guided onboarding wizard was completed. */
   onboardingCompletedAt: Date | null;
   /** Fase 4/LGPD: soft-delete marker (physical purge is a future job). */
@@ -314,6 +320,102 @@ export interface PlatformMetrics {
   /** Open, not-yet-breached tickets whose SLA deadline is inside the horizon. */
   slaAtRisk: number;
   slaRiskHorizonMinutes: number;
+}
+
+/**
+ * `GET /platform/tenants/:id/metrics` - operational snapshot of ONE workspace.
+ *
+ * Every number is aggregated with a `tenant_id` filter, so a platform admin can
+ * compare workspaces without loading business rows.
+ */
+export interface TenantMetrics {
+  accounts: number;
+  agents: number;
+  /** Count per ticket status, including the statuses with zero tickets. */
+  ticketsByStatus: Record<TicketStatus, number>;
+  /** Sum of the non-terminal statuses (UNREAD/OPEN_WAITING_AGENT/WAITING_BUYER/MEDIATION). */
+  openTickets: number;
+  /** Open, not-yet-breached tickets whose deadline is inside the warning horizon. */
+  slaAtRisk: number;
+  /** Tickets flagged as breached (any status). */
+  slaBreached: number;
+  /** Average minutes between ticket creation and the first agent response. */
+  avgFirstResponseMinutes: number | null;
+  /** Tenant messages created in the last 7 days. */
+  messagesLast7d: number;
+  /** Calendar-day series (UTC), always 14 entries, oldest first. */
+  ticketsLast14d: Array<{ date: string; count: number }>;
+  plan: TenantPlan;
+  limits: PlanLimits;
+  /** Percentage of each plan quota in use (rounded; can exceed 100). */
+  usagePct: { accounts: number; agents: number };
+}
+
+/** Severity of an operational alert rendered by the platform console. */
+export type PlatformAlertSeverity = 'info' | 'warning' | 'critical';
+
+/**
+ * Stable alert kinds derived from live data (no alert table).
+ *
+ * Quota alerts use one type per resource and encode the 80%/100% threshold in
+ * `severity`; `value` carries the relevant number (percentage for quotas,
+ * count for SLA/invitations and 1 for binary states).
+ */
+export type PlatformAlertType =
+  | 'TENANT_SUSPENDED'
+  | 'ACCOUNT_STATUS'
+  | 'ACCOUNT_ERROR'
+  | 'AGENTS_QUOTA'
+  | 'ACCOUNTS_QUOTA'
+  | 'SLA_AT_RISK'
+  | 'INVITATIONS_EXPIRING';
+
+export interface PlatformAlert {
+  severity: PlatformAlertSeverity;
+  tenantId: string;
+  tenantSlug: string;
+  type: PlatformAlertType;
+  message: string;
+  value: number;
+}
+
+/** `GET /platform/alerts` - derived list, already ordered by urgency. */
+export interface PlatformAlertsResult {
+  generatedAt: string;
+  total: number;
+  alerts: PlatformAlert[];
+}
+
+/** `GET /platform/billing/summary` - MRR base for the future gateway. */
+export interface PlatformBillingSummary {
+  /** Sum of the monthly list price of ACTIVE tenants (BRL). */
+  mrr: number;
+  /** Paying (ACTIVE) tenants per plan; `mrr` is the plan contribution. */
+  byPlan: Array<{ plan: TenantPlan; tenants: number; mrr: number }>;
+  trialing: number;
+  pastDue: number;
+}
+
+/** Body of `PATCH /platform/tenants/:id/billing` (at least one field). */
+export interface TenantBillingUpdateCommand {
+  billingStatus?: BillingStatus;
+  /** `null` clears the trial end date; a Date sets it. */
+  trialEndsAt?: Date | null;
+  /** `null` clears the billing e-mail. */
+  billingEmail?: string | null;
+}
+
+/** `PATCH /platform/tenants/:id/billing` response. */
+export interface TenantBillingView {
+  tenantId: string;
+  slug: string;
+  plan: TenantPlan;
+  billingStatus: BillingStatus;
+  trialEndsAt: string | null;
+  billingEmail: string | null;
+  /** Monthly list price of the current plan (BRL); 0 for FREE. */
+  monthlyPriceBrl: number;
+  updatedAt: string;
 }
 
 /** Rows physically removed for one workspace, per table (LGPD purge audit). */

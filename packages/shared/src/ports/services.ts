@@ -20,13 +20,18 @@ import type {
   PageRequest,
   Paginated,
   PlanUsageView,
+  PlatformAlertsResult,
+  PlatformBillingSummary,
   PlatformMetrics,
   PlatformTenantListQuery,
   PlatformTenantListResult,
   PlatformTenantUpdateCommand,
   PlatformTenantView,
   QueueSnapshot,
+  TenantBillingUpdateCommand,
+  TenantBillingView,
   TenantExportPayload,
+  TenantMetrics,
   TenantProfile,
   TenantPurgeResult,
   TenantPurgeRunResult,
@@ -267,6 +272,17 @@ export interface IPlatformService {
   listTenants(query: PlatformTenantListQuery): Promise<PlatformTenantListResult>;
   updateTenant(tenantId: string, command: PlatformTenantUpdateCommand): Promise<PlatformTenantView>;
   metrics(): Promise<PlatformMetrics>;
+  /** Operational snapshot of ONE workspace (404 when unknown). */
+  tenantMetrics(tenantId: string): Promise<TenantMetrics>;
+  /** Alerts derived from live data (accounts, quotas, SLA, lifecycle). */
+  alerts(): Promise<PlatformAlertsResult>;
+  /** MRR base derived from plan prices and `billing_status`. */
+  billingSummary(): Promise<PlatformBillingSummary>;
+  /** Updates subscription status/trial/billing e-mail of a workspace. */
+  updateBilling(
+    tenantId: string,
+    command: TenantBillingUpdateCommand,
+  ): Promise<TenantBillingView>;
 }
 
 /* ==========================================================================

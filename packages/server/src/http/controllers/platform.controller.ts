@@ -1,6 +1,7 @@
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
   parseInput,
+  platformTenantBillingBodySchema,
   platformTenantListQuerySchema,
   platformTenantParamsSchema,
   platformTenantUpdateBodySchema,
@@ -13,6 +14,10 @@ export interface PlatformControllers {
   updateTenant: RouteHandler;
   purgeTenant: RouteHandler;
   metrics: RouteHandler;
+  tenantMetrics: RouteHandler;
+  alerts: RouteHandler;
+  billingSummary: RouteHandler;
+  updateBilling: RouteHandler;
 }
 
 /**
@@ -77,6 +82,48 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
     /** `GET /platform/metrics` - global operational totals. */
     async metrics() {
       return ok(await services.platform.metrics());
+    },
+
+    /**
+     * `GET /platform/tenants/:id/metrics` - operational snapshot of one
+     * workspace (counts, SLA, volume and quota usage).
+     */
+    async tenantMetrics(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      return ok(await services.platform.tenantMetrics(id));
+    },
+
+    /**
+     * `GET /platform/alerts` - alerts derived from live rows, ordered by
+     * severity. No alert table is involved.
+     *
+     * The envelope `data` is the alert LIST (the console renders it directly);
+     * `meta` carries the generation timestamp and the total.
+     */
+    async alerts() {
+      const result = await services.platform.alerts();
+      return ok(result.alerts, { generatedAt: result.generatedAt, total: result.total });
+    },
+
+    /** `GET /platform/billing/summary` - MRR by plan + trial/past-due counts. */
+    async billingSummary() {
+      return ok(await services.platform.billingSummary());
+    },
+
+    /** `PATCH /platform/tenants/:id/billing` - subscription status/trial/contact. */
+    async updateBilling(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      const body = parseInput(platformTenantBillingBodySchema, request.body, 'body');
+      const updated = await services.platform.updateBilling(id, body);
+
+      services.logger.info('http.platform.billing_updated', {
+        requestId: request.id,
+        actorId: requireAgent(request).id,
+        tenantId: id,
+        fields: Object.keys(body),
+      });
+
+      return ok(updated);
     },
   };
 }

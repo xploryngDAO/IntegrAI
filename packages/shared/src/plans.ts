@@ -65,6 +65,42 @@ export function isTenantPlan(value: unknown): value is TenantPlan {
 }
 
 /* ==========================================================================
+ * Billing (Fase 4): subscription status and BRL list prices
+ * ========================================================================== */
+
+/**
+ * Commercial state of a workspace subscription.
+ *
+ * `TRIALING` is the default for a new workspace; `PAST_DUE` means a payment is
+ * late (the workspace keeps operating until the collection policy says
+ * otherwise); `CANCELED` stops billing. The payment gateway is a documented
+ * follow-up: these columns are the base the integration will read/write.
+ */
+export type BillingStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+
+export const BILLING_STATUSES = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED'] as const;
+
+/**
+ * Monthly list price per plan, in BRL (the billing base used by
+ * `GET /platform/billing/summary`). FREE is free; PRO is 299; ENTERPRISE is
+ * 1.499. No gateway, taxes or proration are applied here.
+ */
+export const PLAN_MONTHLY_PRICE_BRL: Record<TenantPlan, number> = {
+  FREE: 0,
+  PRO: 299,
+  ENTERPRISE: 1_499,
+};
+
+/** Monthly price in BRL for a plan (0 for FREE). */
+export function monthlyPriceBrl(plan: TenantPlan): number {
+  return PLAN_MONTHLY_PRICE_BRL[plan];
+}
+
+export function isBillingStatus(value: unknown): value is BillingStatus {
+  return typeof value === 'string' && (BILLING_STATUSES as readonly string[]).includes(value);
+}
+
+/* ==========================================================================
  * Platform console search (Fase 4: `GET /platform/tenants?search=`)
  * ========================================================================== */
 
