@@ -61,7 +61,7 @@ jobs:
       ADMIN_NAME: CI Admin
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks fingerprints reference the introducing commits, so the
           # full history must be present (a shallow clone re-attributes them).
@@ -76,7 +76,7 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src
           returntocorp/semgrep semgrep scan
           --config=p/security-audit --severity=ERROR --error --quiet
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
