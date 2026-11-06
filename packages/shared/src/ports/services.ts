@@ -73,6 +73,8 @@ import type {
 import type {
   SsoCallbackCommand,
   SsoCallbackResult,
+  SsoConnectionTestCommand,
+  SsoConnectionTestResult,
   SsoDiscoveryResult,
   SsoExchangeCommand,
   SsoPasswordLoginSubject,
@@ -875,6 +877,14 @@ export interface ITenantSsoService extends ISsoPasswordGuard {
   update(tenantId: string, command: UpdateSsoConnectionCommand): Promise<SsoConnectionView>;
   /** 404 `SSO_NOT_CONFIGURED` when there was nothing to delete. */
   remove(tenantId: string): Promise<void>;
+  /**
+   * ADMIN "test connection" probe over the SAVED connection: reads the OIDC
+   * discovery document and the JWKS and reports every check. It never exchanges
+   * a token nor uses the client secret, is throttled per tenant + client IP and
+   * works even while the connection is disabled. 404 `SSO_NOT_CONFIGURED` when
+   * the workspace has no connection.
+   */
+  test(tenantId: string, command?: SsoConnectionTestCommand): Promise<SsoConnectionTestResult>;
   /** Public: `{ enabled, provider, tenantSlug }` or 404 `SSO_NOT_CONFIGURED`. */
   discover(query: { email?: string; domain?: string; ip?: string | null }): Promise<SsoDiscoveryResult>;
 }

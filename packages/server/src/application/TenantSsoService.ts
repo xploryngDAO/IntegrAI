@@ -14,6 +14,8 @@ import type {
   ISsoPasswordGuard,
   ITenantSsoConnectionRepository,
   ITenantSsoService,
+  SsoConnectionTestCommand,
+  SsoConnectionTestResult,
   SsoConnectionView,
   SsoDiscoveryResult,
   SsoPasswordLoginSubject,
@@ -22,6 +24,8 @@ import type {
 } from '@sac/shared';
 
 import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
+import { probeSsoConnection } from './sso/connectionTest';
+import type { OidcClient } from './sso/OidcClient';
 import {
   defaultRedirectUri,
   emailDomain,
@@ -64,6 +68,11 @@ export interface TenantSsoServiceDependencies {
   /** Public API base used when the workspace does not pin a redirect URI. */
   appBaseUrl: string;
   nodeEnv: 'development' | 'test' | 'production';
+  /**
+   * OIDC probe used by `test` (discovery + JWKS reads only). Required: an
+   * instance that silently skipped it would answer a useless 500 at runtime.
+   */
+  oidc: Pick<OidcClient, 'fetchDiscoveryDocument' | 'fetchJwksDocument'>;
   /** Login throttle; built from `cache`/`clock` when omitted. */
   rateLimiter?: AuthRateLimiter;
 }
@@ -82,6 +91,7 @@ export class TenantSsoService implements ITenantSsoService, ISsoPasswordGuard {
   private readonly repo: ITenantSsoConnectionRepository;
   private readonly appBaseUrl: string;
   private readonly nodeEnv: TenantSsoServiceDependencies['nodeEnv'];
+  private readonly oidc: TenantSsoServiceDependencies['oidc'];
   private readonly rateLimiter: AuthRateLimiter;
 
   constructor(deps: TenantSsoServiceDependencies) {
@@ -90,6 +100,7 @@ export class TenantSsoService implements ITenantSsoService, ISsoPasswordGuard {
     this.repo = deps.repo;
     this.appBaseUrl = deps.appBaseUrl;
     this.nodeEnv = deps.nodeEnv;
+    this.oidc = deps.oidc;
     this.rateLimiter =
       deps.rateLimiter ??
       new AuthRateLimiter({ cache: deps.cache, clock: deps.clock, logger: deps.logger });
@@ -199,6 +210,50 @@ export class TenantSsoService implements ITenantSsoService, ISsoPasswordGuard {
     // Pending states/codes expire by TTL; the callback re-reads the connection
     // by id and answers SSO_NOT_CONFIGURED, so a deleted config cannot log in.
     this.logger.info('auth.sso.config.deleted', { tenantId });
+  }
+
+  /**
+   * ADMIN "test connection": probes the SAVED connection so the operator can
+   * prove discovery/JWKS/PKCE work BEFORE flipping `enforceSso`.
+   *
+   * Decisions:
+   *  - a DISABLED connection is testable (`enabled` is reported in the result,
+   *    not enforced): testing before enabling is the whole point;
+   *  - the throttle is per workspace + client IP and is consumed even when the
+   *    config is missing, so the endpoint cannot be used to probe account state;
+   *  - the probe is not cached (the admin must see the effect of the fix they
+   *    just made); the 10/15min window is the abuse control;
+   *  - the client secret is never decrypted and no token is requested, so the
+   *    result cannot leak credentials.
+   */
+  async test(
+    tenantId: string,
+    command: SsoConnectionTestCommand = {},
+  ): Promise<SsoConnectionTestResult> {
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.ssoTest,
+      CACHE_KEYS.ssoTestAttempts(tenantId, normalizeClientIp(command.ip)),
+    );
+
+    const connection = await this.repo.findByTenantId(tenantId);
+    if (connection === null) throw notConfigured('This workspace has no SSO connection');
+
+    const result = await probeSsoConnection({
+      connection,
+      oidc: this.oidc,
+      nodeEnv: this.nodeEnv,
+    });
+
+    this.logger.info('auth.sso.test.completed', {
+      tenantId,
+      provider: connection.provider,
+      ok: result.ok,
+      enabled: connection.enabled,
+      // Check names only: `detail` may quote provider URLs, never the secret.
+      failedChecks: result.checks.filter((check) => !check.ok).map((check) => check.name),
+    });
+
+    return result;
   }
 
   /* ==================================================================== */

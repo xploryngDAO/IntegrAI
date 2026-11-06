@@ -7,6 +7,7 @@ import type {
   ISsoAuthService,
   ITenantSsoService,
   LoginSuccess,
+  SsoConnectionTestResult,
   SsoConnectionView,
 } from '@sac/shared';
 
@@ -68,12 +69,27 @@ const LOGIN_SUCCESS: LoginSuccess = {
   },
 };
 
+const TEST_RESULT: SsoConnectionTestResult = {
+  ok: true,
+  checks: [
+    { name: 'discovery', ok: true, detail: 'HTTP 200' },
+    { name: 'issuer', ok: true, detail: VIEW.issuerUrl },
+    { name: 'allowed_domains', ok: true, detail: '1 domain(s) allowed' },
+  ],
+  issuer: VIEW.issuerUrl,
+  authorizationEndpoint: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize',
+  tokenEndpoint: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token',
+  jwksKeys: ['signing-key-1'],
+  enabled: true,
+};
+
 describe('enterprise SSO routes', () => {
   let app: FastifyInstance;
 
   const tenantSsoGet = vi.fn(async () => VIEW);
   const tenantSsoUpdate = vi.fn(async () => VIEW);
   const tenantSsoRemove = vi.fn(async () => undefined);
+  const tenantSsoTest = vi.fn(async () => TEST_RESULT);
   const tenantSsoDiscover = vi.fn(async () => ({
     enabled: true as const,
     provider: 'MICROSOFT' as const,
@@ -103,6 +119,7 @@ describe('enterprise SSO routes', () => {
           get: tenantSsoGet,
           update: tenantSsoUpdate,
           remove: tenantSsoRemove,
+          test: tenantSsoTest,
           discover: tenantSsoDiscover,
           assertPasswordLoginAllowed,
         } as unknown as ITenantSsoService,
@@ -146,6 +163,7 @@ describe('enterprise SSO routes', () => {
     tenantSsoGet.mockClear();
     tenantSsoUpdate.mockClear();
     tenantSsoRemove.mockClear();
+    tenantSsoTest.mockClear();
     tenantSsoDiscover.mockClear();
     ssoStart.mockClear();
     ssoCallback.mockClear();
@@ -169,6 +187,7 @@ describe('enterprise SSO routes', () => {
   it('protects the tenant SSO configuration with a JWT', () => {
     expect(isPublicRoute('GET', '/api/v1/tenants/me/sso')).toBe(false);
     expect(isPublicRoute('PUT', '/api/v1/tenants/me/sso')).toBe(false);
+    expect(isPublicRoute('POST', '/api/v1/tenants/me/sso/test')).toBe(false);
     expect(isPublicRoute('DELETE', '/api/v1/tenants/me/sso')).toBe(false);
   });
 
@@ -333,6 +352,60 @@ describe('enterprise SSO routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect(tenantSsoRemove).not.toHaveBeenCalled();
+  });
+
+  /* -------------------------------------------------------------------- */
+  /* Connection test (ADMIN, saved config)                                 */
+  /* -------------------------------------------------------------------- */
+
+  it('POST /tenants/me/sso/test answers 401 without a principal', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/v1/tenants/me/sso/test' });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ error: { code: 'AUTHENTICATION_ERROR' } });
+    expect(tenantSsoTest).not.toHaveBeenCalled();
+  });
+
+  it('POST /tenants/me/sso/test answers 403 for AGENT and SUPERVISOR', async () => {
+    for (const role of ['AGENT', 'SUPERVISOR']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tenants/me/sso/test',
+        headers: { 'x-test-tenant': 'tenant-1', 'x-test-role': role },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({ error: { code: 'AUTHORIZATION_ERROR' } });
+    }
+    expect(tenantSsoTest).not.toHaveBeenCalled();
+  });
+
+  it('POST /tenants/me/sso/test returns the report scoped by the JWT tenant (ADMIN)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/me/sso/test',
+      headers: { 'x-test-tenant': 'tenant-1', 'x-test-role': 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: TEST_RESULT });
+    expect(tenantSsoTest).toHaveBeenCalledWith('tenant-1', { ip: expect.any(String) });
+    expect(response.body).not.toContain('clientSecret');
+  });
+
+  it('POST /tenants/me/sso/test propagates 404 SSO_NOT_CONFIGURED', async () => {
+    tenantSsoTest.mockRejectedValueOnce(
+      new AppError('SSO_NOT_CONFIGURED', 'This workspace has no SSO connection', 404),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tenants/me/sso/test',
+      headers: { 'x-test-tenant': 'tenant-1', 'x-test-role': 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: { code: 'SSO_NOT_CONFIGURED' } });
   });
 
   /* -------------------------------------------------------------------- */

@@ -31,6 +31,7 @@ export interface SsoControllers {
   getConfig: RouteHandler;
   updateConfig: RouteHandler;
   deleteConfig: RouteHandler;
+  testConnection: RouteHandler;
   discover: RouteHandler;
   start: RouteHandler;
   callback: RouteHandler;
@@ -118,6 +119,20 @@ export function createSsoControllers(ctx: HttpRouteContext): SsoControllers {
 
       reply.code(204);
       return undefined;
+    },
+
+    /**
+     * `POST /tenants/me/sso/test` (ADMIN) - probe the SAVED connection.
+     *
+     * Answers 200 with `{ ok, checks[], issuer?, authorizationEndpoint?,
+     * tokenEndpoint?, jwksKeys?, enabled }` even when the provider is broken
+     * (`ok: false` + the failing checks): the admin needs the report, not an
+     * error. 404 `SSO_NOT_CONFIGURED` when the workspace has no connection.
+     * Nothing is echoed from the stored secret or from any token.
+     */
+    async testConnection(request) {
+      const tenantId = requireTenantId(request);
+      return ok(await services.tenantSso.test(tenantId, { ip: request.ip }));
     },
 
     /** `GET /auth/sso/discover` (public) - routing only, no secret. */

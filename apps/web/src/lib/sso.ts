@@ -216,6 +216,40 @@ function retryAfterHint(error: ApiClientError): string {
 }
 
 /**
+ * PT-BR label of a `POST /tenants/me/sso/test` check id.
+ *
+ * The API publishes stable ids (`SsoConnectionTestCheckName`) precisely so the
+ * SPA labels them without parsing `detail`; an unknown id is shown raw so a
+ * newer backend is still readable instead of silently renamed.
+ */
+export function ssoCheckLabel(name: string): string {
+  switch (name) {
+    case 'discovery':
+      return 'Descoberta OIDC';
+    case 'issuer':
+      return 'Issuer canônico';
+    case 'authorization_endpoint':
+      return 'Authorization endpoint';
+    case 'token_endpoint':
+      return 'Token endpoint';
+    case 'jwks_uri':
+      return 'JWKS URI';
+    case 'response_types':
+      return 'Authorization code';
+    case 'code_challenge_methods':
+      return 'PKCE S256';
+    case 'id_token_signing_alg':
+      return 'Assinatura RS256';
+    case 'jwks':
+      return 'Chaves de assinatura (JWKS)';
+    case 'allowed_domains':
+      return 'Domínios permitidos';
+    default:
+      return name;
+  }
+}
+
+/**
  * Operator-facing text of the stable SSO error codes
  * (`SSO_ERROR_CODES` in `@sac/shared`) plus the OAuth `error` values an IdP
  * appends to the callback URL.
@@ -311,6 +345,55 @@ export function ssoErrorMessage(error: unknown, operation: SsoOperation): string
   }
   if (error.status === 429) {
     return `Muitas tentativas em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+  }
+
+  return `${error.message} (HTTP ${error.status})`;
+}
+
+/**
+ * Operator-facing message for a failed `POST /tenants/me/sso/test`.
+ *
+ * The endpoint validates the SAVED connection, so a 404 is a concrete answer —
+ * `SSO_NOT_CONFIGURED` means there is nothing saved to test (the state may have
+ * changed in another tab), not that the route is missing. 401/403/429 keep their
+ * real meaning instead of being folded into a generic failure, and a 5xx is
+ * reported as an API failure rather than "sua configuração está inválida".
+ */
+export function ssoTestErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiClientError)) {
+    return error instanceof Error && error.message
+      ? error.message
+      : 'Não foi possível falar com a API. Verifique a conexão e tente novamente.';
+  }
+
+  if (error.code === 'SSO_NOT_CONFIGURED' || error.status === 404) {
+    return `Nenhuma conexão SSO salva neste workspace. Salve a configuração antes de testar (HTTP ${error.status}).`;
+  }
+  if (error.code === 'RATE_LIMITED' || error.status === 429) {
+    return `Muitas tentativas de teste em pouco tempo (HTTP 429).${retryAfterHint(error)} Aguarde antes de tentar novamente.`;
+  }
+
+  const known = ssoCodeMessage(error.code);
+  if (known !== null) return known;
+
+  if (error.status === 0) return error.message;
+  if (error.status === 401) {
+    return 'Sessão expirada ou credenciais inválidas. Entre novamente para testar a conexão.';
+  }
+  if (error.status === 403) {
+    return 'Sua conta não tem permissão para testar a autenticação corporativa (HTTP 403 — apenas ADMIN do workspace).';
+  }
+  if (error.status === 405 || error.status === 501) {
+    return `O teste de conexão não está publicado nesta API (HTTP ${error.status}). A configuração continua salva.`;
+  }
+  if (error.status === 409) {
+    return `${error.message} (HTTP 409). O estado do SSO mudou em outra sessão; recarregue a configuração e tente novamente.`;
+  }
+  if (error.status === 422) {
+    return `A API não conseguiu validar a conexão (HTTP 422): ${error.message}`;
+  }
+  if (error.status >= 500) {
+    return `A API falhou ao testar a conexão (HTTP ${error.status}): ${error.message}`;
   }
 
   return `${error.message} (HTTP ${error.status})`;

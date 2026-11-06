@@ -108,6 +108,12 @@ export const CACHE_KEYS = {
   ssoCodeUsed: (codeHash: string): string => `sac:auth:sso:code-used:${codeHash}`,
   ssoDiscovery: (issuerUrl: string): string => `sac:auth:sso:discovery:${issuerUrl}`,
   ssoJwks: (jwksUri: string): string => `sac:auth:sso:jwks:${jwksUri}`,
+  /**
+   * ADMIN connection test (`POST /tenants/me/sso/test`). Each call performs two
+   * outbound IdP requests, so it is throttled per workspace AND client IP.
+   */
+  ssoTestAttempts: (tenantId: string, ip: string): string =>
+    `sac:auth:sso:test-attempts:${tenantId}:${ip}`,
 } as const;
 
 /** BullMQ job names (stable - used for metrics and DLQ replay). */

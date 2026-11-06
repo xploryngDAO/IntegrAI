@@ -27,5 +27,6 @@ export const tenantRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ct
   // write-only and never returned by the read model.
   app.get('/me/sso', { preHandler: adminOnly }, sso.getConfig);
   app.put('/me/sso', { preHandler: adminOnly }, sso.updateConfig);
+  app.post('/me/sso/test', { preHandler: adminOnly }, sso.testConnection);
   app.delete('/me/sso', { preHandler: adminOnly }, sso.deleteConfig);
 };

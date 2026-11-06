@@ -83,6 +83,13 @@ export const AUTH_RATE_LIMITS = {
   ssoStart: { bucket: 'auth.sso.start', limit: 20, windowSeconds: 15 * 60 },
   ssoCallback: { bucket: 'auth.sso.callback', limit: 20, windowSeconds: 15 * 60 },
   ssoExchange: { bucket: 'auth.sso.exchange', limit: 20, windowSeconds: 15 * 60 },
+  /*
+   * ADMIN "test connection" probe (`POST /tenants/me/sso/test`). Authenticated,
+   * but every call triggers two outbound IdP reads, so it is throttled per
+   * workspace + client IP. 10 attempts is enough to iterate the app registration
+   * by hand without letting the endpoint be used as an outbound traffic amplifier.
+   */
+  ssoTest: { bucket: 'auth.sso.test', limit: 10, windowSeconds: 15 * 60 },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 
 export interface AuthRateLimitDecision {

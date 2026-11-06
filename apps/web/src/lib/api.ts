@@ -77,6 +77,8 @@ import type {
   TenantProfile,
   TenantSettingsUpdate,
   TenantSsoConfig,
+  TenantSsoTestCheck,
+  TenantSsoTestResult,
   TenantSsoUpdate,
   TwoFactorDisableBody,
   TwoFactorDisableResult,
@@ -517,6 +519,53 @@ function normalizeTenantSsoConfig(payload: unknown): TenantSsoConfig {
   };
 }
 
+/**
+ * `POST /tenants/me/sso/test` read model.
+ *
+ * Tolerant by design: the endpoint is newer than some deployments the SPA may
+ * talk to, so a 200 can arrive without `checks`. Missing checks become an empty
+ * list (the card warns honestly), malformed entries are dropped instead of
+ * shown with an invented name, and `ok` is only true when the API says so.
+ * Endpoints/JWKS are optional context and stay null when absent.
+ */
+function normalizeTenantSsoTestResult(payload: unknown): TenantSsoTestResult {
+  const raw =
+    payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  const checks: TenantSsoTestCheck[] = [];
+  if (Array.isArray(raw.checks)) {
+    for (const entry of raw.checks) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const check = entry as Record<string, unknown>;
+      const name = optionalText(check.name);
+      // A check without a name cannot be explained to the operator; dropping it
+      // is more honest than rendering "verificação" as an invented label.
+      if (name === null) continue;
+      checks.push({
+        name,
+        ok: check.ok === true,
+        detail: optionalText(check.detail),
+      });
+    }
+  }
+
+  // `jwksKeys` carries the `kid`s of the usable signing keys. The API omits it
+  // when none were usable, so an absent value becomes an empty list; malformed
+  // entries are dropped rather than rendered as invented key ids.
+  const jwksKeys = textList(raw.jwksKeys);
+
+  return {
+    ok: raw.ok === true,
+    checks,
+    issuer: optionalText(raw.issuer),
+    authorizationEndpoint: optionalText(raw.authorizationEndpoint),
+    tokenEndpoint: optionalText(raw.tokenEndpoint),
+    jwksKeys,
+  };
+}
+
 function encodeQuery(params: Record<string, string | number | null | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -878,6 +927,13 @@ export interface ApiClient {
   updateTenantSso(body: TenantSsoUpdate): Promise<TenantSsoConfig | null>;
   /** `DELETE /tenants/me/sso` (ADMIN) — removes the tenant configuration. */
   deleteTenantSso(): Promise<void>;
+  /**
+   * `POST /tenants/me/sso/test` (ADMIN) — validates the **saved** connection
+   * against the IdP discovery document (no body: the unsaved form is never
+   * tested). A `404 SSO_NOT_CONFIGURED` is a real answer and is rejected for the
+   * card to explain; a partial 200 may come without `checks`.
+   */
+  testTenantSso(): Promise<TenantSsoTestResult>;
   /* ---- Two-factor authentication (Fase 1: TOTP) ---- */
   /** `GET /auth/2fa/status` — whether this operator has TOTP enabled. */
   twoFactorStatus(): Promise<TwoFactorStatusResult>;
@@ -1786,6 +1842,18 @@ export const api: ApiClient = {
     });
   },
 
+  async testTenantSso() {
+    // The API runs OIDC discovery and fetches the JWKS over the network, so the
+    // test needs more headroom than a read; it still has to finish while the
+    // operator waits, so it is not unbounded.
+    const payload = await request<unknown>('/tenants/me/sso/test', {
+      method: 'POST',
+      cache: 'no-store',
+      timeoutMs: 25_000,
+    });
+    return normalizeTenantSsoTestResult(payload);
+  },
+
   async listTickets(filters, page = 1) {
     const query = encodeQuery({
       filter: filters.queueKey,
@@ -2548,6 +2616,8 @@ export type {
   TenantProfile,
   TenantSettingsUpdate,
   TenantSsoConfig,
+  TenantSsoTestCheck,
+  TenantSsoTestResult,
   TenantSsoUpdate,
   TicketDetail,
   TicketListItem,

@@ -25,6 +25,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentService } from '../AgentService';
 import { SsoAuthService, collectGroups, resolveMappedRole } from '../SsoAuthService';
 import { TenantSsoService } from '../TenantSsoService';
+import { OidcClient } from '../sso/OidcClient';
 import { CountingCache } from './rateLimitFakes';
 
 /**
@@ -388,6 +389,7 @@ function buildHarness(options: { now?: () => Date } = {}): Harness {
     repo: connections,
     appBaseUrl: 'https://api.example.com',
     nodeEnv: 'test',
+    oidc: new OidcClient({ logger: noopLogger, clock, cache, http, nodeEnv: 'test' }),
   });
 
   const issueSession = vi.fn(

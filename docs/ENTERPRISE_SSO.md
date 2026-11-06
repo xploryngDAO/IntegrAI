@@ -23,6 +23,7 @@ o que torna o roteamento por domínio de e-mail inequívoco.
 | GET | `/api/v1/tenants/me/sso` | JWT **ADMIN** | Configuração do workspace **sem segredo** (`clientSecretConfigured`). `404 SSO_NOT_CONFIGURED` se não existir. |
 | PUT | `/api/v1/tenants/me/sso` | JWT **ADMIN** | Upsert (`provider`, `issuerUrl`, `clientId`, `clientSecret?`, `redirectUri?`, `allowedDomains?`, `groupRoleMap?`, `autoProvision?`, `defaultRole?`, `enforceSso?`, `enabled?`). `200` com a config. |
 | DELETE | `/api/v1/tenants/me/sso` | JWT **ADMIN** | Remove a conexão. `204`; `404 SSO_NOT_CONFIGURED` se não havia nada. |
+| POST | `/api/v1/tenants/me/sso/test` | JWT **ADMIN** | Testa a conexão **salva** sem trocar tokens (só lê discovery + JWKS). `200 { ok, checks[], issuer?, authorizationEndpoint?, tokenEndpoint?, jwksKeys?, enabled }`; `404 SSO_NOT_CONFIGURED`; `429 RATE_LIMITED` (10/15 min por workspace + IP). |
 | GET | `/api/v1/auth/sso/discover?email=` ou `?domain=` | pública | `{ enabled, provider, tenantSlug }` se houver conexão **habilitada** para o domínio; `404 SSO_NOT_CONFIGURED` caso contrário. |
 | GET | `/api/v1/auth/sso/start?email=&provider=` | pública | `302` para o `authorization_endpoint` do IdP com `state`, `nonce` e `code_challenge` S256. |
 | GET | `/api/v1/auth/sso/callback?code=&state=` | pública | Valida tudo, faz o JIT e responde `302 <WEB_ORIGIN>/auth/sso/callback?code=<código de uso único>`. Nunca devolve token na URL. |
@@ -262,6 +263,26 @@ challenge que nunca poderá ser concluído).
 - **Chaves**: `JWT_SECRET` novo invalida `state` em andamento (aceitável);
   `ENCRYPTION_MASTER_KEY`/`ENCRYPTION_KEY_ID` exigem o keyring para decifrar
   segredos antigos (`SecretCipher`, `docs/SECURITY.md` §6.7).
+
+### Testar a conexão antes de ativar `enforceSso`
+
+`POST /api/v1/tenants/me/sso/test` valida a conexão **já salva** antes de ligar
+`enforceSso`, para que um erro de App registration não bloqueie o workspace
+inteiro. É um probe **somente leitura**: baixa o discovery
+(`<issuer>/.well-known/openid-configuration`, timeout de 5 s, sem cache) e o
+JWKS; **não** troca código por token, **não** usa o client secret (funciona para
+public client/PKCE) e nunca devolve o segredo.
+
+`checks[]` usa nomes estáveis: `discovery`, `issuer`, `authorization_endpoint`,
+`token_endpoint`, `jwks_uri`, `response_types` (`code`), `code_challenge_methods`
+(S256), `id_token_signing_alg` (RS256), `jwks` (chave RSA/sig com `kid`) e
+`allowed_domains`. `ok` só é `true` quando todos passam; cada `detail` é livre de
+segredo/PII (status HTTP, contagens, issuer esperado × encontrado). `jwksKeys` são
+os **kids** das chaves RSA/sig utilizáveis (lista; `[]` quando nenhuma). O campo
+`enabled` é apenas informativo: uma conexão desabilitada **pode** ser testada
+(é exatamente o caso de configurar antes de ativar) e isso não torna `ok` falso.
+Sem cache de resultado — o admin vê o efeito da correção imediatamente; o abuso é
+contido pelo limite de 10 chamadas por 15 min por workspace + IP.
 
 ### Diagnóstico rápido
 

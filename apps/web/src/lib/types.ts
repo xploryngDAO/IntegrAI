@@ -263,6 +263,7 @@ export interface TwoFactorDisableResult {
  *   GET    /tenants/me/sso            -> TenantSsoConfig    (ADMIN)
  *   PUT    /tenants/me/sso            -> TenantSsoConfig    (ADMIN)
  *   DELETE /tenants/me/sso            -> 204                (ADMIN)
+ *   POST   /tenants/me/sso/test       -> TenantSsoTestResult (ADMIN)
  *
  * The OAuth client secret never comes back from the API: the read model only
  * says whether a secret is stored (`clientSecretConfigured`). The callback URL
@@ -320,6 +321,43 @@ export interface TenantSsoUpdate {
   defaultRole?: string;
   enforceSso?: boolean;
   enabled?: boolean;
+}
+
+/** One verification reported by `POST /tenants/me/sso/test` (ADMIN). */
+export interface TenantSsoTestCheck {
+  /**
+   * Stable id chosen by the API for the check (`discovery`,
+   * `authorization_endpoint`, …). The card maps the known ids to PT-BR labels
+   * and shows an unknown id raw, so a newer backend stays readable.
+   */
+  name: string;
+  /** Whether this specific check passed. */
+  ok: boolean;
+  /** Extra context (HTTP status, endpoint, failure reason); null when omitted. */
+  detail: string | null;
+}
+
+/**
+ * `POST /tenants/me/sso/test` (ADMIN) — result of validating the **saved**
+ * connection against the IdP discovery document.
+ *
+ * The request has no body: it always checks what is stored, never the unsaved
+ * form. `checks` may be empty on a partial/older deployment; the card then
+ * shows an honest warning instead of inventing verification details.
+ */
+export interface TenantSsoTestResult {
+  /** Overall verdict of the API (true only when the required checks passed). */
+  ok: boolean;
+  /** Individual checks, in the order the API reported them. */
+  checks: TenantSsoTestCheck[];
+  /** Issuer found in the discovery document, when the API includes it. */
+  issuer: string | null;
+  /** `authorization_endpoint` found in discovery, when included. */
+  authorizationEndpoint: string | null;
+  /** `token_endpoint` found in discovery, when included. */
+  tokenEndpoint: string | null;
+  /** `kid`s of the usable RSA signing keys published by the JWKS (empty when none). */
+  jwksKeys: string[];
 }
 
 /* ==========================================================================

@@ -357,6 +357,10 @@ npm run doctor -- --account=<uuid>
 
 - `GET/PUT/DELETE /tenants/me/sso` (ADMIN): conexão por tenant sem retornar segredo
   (`clientSecretConfigured`).
+- `POST /tenants/me/sso/test` (ADMIN) → `{ok, checks:[{name,ok,detail?}], issuer?,
+  authorizationEndpoint?, tokenEndpoint?, jwksKeys?: string[], enabled}`: testa a conexão salva lendo só
+  discovery + JWKS (sem token nem client secret); `404 SSO_NOT_CONFIGURED`; `429 RATE_LIMITED`
+  (10/15 min por workspace + IP).
 - `GET /auth/sso/discover?email=`; `GET /auth/sso/start` (302 ao IdP);
   `GET /auth/sso/callback` (302 ao SPA com `code` one-time); `POST /auth/sso/exchange` → `AuthResponse`.
 - Erros: `SSO_NOT_CONFIGURED`, `SSO_STATE_INVALID`, `SSO_TOKEN_INVALID`, `SSO_EMAIL_UNVERIFIED`,

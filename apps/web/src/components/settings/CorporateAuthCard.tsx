@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Icon } from '@xploryng/convergencia';
 import { Check, Copy } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useWorkspace } from '../../lib/store';
@@ -13,11 +14,13 @@ import {
   isValidIssuerUrl,
   parseAllowedDomains,
   parseGroupRoleMap,
+  ssoCheckLabel,
   ssoErrorMessage,
   ssoProviderLabel,
   ssoRedirectUri,
+  ssoTestErrorMessage,
 } from '../../lib/sso';
-import type { TenantSsoConfig, TenantSsoUpdate } from '../../lib/types';
+import type { TenantSsoConfig, TenantSsoTestResult, TenantSsoUpdate } from '../../lib/types';
 import {
   Alert,
   Button,
@@ -28,6 +31,7 @@ import {
   Pill,
   Select,
   Skeleton,
+  Spinner,
   Textarea,
   Toggle,
 } from '../ui';
@@ -74,6 +78,18 @@ function formFromConfig(config: TenantSsoConfig | null): SsoForm {
   };
 }
 
+/** Endpoints the API discovered, in display order (missing ones are dropped). */
+function discoveredEndpoints(result: TenantSsoTestResult): { label: string; value: string }[] {
+  const entries: { label: string; value: string | null }[] = [
+    { label: 'Issuer', value: result.issuer },
+    { label: 'Authorization endpoint', value: result.authorizationEndpoint },
+    { label: 'Token endpoint', value: result.tokenEndpoint },
+  ];
+  return entries.filter(
+    (entry): entry is { label: string; value: string } => entry.value !== null,
+  );
+}
+
 /**
  * "Autenticação corporativa" section of `/settings` (tenant ADMIN).
  *
@@ -81,9 +97,14 @@ function formFromConfig(config: TenantSsoConfig | null): SsoForm {
  * id, write-only client secret, the read-only callback URL the IdP must call,
  * allowed e-mail domains, provisioning and enforcement switches.
  *
- * Data comes only from `GET/PUT/DELETE /tenants/me/sso`; a `403`/`422` from the
- * API is rendered verbatim instead of being turned into a generic error. The
- * secret is never read back — the card only shows whether one is stored.
+ * Data comes only from `GET/PUT/DELETE /tenants/me/sso` and the ADMIN
+ * `POST /tenants/me/sso/test`; a `403`/`422` from the API is rendered verbatim
+ * instead of being turned into a generic error. The secret is never read back —
+ * the card only shows whether one is stored.
+ *
+ * The connection test is explicit and always probes the SAVED configuration:
+ * it never runs on mount (the API pays for discovery + JWKS), and a successful
+ * save/delete discards any previous verdict.
  */
 export function CorporateAuthCard(): JSX.Element {
   const pushToast = useWorkspace((state) => state.pushToast);
@@ -104,8 +125,32 @@ export function CorporateAuthCard(): JSX.Element {
 
   const [copied, setCopied] = useState(false);
 
+  // Result of the explicit "Testar conexão" action. It is NEVER loaded with the
+  // card: the test costs an outbound discovery + JWKS fetch at the API, so it
+  // only runs when the operator asks for it.
+  const [testResult, setTestResult] = useState<TenantSsoTestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  /** Invalidates in-flight tests when the saved connection changes. */
+  const testRunRef = useRef(0);
+  /** Focus target of the verdict, so a screen reader announces the outcome. */
+  const testResultRef = useRef<HTMLDivElement | null>(null);
+
   const retry = useCallback((): void => {
     setReloadKey((key) => key + 1);
+  }, []);
+
+  /**
+   * Drops the previous verdict and ignores any test still in flight.
+   *
+   * The result describes the configuration that existed when it ran, so it must
+   * not survive a successful save/delete or a reload of the card.
+   */
+  const resetTestResult = useCallback((): void => {
+    testRunRef.current += 1;
+    setTesting(false);
+    setTestResult(null);
+    setTestError(null);
   }, []);
 
   function patchForm(patch: Partial<SsoForm>): void {
@@ -129,6 +174,7 @@ export function CorporateAuthCard(): JSX.Element {
         setFormError(null);
         setDeleteError(null);
         setConfirmingDelete(false);
+        resetTestResult();
       } catch (error) {
         if (!active) return;
         setConfig(null);
@@ -142,7 +188,14 @@ export function CorporateAuthCard(): JSX.Element {
     return () => {
       active = false;
     };
-  }, [reloadKey]);
+  }, [reloadKey, resetTestResult]);
+
+  // Only focus after the verdict exists: the request itself keeps focus on the
+  // button, and the Alert carries the live region (role=status/alert).
+  useEffect(() => {
+    if (testing || (testResult === null && testError === null)) return;
+    testResultRef.current?.focus();
+  }, [testing, testResult, testError]);
 
   // The callback URL is what the operator registers at the IdP. The API is
   // authoritative when it publishes one; otherwise it is derived from the same
@@ -231,6 +284,8 @@ export function CorporateAuthCard(): JSX.Element {
       setConfig(next);
       setForm(formFromConfig(next));
       setFieldErrors({});
+      // The old verdict belongs to the previous connection.
+      resetTestResult();
       pushToast({
         tone: 'ok',
         title: 'Autenticação corporativa salva',
@@ -257,6 +312,7 @@ export function CorporateAuthCard(): JSX.Element {
       setFieldErrors({});
       setFormError(null);
       setConfirmingDelete(false);
+      resetTestResult();
       pushToast({
         tone: 'ok',
         title: 'Configuração de SSO removida',
@@ -268,6 +324,41 @@ export function CorporateAuthCard(): JSX.Element {
       setDeleting(false);
     }
   }
+
+  /**
+   * Runs the ADMIN check against the SAVED connection (`POST .../sso/test`).
+   *
+   * The request carries no body by contract: the operator saves first, and the
+   * card clears the verdict whenever a save/delete happens. A run id ignores a
+   * late response that no longer belongs to the current configuration.
+   */
+  async function handleTest(): Promise<void> {
+    if (testing || saving || deleting || !configured) return;
+
+    const runId = testRunRef.current + 1;
+    testRunRef.current = runId;
+    setTesting(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const result = await api.testTenantSso();
+      if (testRunRef.current !== runId) return;
+      setTestResult(result);
+    } catch (error) {
+      if (testRunRef.current !== runId) return;
+      setTestError(ssoTestErrorMessage(error));
+    } finally {
+      if (testRunRef.current === runId) setTesting(false);
+    }
+  }
+
+  // First failure drives the danger Alert: it is the actionable item, while the
+  // list below carries every check for context.
+  const testFirstProblem =
+    testResult !== null ? (testResult.checks.find((check) => !check.ok) ?? null) : null;
+  const testPassedCount =
+    testResult !== null ? testResult.checks.filter((check) => check.ok).length : 0;
+  const testEndpoints = testResult !== null ? discoveredEndpoints(testResult) : [];
 
   const statusPills = (
     <div className="flex flex-wrap items-center gap-2">
@@ -285,7 +376,7 @@ export function CorporateAuthCard(): JSX.Element {
   return (
     <Card
       title={ssoProviderLabel(config?.provider)}
-      subtitle="Provedor OIDC do workspace · estado real de GET/PUT/DELETE /tenants/me/sso."
+      subtitle="Provedor OIDC do workspace · estado real de GET/PUT/DELETE /tenants/me/sso e do teste ADMIN."
     >
       {loading ? (
         <div className="flex flex-col gap-2" aria-busy="true">
@@ -461,6 +552,19 @@ export function CorporateAuthCard(): JSX.Element {
               >
                 Salvar configuração
               </Button>
+              {configured ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon="pulse"
+                  loading={testing}
+                  disabled={saving || deleting}
+                  title="Valida a conexão já salva contra o discovery e o JWKS do provedor."
+                  onClick={() => void handleTest()}
+                >
+                  Testar conexão
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="secondary"
@@ -471,6 +575,133 @@ export function CorporateAuthCard(): JSX.Element {
                 Recarregar
               </Button>
             </div>
+
+            {testing || testResult !== null || testError !== null ? (
+              <div
+                ref={testResultRef}
+                tabIndex={-1}
+                className="flex flex-col gap-2"
+                aria-busy={testing || undefined}
+              >
+                {testing ? (
+                  <div className="flex items-center gap-2" role="status">
+                    <Spinner />
+                    <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
+                      Testando a conexão com o provedor OIDC…
+                    </span>
+                  </div>
+                ) : testError !== null ? (
+                  <Alert title="Não foi possível testar a conexão" tone="danger">
+                    {testError}
+                  </Alert>
+                ) : testResult !== null ? (
+                  <>
+                    <Alert
+                      title={testResult.ok ? 'Conexão OIDC válida' : 'Conexão OIDC com problemas'}
+                      tone={testResult.ok ? 'success' : 'danger'}
+                    >
+                      {testResult.ok ? (
+                        <span>
+                          {testResult.checks.length > 0
+                            ? `${testPassedCount} de ${testResult.checks.length} verificações passaram.`
+                            : 'A API confirmou o resultado geral, sem detalhar as verificações.'}
+                        </span>
+                      ) : testFirstProblem !== null ? (
+                        <span>
+                          Primeiro problema: <strong>{ssoCheckLabel(testFirstProblem.name)}</strong>
+                          {testFirstProblem.detail !== null
+                            ? ` — ${testFirstProblem.detail}`
+                            : '.'}
+                        </span>
+                      ) : (
+                        <span>
+                          A API reportou a conexão como inválida, mas não informou qual verificação
+                          falhou.
+                        </span>
+                      )}
+                    </Alert>
+
+                    {testResult.checks.length === 0 ? (
+                      <Alert title="Sem detalhes das verificações" tone="warning">
+                        A API respondeu sem a lista de verificações (checks ausentes). O status
+                        geral acima é a única informação disponível; se precisar do detalhe,
+                        confirme a versão da API e teste novamente.
+                      </Alert>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <span className="sac-label">Verificações ({testResult.checks.length})</span>
+                        <ul
+                          className="m-0 flex list-none flex-col gap-1.5 p-0"
+                          aria-label="Verificações do teste de conexão"
+                        >
+                          {testResult.checks.map((check, index) => (
+                            <li
+                              key={`${check.name}-${index}`}
+                              className="flex min-w-0 items-start gap-2"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`mt-0.5 inline-flex shrink-0 ${
+                                  check.ok
+                                    ? 'text-[var(--cv-color-success)]'
+                                    : 'text-[var(--cv-color-danger)]'
+                                }`}
+                              >
+                                <Icon name={check.ok ? 'check' : 'close'} size={15} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-[var(--cv-font-meta)] font-medium">
+                                  <span className="sr-only">
+                                    {check.ok ? 'Passou: ' : 'Falhou: '}
+                                  </span>
+                                  {ssoCheckLabel(check.name)}
+                                </span>
+                                {check.detail !== null ? (
+                                  <span className="block break-words text-[var(--cv-font-micro)] leading-snug text-[var(--cv-color-text-muted)]">
+                                    {check.detail}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {testEndpoints.length > 0 || testResult.jwksKeys.length > 0 ? (
+                      <div className="rounded-[var(--cv-radius-small)] border border-[var(--cv-color-border)] bg-[var(--cv-color-surface-subtle)] px-3 py-2.5">
+                        <span className="sac-label">Provedor descoberto</span>
+                        <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
+                          {testEndpoints.map((endpoint) => (
+                            <li
+                              key={endpoint.label}
+                              className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2"
+                            >
+                              <span className="shrink-0 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)] sm:w-44">
+                                {endpoint.label}
+                              </span>
+                              <code className="m-0 min-w-0 break-all font-mono text-[var(--cv-font-micro)]">
+                                {endpoint.value}
+                              </code>
+                            </li>
+                          ))}
+                          {testResult.jwksKeys.length > 0 ? (
+                            <li className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                              <span className="shrink-0 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)] sm:w-44">
+                                Chaves JWKS
+                              </span>
+                              <span className="min-w-0 break-all font-mono text-[var(--cv-font-micro)]">
+                                {testResult.jwksKeys.length} · {testResult.jwksKeys.join(', ')}
+                              </span>
+                            </li>
+                          ) : null}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </form>
 
           <div className="sac-divider" />

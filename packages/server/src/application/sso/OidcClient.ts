@@ -61,7 +61,8 @@ export interface OidcIdTokenClaims {
   [claim: string]: unknown;
 }
 
-interface Jwk extends Record<string, unknown> {
+/** One JWKS entry; only the fields the login flow relies on are typed. */
+export interface Jwk extends Record<string, unknown> {
   kid?: unknown;
   kty?: unknown;
   use?: unknown;
@@ -172,6 +173,47 @@ export class OidcClient {
         { reason: error instanceof Error ? error.message : String(error) },
       );
     }
+  }
+
+  /* ==================================================================== */
+  /* Admin connection test probe                                          */
+  /* ==================================================================== */
+
+  /**
+   * RAW discovery document for the ADMIN connection test
+   * (`POST /tenants/me/sso/test`).
+   *
+   * Unlike `discover`, it deliberately:
+   *  - bypasses the 1 h discovery cache, so an outage or a just-changed
+   *    configuration is visible instead of masked by a cached document;
+   *  - does not assert the issuer (`issuer` equality is reported as a check) and
+   *    does not validate the endpoints, so ONE broken field still yields a full
+   *    per-check report instead of a single opaque error.
+   *
+   * A provider/transport failure still throws (the caller turns it into the
+   * `discovery` check). The caller always uses a short timeout.
+   */
+  async fetchDiscoveryDocument(
+    issuerUrl: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<Record<string, unknown>> {
+    const issuer = normalizeIssuer(issuerUrl);
+    return this.fetchJson(`${issuer}/.well-known/openid-configuration`, {
+      timeoutMs: options.timeoutMs,
+      retries: 0,
+    });
+  }
+
+  /**
+   * RAW JWKS document for the ADMIN connection test: same cache-bypass and
+   * no filtering, so the caller can report how many keys exist and which `kid`s
+   * are usable. Never used by the login path (which relies on `getJwks`).
+   */
+  async fetchJwksDocument(
+    jwksUri: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.fetchJson(jwksUri, { timeoutMs: options.timeoutMs, retries: 0 });
   }
 
   /* ==================================================================== */
@@ -389,14 +431,17 @@ export class OidcClient {
   /* Internals                                                            */
   /* ==================================================================== */
 
-  private async fetchJson(url: string): Promise<Record<string, unknown>> {
+  private async fetchJson(
+    url: string,
+    options: { timeoutMs?: number; retries?: number } = {},
+  ): Promise<Record<string, unknown>> {
     try {
       const response = await this.http.request<unknown>({
         method: 'GET',
         url,
         headers: { accept: 'application/json' },
-        timeoutMs: DISCOVERY_TIMEOUT_MS,
-        retries: 1,
+        timeoutMs: options.timeoutMs ?? DISCOVERY_TIMEOUT_MS,
+        retries: options.retries ?? 1,
       });
       if (!response.ok || !isRecord(response.body)) {
         throw this.providerError('Identity provider document is unavailable', {
@@ -466,7 +511,14 @@ function decodeJsonSegment(segment: string): Record<string, unknown> | null {
   }
 }
 
-function isUsableRsaKey(value: unknown): value is Jwk {
+/**
+ * `true` when the JWK is an asymmetric signing key the login flow can use:
+ * RSA modulus/exponent, `use` sig (or absent) and, when present, `alg` RS256.
+ *
+ * Exported because the ADMIN connection test applies the same predicate before
+ * reporting the usable `kid`s (one definition, one behavior).
+ */
+export function isUsableRsaKey(value: unknown): value is Jwk {
   if (!isRecord(value)) return false;
   if (value.kty !== 'RSA') return false;
   if (value.use !== undefined && value.use !== 'sig') return false;

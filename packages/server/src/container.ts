@@ -33,6 +33,7 @@ import {
 import { PlanLimitService } from './application/PlanLimitService';
 import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
+import { OidcClient } from './application/sso/OidcClient';
 import { SsoAuthService } from './application/SsoAuthService';
 import { StatusService } from './application/StatusService';
 import { TenantBackupService } from './application/TenantBackupService';
@@ -333,6 +334,18 @@ export function createContainer(args: ContainerArgs): IAppServices {
   // Fase 5: workspace IdP configuration + `enforce_sso` password gate. Built
   // BEFORE AgentService (the login gate depends on it) and reused by the public
   // SSO flow below.
+  //
+  // One OIDC client is shared by the ADMIN connection test and the login flow:
+  // both read the same discovery/JWKS documents, so a single instance keeps the
+  // in-process cache coherent with the Redis one.
+  const oidc = new OidcClient({
+    logger: infra.logger,
+    clock: infra.clock,
+    cache: infra.cache,
+    http: infra.http,
+    nodeEnv: config.nodeEnv,
+  });
+
   const tenantSso = new TenantSsoService({
     logger: infra.logger,
     clock: infra.clock,
@@ -341,6 +354,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     repo: infra.ssoConnections,
     appBaseUrl: config.appBaseUrl,
     nodeEnv: config.nodeEnv,
+    oidc,
   });
 
   const agents = new AgentService({
@@ -383,6 +397,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
       agents: infra.ssoAgents,
     },
     agents,
+    oidc,
   });
 
   const twoFactor = new TwoFactorService({

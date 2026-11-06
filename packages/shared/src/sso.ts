@@ -204,6 +204,75 @@ export interface UpdateSsoConnectionCommand {
   enabled?: boolean;
 }
 
+/* ==========================================================================
+ * Admin connection test (before enabling `enforce_sso`)
+ * ========================================================================== */
+
+/**
+ * Stable ids of the `POST /tenants/me/sso/test` checks.
+ *
+ * They map 1:1 to the OIDC metadata being validated, so the SPA can label them
+ * without parsing `detail`:
+ *  - `discovery`              `<issuer>/.well-known/openid-configuration` reachable;
+ *  - `issuer`                 document issuer equals the configured issuer (RFC 8414);
+ *  - `authorization_endpoint` https (loopback http outside production) URL;
+ *  - `token_endpoint`         idem;
+ *  - `jwks_uri`               idem;
+ *  - `response_types`         advertises the authorization `code`;
+ *  - `code_challenge_methods` advertises PKCE `S256`;
+ *  - `id_token_signing_alg`   advertises `RS256`;
+ *  - `jwks`                   publishes a usable RSA/sig key with a `kid`;
+ *  - `allowed_domains`        the workspace allowlist is not empty.
+ */
+export type SsoConnectionTestCheckName =
+  | 'discovery'
+  | 'issuer'
+  | 'authorization_endpoint'
+  | 'token_endpoint'
+  | 'jwks_uri'
+  | 'response_types'
+  | 'code_challenge_methods'
+  | 'id_token_signing_alg'
+  | 'jwks'
+  | 'allowed_domains';
+
+/** One diagnostic line of the ADMIN connection test. */
+export interface SsoConnectionTestCheck {
+  name: SsoConnectionTestCheckName;
+  ok: boolean;
+  /** Secret-free explanation: HTTP status, counts, expected vs. discovered issuer. */
+  detail?: string;
+}
+
+/** `POST /tenants/me/sso/test` - the caller IP is used only by the throttle. */
+export interface SsoConnectionTestCommand {
+  ip?: string | null;
+}
+
+/**
+ * Result of the ADMIN "test connection" probe.
+ *
+ * The probe only READS the provider metadata: no authorization code is
+ * exchanged, no token is requested and the client secret is never used, so a
+ * public/PKCE client is validated exactly like a confidential one.
+ *
+ * `enabled` mirrors the stored switch: a disabled connection is still testable
+ * (that is how it gets configured) and that flag never makes `ok` false on its
+ * own. `ok` is true only when every check passed.
+ */
+export interface SsoConnectionTestResult {
+  ok: boolean;
+  checks: SsoConnectionTestCheck[];
+  /** Canonical issuer advertised by the discovery document (when readable). */
+  issuer?: string;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  /** `kid`s of the usable RSA/sig signing keys published by the JWKS ([] = none usable). */
+  jwksKeys?: string[];
+  /** Stored `enabled` flag (reported, not part of `ok`). */
+  enabled?: boolean;
+}
+
 /** `GET /auth/sso/discover` - which IdP serves this e-mail domain. */
 export interface SsoDiscoveryResult {
   enabled: true;
