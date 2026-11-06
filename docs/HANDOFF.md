@@ -45,7 +45,7 @@ node scripts/entra-provision.mjs --redirect=<API_PUBLICA>/api/v1/auth/sso/callba
 node scripts/sso-doctor.mjs --issuer=<issuer> --client-id=<id> --secret=<secret> \
   --redirect-uri=<API_PUBLICA>/api/v1/auth/sso/callback --domains=suaempresa.com
 
-# 3) em /settings -> Autenticação corporativa: salvar e "Testar conexão"
+# 3) aplica a conexão e roda os 10 checks automaticamente (ADMIN):`nnode scripts/sso-apply.mjs --domains=suaempresa.com`n# 4) em /settings -> Autenticação corporativa: conferir e "Testar conexão"
 # 4) login real com "Entrar com Microsoft"
 ```
 

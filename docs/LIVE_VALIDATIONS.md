@@ -504,3 +504,11 @@ axe WCAG AA no dark: 0 violacoes; screenshot screenshots/dark-landing-1440.png
 node scripts/a11y-audit.mjs <url> --dark  -> 10/10 telas, 0 violacoes
 CI (security.yml) roda a auditoria no tema claro e no escuro a cada push
 ```
+
+### 49. Configuracao de SSO assistida (sso-apply)
+```
+node scripts/sso-apply.mjs --file=<entra-app.json> --domains=integrai.test
+-> [ok] conexao salva (issuer/client/redirect) + test-connection 10/10 checks
+Caso negativo (sem config): HTTP 404 -> [falha], exit 1
+Cleanup: DELETE /tenants/me/sso -> 404 (nao configurado), estado restaurado
+```

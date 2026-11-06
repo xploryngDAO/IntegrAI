@@ -44,6 +44,7 @@
         "test:live-2fa-policy": "node scripts/live-2fa-policy-test.mjs",
         "security:probe": "node scripts/security-probe.mjs",
         "sso:doctor": "node scripts/sso-doctor.mjs",
+        "sso:apply": "node scripts/sso-apply.mjs",
         "email:check": "node --env-file=.env scripts/email-check.mjs",
         "host:check": "node scripts/host-check.mjs",
         "entra:provision": "node scripts/entra-provision.mjs",

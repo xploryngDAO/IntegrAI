@@ -384,3 +384,14 @@ node scripts/entra-provision.mjs --redirect=<api>/api/v1/auth/sso/callback
 ` 
 
 Um codigo de dispositivo e exibido; autentique com um usuario que possa criar aplicacoes no tenant (15 min). O script cria o application, o service principal e um client secret, e grava .entra-app.json (gitignored) com issuer/client id/secret/redirect. Depois use esses valores em /settings e clique em **Testar conexao**. Nenhuma senha passa pelo script.
+
+## Configuração assistida
+
+Depois do entra-provision (gera .entra-app.json):
+
+```bash
+node scripts/sso-apply.mjs --domains=suaempresa.com
+# opcional: --enforce, --test-only, --api=..., --file=...
+```
+
+O script autentica como ADMIN, faz PUT /tenants/me/sso, roda POST /tenants/me/sso/test e lista os 10 checks (falha com exit != 0 se algo estiver errado). Validado com o stub OIDC: 10/10.
