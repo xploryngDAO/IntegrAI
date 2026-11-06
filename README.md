@@ -40,7 +40,7 @@ trabalha numa única tela de 3 colunas com guardrails de política por canal.
 
 | Item | Estado |
 |---|---|
-| **SPA** | <https://integrai-dev.vercel.app> — deploy de 2026-11-06 (`assets/index-B3PF2iot.js`); API resolvida em runtime (`runtime-config.json`), sem mock |
+| **SPA** | <https://integrai-dev.vercel.app> — deploy de 2026-11-06 (`assets/index-CyPnOyWY.js`); API resolvida em runtime (`runtime-config.json`), sem mock |
 | **API real** | túnel HTTPS temporário do ambiente de setup (ver [DEPLOY_LOCAL_TUNNEL](docs/DEPLOY_LOCAL_TUNNEL.md)); Postgres, Redis e S3 ok |
 | **Operador** | criado por `npm run db:seed` com ADMIN_EMAIL/ADMIN_PASSWORD (não versionado) |
 | **Marketplaces** | Mercado Livre conectado (token real); Shopee e Amazon aguardando apps/credenciais — `/setup` mostra o que falta |
