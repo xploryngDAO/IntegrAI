@@ -1036,5 +1036,5 @@ Configurado no repositório `xploryngDAO/IntegrAI` (2026-11-06):
 - **Workflows**: `permissions: contents: read` (menor privilégio), timeouts,
   concurrency para não executar revisões obsoletas.
 
-P1 remanescente: fixar as GitHub Actions por **SHA** (hoje usam major: `checkout@v7` etc.),
-reduzindo o risco de tag móvel comprometida.
+GitHub Actions **fixadas por SHA** (`checkout`, `setup-node`; o Dependabot atualiza o SHA e o
+comentário `# vN`), eliminando o risco de tag móvel comprometida.

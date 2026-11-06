@@ -36,11 +36,11 @@ jobs:
       VITE_API_BASE_URL: https://growth-voters-independent-rca.trycloudflare.com/api/v1
       VITE_WS_URL: https://growth-voters-independent-rca.trycloudflare.com
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # O push do gh-pages roda no mesmo repositório.
           persist-credentials: true
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
