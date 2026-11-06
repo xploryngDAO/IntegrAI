@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PrismaClient, Tenant } from '@prisma/client';
+import type { PrismaClient, Tenant } from '../../../generated/prisma/client';
 
 import { PrismaTenantRepository } from '../tenants';
 

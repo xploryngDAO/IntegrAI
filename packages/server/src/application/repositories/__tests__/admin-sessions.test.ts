@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Agent, PrismaClient, Session } from '@prisma/client';
+import type { Agent, PrismaClient, Session } from '../../../generated/prisma/client';
 
 import { PrismaAdminUserRepository } from '../admin-users';
 

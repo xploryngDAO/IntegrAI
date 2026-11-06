@@ -13,14 +13,19 @@
 //   authoritative clock and is the only acceptable ordering key for threads.
 // ============================================================================
 
+// Prisma ORM 7: `prisma-client` emits plain TypeScript into the server source
+// tree (no more generation into `node_modules`). The CommonJS module format
+// keeps the API/worker build (`module: CommonJS`) unchanged. Datasource URL
+// lives in `prisma.config.ts` (the `url` field here is deprecated in v7).
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider            = "prisma-client"
+  output              = "../packages/server/src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ----------------------------------------------------------------------------

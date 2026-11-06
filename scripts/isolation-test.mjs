@@ -6,12 +6,22 @@
  *
  * Uso: node scripts/isolation-test.mjs [apiBase] [email] [password]
  */
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require('../packages/server/dist/generated/prisma/client.js');
+const { PrismaPg } = require('@prisma/adapter-pg');
 
 const API = (process.argv[2] ?? 'https://growth-voters-independent-rca.trycloudflare.com').replace(/\/$/, '');
 const EMAIL = process.argv[3] ?? 'admin@integr-ai.local';
 const PASSWORD = process.argv[4] ?? process.env.ADMIN_PASSWORD ?? 'IntegrAI-Prod-2026!';
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(
+    { connectionString: process.env.DATABASE_URL },
+    { schema: 'public' },
+  ),
+});
 
 const B = {
   tenantId: '00000000-0000-4000-8000-0000000000b2',

@@ -1,4 +1,4 @@
-import type { MarketplaceAccount, Prisma, PrismaClient } from '@prisma/client';
+import type { MarketplaceAccount, Prisma, PrismaClient } from '../../generated/prisma/client';
 import type {
   AccountStatus,
   AccountTokenPatch,

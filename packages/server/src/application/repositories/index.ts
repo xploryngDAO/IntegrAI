@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../generated/prisma/client';
 import type { AdapterRepositories } from '@sac/shared';
 import { PrismaAccountRepository, createAccountRepository } from './accounts';
 import { PrismaAdminUserRepository, createAdminUserRepository } from './admin-users';

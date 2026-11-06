@@ -1,4 +1,4 @@
-import type { Agent, Prisma, PrismaClient } from '@prisma/client';
+import type { Agent, Prisma, PrismaClient } from '../../generated/prisma/client';
 import { isMarketplace, TERMINAL_TICKET_STATUSES } from '@sac/shared';
 import type {
   AdminOverview,

@@ -15,10 +15,19 @@
  *
  * Run: ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:seed
  */
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { PrismaClient } from '../packages/server/src/generated/prisma/client';
 
-const prisma = new PrismaClient();
+// Prisma ORM 7: the client talks through a driver adapter and no longer loads
+// `.env` by itself (hence `dotenv/config` above).
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(
+    { connectionString: process.env.DATABASE_URL },
+    { schema: 'public' },
+  ),
+});
 
 const EMAIL = (process.env.ADMIN_EMAIL ?? '').trim().toLowerCase();
 const PASSWORD = process.env.ADMIN_PASSWORD ?? '';

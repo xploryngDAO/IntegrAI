@@ -5,12 +5,22 @@
  *
  * Uso: node scripts/live-sso-test.mjs [apiBase] [oidcStubBase]
  */
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require('../packages/server/dist/generated/prisma/client.js');
+const { PrismaPg } = require('@prisma/adapter-pg');
 
 const API = (process.argv[2] ?? 'https://growth-voters-independent-rca.trycloudflare.com').replace(/\/$/, '');
 const IDP = (process.argv[3] ?? 'http://127.0.0.1:4310').replace(/\/$/, '');
 const EMAIL = 'sso-live@integrai.test';
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(
+    { connectionString: process.env.DATABASE_URL },
+    { schema: 'public' },
+  ),
+});
 
 const results = [];
 const check = (name, ok, detail = '') => {

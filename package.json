@@ -16,11 +16,11 @@
         "build:server": "tsc -p packages/server/tsconfig.json",
         "build:web": "npm run build --workspace @sac/web",
         "build": "npm run build:shared && npm run prisma:generate && npm run build:server && npm run build:web",
-        "prisma:generate": "prisma generate --schema prisma/schema.prisma",
-        "prisma:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
-        "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
-        "db:push": "prisma db push --schema prisma/schema.prisma",
-        "db:seed": "tsx prisma/seed.ts",
+        "prisma:generate": "prisma generate",
+        "prisma:migrate:dev": "prisma migrate dev",
+        "prisma:migrate:deploy": "prisma migrate deploy",
+        "db:push": "prisma db push",
+        "db:seed": "prisma db seed",
         "typecheck:shared": "tsc -p packages/shared/tsconfig.json --noEmit",
         "typecheck:server": "npm run build:shared && tsc -p packages/server/tsconfig.json --noEmit",
         "typecheck:web": "npm run typecheck --workspace @sac/web",
@@ -30,7 +30,7 @@
         "dev": "npm run build:shared && concurrently -n api,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
         "test": "vitest run",
         "doctor": "tsx scripts/doctor.ts",
-    "validate:live": "node scripts/validate-live.mjs",
+        "validate:live": "node scripts/validate-live.mjs",
     "setup:assistant": "node scripts/setup-assistant.mjs",
     "setup:apply": "node scripts/setup-apply.mjs",
     "test:live-2fa": "node scripts/live-2fa-test.mjs",
@@ -45,7 +45,7 @@
     "devDependencies": {
         "@types/node": "^22.10.2",
         "concurrently": "^9.1.0",
-        "prisma": "^6.1.0",
+        "prisma": "^7.10.1",
         "puppeteer-core": "^25.16.0",
         "s3rver": "^3.7.1",
         "tsx": "^4.19.2",
@@ -56,5 +56,8 @@
     "repository": {
         "type": "git",
         "url": "https://github.com/xploryngDAO/IntegrAI.git"
+    },
+    "dependencies": {
+        "dotenv": "^16.6.1"
     }
 }

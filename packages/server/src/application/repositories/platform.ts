@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../generated/prisma/client';
 import { MARKETPLACES, OPEN_TICKET_STATUSES, TICKET_STATUSES } from '@sac/shared';
 import type {
   IPlatformRepository,

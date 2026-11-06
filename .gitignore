@@ -20,6 +20,8 @@ coverage/
 # prisma generated
 packages/shared/dist/
 prisma/migrations/dev.db*
+# Prisma ORM 7 generates TypeScript into the source tree (`npm run prisma:generate`)
+packages/server/src/generated/
 
 # logs
 logs/

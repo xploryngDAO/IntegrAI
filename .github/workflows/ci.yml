@@ -16,6 +16,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:shared
+      # Prisma ORM 7 generates plain TypeScript into packages/server/src/generated
+      # (gitignored, no longer generated into node_modules), so it must run before
+      # any typecheck/test/build step.
+      - run: npm run prisma:generate
       - run: npx tsc -p packages/server/tsconfig.json --noEmit
       - run: npx tsc -p apps/web/tsconfig.json --noEmit
       - run: npx vitest run

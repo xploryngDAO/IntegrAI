@@ -19,7 +19,7 @@ import type {
   TicketEvent,
   TicketMessage,
   WebhookEvent,
-} from '@prisma/client';
+} from '../../generated/prisma/client';
 import type {
   AgentRecord,
   AgentRole,
