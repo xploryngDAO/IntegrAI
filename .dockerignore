@@ -1,16 +1,18 @@
+# Keep the Docker build context small and reproducible.
+.git
+.github
 node_modules
 **/node_modules
-dist
 **/dist
-.git
-.gitignore
-.github
+**/coverage
+**/*.tsbuildinfo
+screenshots
+.lgpd
+.playwright-mcp
 .env
 .env.*
 !.env.example
-coverage
+!.env.prod.example
+!.env.prod.example
+docker-compose*.yml
 *.log
-docs
-README.md
-tmp
-.DS_Store
