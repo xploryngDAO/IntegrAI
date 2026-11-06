@@ -21,6 +21,7 @@ import type {
   TenantMetricsRecord,
   TenantPolicyPatch,
   TenantRecord,
+  TenantSubscriptionPatch,
   TenantUsageCounts,
   UpdateTenantInput,
   UpsertInvitationInput,
@@ -79,6 +80,7 @@ export function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     twoFactorSecretEnc: overrides.twoFactorSecretEnc ?? null,
     twoFactorEnabled: overrides.twoFactorEnabled ?? false,
     isPlatformAdmin: overrides.isPlatformAdmin ?? false,
+    mustResetPassword: overrides.mustResetPassword ?? false,
     createdAt: overrides.createdAt ?? at,
     updatedAt: overrides.updatedAt ?? at,
   };
@@ -181,6 +183,21 @@ export class InMemoryPlatformTenantRepository implements IPlatformTenantReposito
     if (patch.billingStatus !== undefined) row.billingStatus = patch.billingStatus;
     if (patch.trialEndsAt !== undefined) row.trialEndsAt = patch.trialEndsAt;
     if (patch.billingEmail !== undefined) row.billingEmail = patch.billingEmail;
+    row.updatedAt = this.now();
+    return row;
+  }
+
+  async applySubscription(
+    id: string,
+    patch: TenantSubscriptionPatch,
+  ): Promise<TenantRecord> {
+    const row = this.tenants.rows.find((entry) => entry.id === id);
+    if (row === undefined) throw new Error(`Tenant not found: ${id}`);
+    if (patch.billingStatus !== undefined) row.billingStatus = patch.billingStatus;
+    if (patch.plan !== undefined) row.plan = patch.plan;
+    if (patch.maxAccounts !== undefined) row.maxAccounts = patch.maxAccounts;
+    if (patch.maxAgents !== undefined) row.maxAgents = patch.maxAgents;
+    if (patch.trialEndsAt !== undefined) row.trialEndsAt = patch.trialEndsAt;
     row.updatedAt = this.now();
     return row;
   }

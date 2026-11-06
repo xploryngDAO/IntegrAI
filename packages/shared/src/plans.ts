@@ -101,6 +101,66 @@ export function isBillingStatus(value: unknown): value is BillingStatus {
 }
 
 /* ==========================================================================
+ * Billing gateway contract (provider-agnostic webhook)
+ * ========================================================================== */
+
+/** `GET /platform/billing/events?limit=` contract bounds. */
+export const BILLING_EVENTS_DEFAULT_LIMIT = 50;
+export const BILLING_EVENTS_MAX_LIMIT = 100;
+
+/**
+ * Normalized event kinds accepted by `POST /api/v1/billing/webhook`.
+ *
+ * The payload is provider-agnostic on purpose: the gateway adapter (if any) is
+ * responsible for translating its native event names into one of these five
+ * values before calling the API. The API never calls a gateway.
+ */
+export type BillingWebhookType =
+  | 'subscription.activated'
+  | 'subscription.updated'
+  | 'payment.succeeded'
+  | 'payment.failed'
+  | 'subscription.canceled';
+
+export const BILLING_WEBHOOK_TYPES = [
+  'subscription.activated',
+  'subscription.updated',
+  'payment.succeeded',
+  'payment.failed',
+  'subscription.canceled',
+] as const;
+
+export function isBillingWebhookType(value: unknown): value is BillingWebhookType {
+  return typeof value === 'string' && (BILLING_WEBHOOK_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * Subscription transition applied by the webhook state machine.
+ *
+ * Returns `undefined` when the event does not change the subscription state
+ * (`subscription.updated` only refreshes plan/cycle metadata). `CANCELED` is
+ * terminal for payment failures: a late `payment.failed` never revives a
+ * canceled subscription.
+ */
+export function nextBillingStatus(
+  type: BillingWebhookType,
+  current: BillingStatus,
+): BillingStatus | undefined {
+  switch (type) {
+    case 'subscription.activated':
+    case 'payment.succeeded':
+      return 'ACTIVE';
+    case 'payment.failed':
+      return current === 'CANCELED' ? 'CANCELED' : 'PAST_DUE';
+    case 'subscription.canceled':
+      return 'CANCELED';
+    case 'subscription.updated':
+    default:
+      return undefined;
+  }
+}
+
+/* ==========================================================================
  * Platform console search (Fase 4: `GET /platform/tenants?search=`)
  * ========================================================================== */
 

@@ -1,9 +1,11 @@
 import type { HttpRouteContext, RouteHandler } from '../types';
 import {
+  billingEventsQuerySchema,
   parseInput,
   platformTenantBillingBodySchema,
   platformTenantListQuerySchema,
   platformTenantParamsSchema,
+  platformTenantRestoreBodySchema,
   platformTenantUpdateBodySchema,
 } from '../schemas';
 import { ok } from '../responses';
@@ -17,7 +19,12 @@ export interface PlatformControllers {
   tenantMetrics: RouteHandler;
   alerts: RouteHandler;
   billingSummary: RouteHandler;
+  billingEvents: RouteHandler;
+  checkout: RouteHandler;
   updateBilling: RouteHandler;
+  createBackup: RouteHandler;
+  listBackups: RouteHandler;
+  restoreTenant: RouteHandler;
 }
 
 /**
@@ -110,6 +117,32 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
       return ok(await services.platform.billingSummary());
     },
 
+    /**
+     * `GET /platform/billing/events?limit=50` - audit trail of the billing
+     * gateway callbacks (newest first), joined with the workspace slug.
+     */
+    async billingEvents(request) {
+      const query = parseInput(billingEventsQuerySchema, request.query, 'query');
+      return ok(await services.billing.listEvents(query.limit));
+    },
+
+    /**
+     * `POST /platform/tenants/:id/checkout` - hosted checkout URL rendered from
+     * `BILLING_CHECKOUT_URL_TEMPLATE`. No gateway request is made here.
+     */
+    async checkout(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      const result = await services.billing.checkout(id);
+
+      services.logger.info('http.platform.checkout_created', {
+        requestId: request.id,
+        actorId: requireAgent(request).id,
+        tenantId: id,
+      });
+
+      return ok(result);
+    },
+
     /** `PATCH /platform/tenants/:id/billing` - subscription status/trial/contact. */
     async updateBilling(request) {
       const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
@@ -124,6 +157,56 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
       });
 
       return ok(updated);
+    },
+
+    /**
+     * `POST /platform/tenants/:id/backup` - writes the JSON artifact to
+     * `backups/<slug>/<timestamp>.json` and indexes it in `tenant_backups`.
+     * The response carries only the pointer, size and per-table counts.
+     */
+    async createBackup(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      const actorId = requireAgent(request).id;
+      const result = await services.tenantBackup.createBackup(id, actorId);
+
+      services.logger.info('http.platform.tenant_backup_created', {
+        requestId: request.id,
+        actorId,
+        tenantId: id,
+        backupKey: result.backupKey,
+        sizeBytes: result.sizeBytes,
+        counts: result.counts,
+      });
+
+      return ok(result);
+    },
+
+    /** `GET /platform/tenants/:id/backups` - index rows, newest first. */
+    async listBackups(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      return ok(await services.tenantBackup.listBackups(id));
+    },
+
+    /**
+     * `POST /platform/tenants/restore` - creates a NEW workspace from a backup
+     * artifact. Credentials are never restored (stores must be reconnected) and
+     * the response never includes the temporary passwords.
+     */
+    async restoreTenant(request) {
+      const body = parseInput(platformTenantRestoreBodySchema, request.body, 'body');
+      const actorId = requireAgent(request).id;
+      const result = await services.tenantBackup.restore(body, actorId);
+
+      services.logger.info('http.platform.tenant_restored', {
+        requestId: request.id,
+        actorId,
+        backupKey: body.backupKey,
+        tenantId: result.tenantId,
+        slug: result.slug,
+        counts: result.counts,
+      });
+
+      return ok(result);
     },
   };
 }

@@ -33,6 +33,8 @@ import {
   isTenantActive,
 } from '@sac/shared';
 
+import { sanitizeChannelConfig } from './tenant-secrets';
+
 /**
  * ============================================================================
  * TenantPrivacyService - LGPD export and soft delete (Fase 4)
@@ -67,8 +69,6 @@ const EXPORT_NOTES: readonly string[] = [
 ];
 
 const DELETE_PURGE_NOTE = `Exclusão física agendada: o job diário queue.tenant.purge (03:00) remove os dados após o prazo de retenção de ${TENANT_PURGE_RETENTION_DAYS} dias; até lá eles permanecem preservados para auditoria. Um administrador de plataforma pode antecipar via POST /platform/tenants/:id/purge.`;
-
-const SECRET_KEY_PATTERN = /(token|secret|password|senha|api[_-]?key|private[_-]?key)/i;
 
 export interface TenantPrivacyServiceDependencies {
   logger: ILogger;
@@ -328,12 +328,4 @@ function toExportEvent(event: TicketEventRecord): TenantExportEvent {
   };
 }
 
-/** Copy `channel_config` dropping any key that looks like a credential. */
-function sanitizeChannelConfig(config: Record<string, unknown>): Record<string, unknown> {
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(config ?? {})) {
-    if (SECRET_KEY_PATTERN.test(key)) continue;
-    safe[key] = value;
-  }
-  return safe;
-}
+

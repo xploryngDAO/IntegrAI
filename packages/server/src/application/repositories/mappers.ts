@@ -6,12 +6,14 @@ import type {
   MarketplaceAccount,
   MessageAttachment,
   OrderCache,
+  OutboundAttempt,
   PasswordReset,
   Prisma,
   Session,
   SlaPolicy,
   SupportTicket,
   Tenant,
+  TenantBackup,
   TicketEvent,
   TicketMessage,
   WebhookEvent,
@@ -21,14 +23,18 @@ import type {
   BuyerPiiRecord,
   EmailVerificationRecord,
   InvitationRecord,
+  Marketplace,
   MarketplaceAccountRecord,
   MessageAttachmentRecord,
   OrderCacheRecord,
   OrderItemSnapshot,
+  OutboundAttemptRecord,
   PasswordResetRecord,
   SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
+  TenantBackupCounts,
+  TenantBackupRecord,
   TenantRecord,
   TicketEventRecord,
   TicketMessageRecord,
@@ -79,7 +85,7 @@ export function mapAccount(record: MarketplaceAccount): MarketplaceAccountRecord
   return {
     id: record.id,
     tenantId: record.tenantId,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     displayName: record.displayName,
     externalSellerId: record.externalSellerId,
     marketplaceSiteId: record.marketplaceSiteId,
@@ -101,7 +107,7 @@ export function mapOrder(record: OrderCache): OrderCacheRecord {
   return {
     id: record.id,
     accountId: record.accountId,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     externalOrderId: record.externalOrderId,
     packId: record.packId,
     buyerExternalId: record.buyerExternalId,
@@ -130,7 +136,7 @@ export function mapTicket(record: SupportTicket): SupportTicketRecord {
     id: record.id,
     tenantId: record.tenantId,
     accountId: record.accountId,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     ticketType: record.ticketType,
     externalReferenceId: record.externalReferenceId,
     externalOrderId: record.externalOrderId,
@@ -212,7 +218,7 @@ export function mapAttachment(record: MessageAttachment): MessageAttachmentRecor
 export function mapWebhookEvent(record: WebhookEvent): WebhookEventRecord {
   return {
     id: record.id,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     accountId: record.accountId,
     eventId: record.eventId,
     topic: record.topic,
@@ -232,7 +238,7 @@ export function mapPii(record: BuyerPiiVault): BuyerPiiRecord {
   return {
     id: record.id,
     ticketId: record.ticketId,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     buyerName: record.buyerName,
     buyerEmail: record.buyerEmail,
     buyerDocument: record.buyerDocument,
@@ -257,6 +263,24 @@ export function mapTicketEvent(record: TicketEvent): TicketEventRecord {
   };
 }
 
+export function mapOutboundAttempt(record: OutboundAttempt): OutboundAttemptRecord {
+  return {
+    id: record.id,
+    ticketId: record.ticketId,
+    messageId: record.messageId,
+    channelRoute: record.channelRoute,
+    status: record.status,
+    requestPayload: toJsonObject(record.requestPayload),
+    responsePayload: toJsonObject(record.responsePayload),
+    httpStatus: record.httpStatus,
+    attempt: record.attempt,
+    errorCode: record.errorCode,
+    errorMessage: record.errorMessage,
+    durationMs: record.durationMs,
+    createdAt: record.createdAt,
+  };
+}
+
 export function mapAgent(record: Agent): AgentRecord {
   return {
     id: record.id,
@@ -274,6 +298,7 @@ export function mapAgent(record: Agent): AgentRecord {
     twoFactorSecretEnc: record.twoFactorSecretEnc,
     twoFactorEnabled: record.twoFactorEnabled,
     isPlatformAdmin: record.isPlatformAdmin,
+    mustResetPassword: record.mustResetPassword,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -296,6 +321,48 @@ export function mapTenant(record: Tenant): TenantRecord {
     deletedAt: record.deletedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  };
+}
+
+/** Default counts, used when a row was written by an older format. */
+export function emptyBackupCounts(): TenantBackupCounts {
+  return {
+    agents: 0,
+    accounts: 0,
+    tickets: 0,
+    messages: 0,
+    attachments: 0,
+    events: 0,
+    outboundAttempts: 0,
+    orders: 0,
+    slaPolicies: 0,
+    webhookEvents: 0,
+  };
+}
+
+/**
+ * Normalizes the `counts` JSONB column. Unknown/negative values become 0 so a
+ * hand-edited row can never produce `NaN` in the console.
+ */
+export function normalizeBackupCounts(value: unknown): TenantBackupCounts {
+  const counts = emptyBackupCounts();
+  const source = toJsonObject(value as Prisma.JsonValue | null | undefined);
+  for (const key of Object.keys(counts) as Array<keyof TenantBackupCounts>) {
+    const raw = source[key];
+    counts[key] = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : 0;
+  }
+  return counts;
+}
+
+export function mapTenantBackupRecord(record: TenantBackup): TenantBackupRecord {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    backupKey: record.s3Key,
+    sizeBytes: record.sizeBytes,
+    counts: normalizeBackupCounts(record.counts),
+    createdBy: record.createdBy,
+    createdAt: record.createdAt,
   };
 }
 
@@ -353,7 +420,7 @@ export function mapSlaPolicy(record: SlaPolicy): SlaPolicyRecord {
   return {
     id: record.id,
     accountId: record.accountId,
-    marketplace: record.marketplace,
+    marketplace: record.marketplace as Marketplace,
     ticketType: record.ticketType,
     firstResponseMinutes: record.firstResponseMinutes,
     targetMinutes: record.targetMinutes,

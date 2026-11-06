@@ -20,10 +20,19 @@ export const platformRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, 
   // Manual LGPD purge: only for an ALREADY soft-deleted workspace (`deleted_at`
   // set). The automatic path is the daily `queue.tenant.purge` scheduler.
   app.post('/tenants/:id/purge', { preHandler: platformOnly }, controllers.purgeTenant);
+  // Fase 4 - backup/restore por workspace. `restore` is static and always wins
+  // over `/tenants/:id/...`; it NEVER overwrites an existing tenant.
+  app.post('/tenants/restore', { preHandler: platformOnly }, controllers.restoreTenant);
+  app.post('/tenants/:id/backup', { preHandler: platformOnly }, controllers.createBackup);
+  app.get('/tenants/:id/backups', { preHandler: platformOnly }, controllers.listBackups);
   app.get('/metrics', { preHandler: platformOnly }, controllers.metrics);
   // Fase 4 - per-tenant observability and billing base.
   app.get('/tenants/:id/metrics', { preHandler: platformOnly }, controllers.tenantMetrics);
   app.get('/alerts', { preHandler: platformOnly }, controllers.alerts);
   app.get('/billing/summary', { preHandler: platformOnly }, controllers.billingSummary);
+  // Billing gateway audit trail: the last N webhook events (type/tenant/status).
+  app.get('/billing/events', { preHandler: platformOnly }, controllers.billingEvents);
+  // Hosted checkout URL built from env (no gateway call from the API).
+  app.post('/tenants/:id/checkout', { preHandler: platformOnly }, controllers.checkout);
   app.patch('/tenants/:id/billing', { preHandler: platformOnly }, controllers.updateBilling);
 };

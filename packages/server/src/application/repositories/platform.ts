@@ -95,6 +95,10 @@ export class PrismaPlatformRepository implements IPlatformRepository {
       MARKETPLACES.map((marketplace) => [marketplace, 0]),
     ) as Record<Marketplace, number>;
     for (const row of accountsByMarketplace) {
+      // `BILLING` only exists in `webhook_events` (billing audit); a marketplace
+      // account can never have it. Skip defensively so the channel map stays
+      // typed by the three real marketplaces.
+      if (row.marketplace === 'BILLING') continue;
       byMarketplace[row.marketplace] = row._count._all;
     }
 
@@ -274,7 +278,12 @@ export class PrismaPlatformRepository implements IPlatformRepository {
       }),
     ]);
 
-    const accountRows: PlatformAlertAccountRecord[] = accounts.map((account) => ({ ...account }));
+    // Marketplace accounts are always real channels; the cast drops the
+    // `BILLING` enum member that only exists for `webhook_events`.
+    const accountRows: PlatformAlertAccountRecord[] = accounts.map((account) => ({
+      ...account,
+      marketplace: account.marketplace as Marketplace,
+    }));
     snapshot.accounts = accountRows;
 
     for (const row of agentGroups) {

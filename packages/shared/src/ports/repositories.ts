@@ -11,9 +11,10 @@ import type {
   TicketStatus,
   TicketType,
 } from '../enums';
-import type { BillingStatus, TenantPlan } from '../plans';
+import type { BillingStatus, BillingWebhookType, TenantPlan } from '../plans';
 import type {
   AgentRecord,
+  BillingEventStatus,
   BuyerPiiRecord,
   EmailVerificationRecord,
   InvitationRecord,
@@ -21,6 +22,7 @@ import type {
   MessageAttachmentRecord,
   OrderCacheRecord,
   OrderItemSnapshot,
+  OutboundAttemptRecord,
   PageRequest,
   Paginated,
   PasswordResetRecord,
@@ -28,6 +30,8 @@ import type {
   SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
+  TenantBackupCounts,
+  TenantBackupPayload,
   TenantPolicyPatch,
   TenantPurgeCounts,
   TenantRecord,
@@ -316,6 +320,57 @@ export interface IWebhookEventRepository {
   ): Promise<void>;
   findByEventId(marketplace: Marketplace, eventId: string): Promise<WebhookEventRecord | null>;
   incrementAttempts(id: string): Promise<void>;
+}
+
+/* ==========================================================================
+ * BILLING EVENTS (Fase 4 - reuse of `webhook_events`)
+ * ========================================================================== */
+
+/** Persisted billing audit row, mapped from `webhook_events` (`BILLING`). */
+export interface BillingEventAuditRecord {
+  id: string;
+  /** `billing:<externalId>`; null when the gateway did not send one. */
+  eventId: string | null;
+  type: BillingWebhookType | null;
+  tenantId: string | null;
+  /** Resolved only by list queries (console); null on writes. */
+  tenantSlug: string | null;
+  status: BillingEventStatus;
+  payload: Record<string, unknown>;
+  error: string | null;
+  receivedAt: Date;
+  processedAt: Date | null;
+}
+
+export interface RecordBillingEventInput {
+  eventId: string | null;
+  tenantId: string;
+  type: BillingWebhookType;
+  payload: Record<string, unknown>;
+  error?: string | null;
+}
+
+/**
+ * Result of recording an event: `created: false` means the
+ * `(marketplace, event_id)` unique index already had the row (concurrent or
+ * replayed delivery), which the service answers as a duplicate.
+ */
+export interface RecordBillingEventResult {
+  record: BillingEventAuditRecord;
+  created: boolean;
+}
+
+export interface IBillingEventRepository {
+  /** Finds a billing event by `billing:<externalId>` (idempotency probe). */
+  findByEventId(eventId: string): Promise<BillingEventAuditRecord | null>;
+  record(input: RecordBillingEventInput): Promise<RecordBillingEventResult>;
+  markStatus(
+    id: string,
+    status: BillingEventStatus,
+    detail?: { error?: string | null; processedAt?: Date },
+  ): Promise<void>;
+  /** Newest-first billing events, bounded by `limit`. */
+  listRecent(limit: number): Promise<BillingEventAuditRecord[]>;
 }
 
 /* ==========================================================================
@@ -645,6 +700,21 @@ export interface TenantBillingPatch {
   billingEmail?: string | null;
 }
 
+/**
+ * Subscription write applied by the provider-agnostic billing webhook.
+ *
+ * Like `TenantBillingPatch` it can change `billingStatus`, but it may also move
+ * the commercial `plan` and realign the effective quotas, so a gateway upgrade
+ * lands in one row update.
+ */
+export interface TenantSubscriptionPatch {
+  billingStatus?: BillingStatus;
+  plan?: TenantPlan;
+  maxAccounts?: number;
+  maxAgents?: number;
+  trialEndsAt?: Date | null;
+}
+
 /** Admin-only tenant writes (plan, quota, status, billing, soft delete). */
 export interface IPlatformTenantRepository {
   /**
@@ -662,6 +732,12 @@ export interface IPlatformTenantRepository {
    * change billing by accident.
    */
   applyBilling(id: string, patch: TenantBillingPatch): Promise<TenantRecord>;
+  /**
+   * Applies the subscription transition of a billing webhook (status + plan +
+   * quotas in a single update). Kept apart from the console paths so only the
+   * gateway contract can move plan and billing together.
+   */
+  applySubscription(id: string, patch: TenantSubscriptionPatch): Promise<TenantRecord>;
   /** Soft delete: `status='DELETED'`, `deleted_at=at`; data is preserved. */
   softDelete(id: string, at: Date): Promise<TenantRecord>;
 }
@@ -735,4 +811,108 @@ export interface ITenantDataRepository {
   snapshot(tenantId: string, options?: TenantDataSnapshotOptions): Promise<TenantDataSnapshot>;
   /** Revokes every live refresh session of the tenant; returns the count. */
   revokeSessions(tenantId: string, at: Date): Promise<number>;
+}
+
+/* ==========================================================================
+ * FASE 4 - BACKUP / RESTORE POR WORKSPACE
+ * ========================================================================== */
+
+/**
+ * Raw rows backing one tenant backup.
+ *
+ * The repository only guarantees tenant scope; the service owns the projection
+ * (drops password hashes, encrypted tokens and raw webhook payloads) and the
+ * artifact format.
+ */
+export interface TenantBackupSnapshot {
+  agents: AgentRecord[];
+  accounts: MarketplaceAccountRecord[];
+  tickets: SupportTicketRecord[];
+  messages: TicketMessageRecord[];
+  attachments: MessageAttachmentRecord[];
+  events: TicketEventRecord[];
+  outboundAttempts: OutboundAttemptRecord[];
+  orders: OrderCacheRecord[];
+  slaPolicies: SlaPolicyRecord[];
+  webhookEvents: WebhookEventRecord[];
+}
+
+/** Insert of one index row after the JSON object was persisted in S3. */
+export interface RecordTenantBackupInput {
+  tenantId: string;
+  s3Key: string;
+  sizeBytes: number;
+  counts: TenantBackupCounts;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+/** `tenant_backups` row (Date-based; mapped to a JSON view by the service). */
+export interface TenantBackupRecord {
+  id: string;
+  tenantId: string;
+  backupKey: string;
+  sizeBytes: number;
+  counts: TenantBackupCounts;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+/**
+ * Index + read side of the backup feature.
+ *
+ * `IObjectStorage` deliberately has no ListObjects, so `tenant_backups` is the
+ * single source of truth for `GET /platform/tenants/:id/backups`.
+ */
+export interface ITenantBackupRepository {
+  /** Every row owned by the workspace (no limits: the backup is complete). */
+  snapshot(tenantId: string): Promise<TenantBackupSnapshot>;
+  /** Persists the index row AFTER the object was written (never before). */
+  record(input: RecordTenantBackupInput): Promise<TenantBackupRecord>;
+  /** Newest first. */
+  listByTenant(tenantId: string): Promise<TenantBackupRecord[]>;
+}
+
+/**
+ * Everything needed to restore a backup into a NEW workspace.
+ *
+ * `passwordHashes` is aligned by index with `payload.agents`: the service
+ * generates the random temporary password and hashes it BEFORE opening the
+ * transaction, keeping bcrypt out of the database transaction.
+ */
+export interface RestoreTenantInput {
+  payload: TenantBackupPayload;
+  newSlug: string;
+  newName: string;
+  /** Source S3 key, re-indexed under the new workspace after the restore. */
+  backupKey: string;
+  sizeBytes: number;
+  createdBy: string;
+  now: Date;
+  passwordHashes: string[];
+}
+
+/** Outcome of the transactional restore. */
+export interface RestoreTenantOutcome {
+  tenantId: string;
+  slug: string;
+  counts: TenantBackupCounts;
+}
+
+/**
+ * Transactional restore of ONE backup into a brand-new tenant.
+ *
+ * Contract:
+ *  - the tenant row is always created (never updated/overwritten);
+ *  - every business row gets a NEW uuid and references are remapped;
+ *  - agents are recreated with `mustResetPassword=true`, passwords supplied by
+ *    the service, no 2FA secret and `isPlatformAdmin=false`;
+ *  - accounts are recreated DISCONNECTED with no access/refresh token;
+ *  - globally unique natural keys that already exist (agent e-mail, order
+ *    external id, message external id, webhook event id) are disambiguated or
+ *    cleared, so restoring a workspace that still exists cannot hit a unique
+ *    constraint.
+ */
+export interface ITenantRestoreRepository {
+  restore(input: RestoreTenantInput): Promise<RestoreTenantOutcome>;
 }

@@ -356,6 +356,9 @@ export class PrismaTicketRepository implements ITicketRepository {
       SHOPEE: 0,
     };
     for (const group of marketplaceGroups) {
+      // Tickets are marketplace-channel rows only; `BILLING` exists solely in
+      // `webhook_events`, so skip it defensively instead of widening the map.
+      if (group.marketplace === 'BILLING') continue;
       byMarketplace[group.marketplace] = group._count._all;
     }
 

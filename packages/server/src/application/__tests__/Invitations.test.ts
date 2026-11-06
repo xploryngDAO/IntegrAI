@@ -173,6 +173,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
       isPlatformAdmin: false,
+      mustResetPassword: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -203,6 +204,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
       isPlatformAdmin: false,
+      mustResetPassword: false,
       createdAt: at,
       updatedAt: at,
     };

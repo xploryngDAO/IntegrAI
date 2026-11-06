@@ -201,6 +201,23 @@ export const envSchema = z.object({
   TENANT_PURGE_CRON: stringFromEnv('0 3 * * *'),
   TENANT_PURGE_RETENTION_DAYS: intFromEnv(30, 1, 3_650),
 
+  /* ---------------------- billing gateway (Fase 4) ------------------------ */
+  /**
+   * Shared HMAC SHA-256 secret of the payment gateway webhook. Absent keeps the
+   * deployment bootable but makes `POST /api/v1/billing/webhook` answer
+   * `503 BILLING_NOT_CONFIGURED` (never accept an unsigned event).
+   */
+  BILLING_WEBHOOK_SECRET: optionalString(),
+  /**
+   * Hosted checkout URL template. Placeholders: `{tenantId}`, `{slug}`,
+   * `{plan}`, `{email}`, `{successUrl}`, `{cancelUrl}`. Absent makes
+   * `POST /platform/tenants/:id/checkout` answer 503.
+   */
+  BILLING_CHECKOUT_URL_TEMPLATE: optionalString(),
+  /** Return URLs substituted into the checkout template (optional). */
+  BILLING_SUCCESS_URL: optionalString(),
+  BILLING_CANCEL_URL: optionalString(),
+
   /* --------------------------- feature flags ------------------------------ */
 });
 

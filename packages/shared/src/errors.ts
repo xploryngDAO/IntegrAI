@@ -120,6 +120,24 @@ export class AmazonOAuthNotConfiguredError extends AppError {
   }
 }
 
+/**
+ * Billing gateway contract not configured (Fase 4, provider-agnostic).
+ *
+ * `503` because the API is healthy but the deployment is missing an environment
+ * variable; `details.missing`/`details.remediation` are rendered verbatim by the
+ * console and by the gateway operator runbook.
+ */
+export class BillingNotConfiguredError extends AppError {
+  constructor(missing: string[], remediation: string) {
+    super(
+      'BILLING_NOT_CONFIGURED',
+      `Billing is not configured (missing: ${missing.join(', ')}). ${remediation}`,
+      503,
+      { provider: 'BILLING', missing, remediation },
+    );
+  }
+}
+
 export class PolicyViolationError extends AppError {
   public readonly violations: Array<{ code: string; message: string; match?: string }>;
 

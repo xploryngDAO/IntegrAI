@@ -77,6 +77,40 @@ export const platformTenantBillingBodySchema = z
     { message: 'At least one of billingStatus, trialEndsAt or billingEmail is required' },
   );
 
+/**
+ * `POST /platform/tenants/restore`.
+ *
+ * `backupKey` is restricted to the backup prefix (`backups/<tenant>/<file>.json`)
+ * so the endpoint can never be used to read an arbitrary object from the
+ * bucket. The slug is normalized to lowercase and must be a NEW workspace:
+ * the service answers 409 when it already exists.
+ */
+export const platformTenantRestoreBodySchema = z
+  .object({
+    backupKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .regex(
+        /^backups\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.json$/,
+        'backupKey must match backups/<tenant>/<timestamp>.json',
+      ),
+    newSlug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .transform((value) => value.toLowerCase())
+      .refine(
+        (value) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(value),
+        'newSlug must contain only lowercase letters, digits and inner hyphens',
+      ),
+    newName: z.string().trim().min(1).max(160),
+  })
+  .strict();
+
 export type PlatformTenantListQuery = z.infer<typeof platformTenantListQuerySchema>;
 export type PlatformTenantUpdateBody = z.infer<typeof platformTenantUpdateBodySchema>;
 export type PlatformTenantBillingBody = z.infer<typeof platformTenantBillingBodySchema>;
+export type PlatformTenantRestoreBody = z.infer<typeof platformTenantRestoreBodySchema>;

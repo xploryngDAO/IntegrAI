@@ -36,6 +36,18 @@ export interface AppConfig extends ChannelRuntimeConfig {
   };
   /** Grace period (days) between LGPD soft delete and physical purge. */
   tenantPurgeRetentionDays: number;
+  /**
+   * Payment gateway contract (Fase 4). No provider SDK is used: the webhook is
+   * authenticated by HMAC and the checkout URL is a template rendered locally.
+   * Every field is optional so a deployment without billing still boots; the
+   * billing routes answer `503 BILLING_NOT_CONFIGURED` instead.
+   */
+  billing: {
+    webhookSecret?: string;
+    checkoutUrlTemplate?: string;
+    successUrl?: string;
+    cancelUrl?: string;
+  };
   s3: {
     endpoint?: string;
     region: string;
@@ -115,6 +127,13 @@ function buildConfig(env: Env): AppConfig {
   const logLevel =
     env.LOG_LEVEL ?? (env.NODE_ENV === 'production' ? 'info' : env.NODE_ENV === 'test' ? 'silent' : 'debug');
 
+  // Checkout return URLs default to the SPA origin so a deployment that only
+  // sets BILLING_CHECKOUT_URL_TEMPLATE still renders a usable link.
+  const webOriginBase =
+    env.WEB_ORIGIN.split(',')
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0) ?? env.APP_BASE_URL;
+
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
@@ -131,6 +150,12 @@ function buildConfig(env: Env): AppConfig {
     logLevel,
     piiRetentionDays: env.PII_RETENTION_DAYS,
     tenantPurgeRetentionDays: env.TENANT_PURGE_RETENTION_DAYS,
+    billing: {
+      webhookSecret: env.BILLING_WEBHOOK_SECRET,
+      checkoutUrlTemplate: env.BILLING_CHECKOUT_URL_TEMPLATE,
+      successUrl: env.BILLING_SUCCESS_URL ?? `${webOriginBase}/billing/success`,
+      cancelUrl: env.BILLING_CANCEL_URL ?? `${webOriginBase}/billing/cancel`,
+    },
     cron: {
       slaScan: env.SLA_SCAN_CRON,
       piiPurge: env.PII_PURGE_CRON,

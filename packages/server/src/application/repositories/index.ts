@@ -4,6 +4,10 @@ import { PrismaAccountRepository, createAccountRepository } from './accounts';
 import { createAgentRepository, PrismaAgentRepository } from './agents';
 import { createAttachmentRepository, PrismaAttachmentRepository } from './attachments';
 import {
+  createBillingEventRepository,
+  PrismaBillingEventRepository,
+} from './billing-events';
+import {
   createEmailVerificationRepository,
   PrismaEmailVerificationRepository,
 } from './email-verifications';
@@ -18,7 +22,15 @@ import { createPiiVaultRepository, PrismaPiiVaultRepository } from './pii-vault'
 import { createPlatformRepository, PrismaPlatformRepository } from './platform';
 import { createSessionRepository, PrismaSessionRepository } from './sessions';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
+import {
+  createTenantBackupRepository,
+  PrismaTenantBackupRepository,
+} from './tenant-backup';
 import { createTenantDataRepository, PrismaTenantDataRepository } from './tenant-data';
+import {
+  createTenantRestoreRepository,
+  PrismaTenantRestoreRepository,
+} from './tenant-restore';
 import {
   createTenantPurgeRepository,
   PrismaTenantPurgeRepository,
@@ -53,6 +65,7 @@ export function createRepositories(prisma: PrismaClient): AdapterRepositories {
 export { createAccountRepository, PrismaAccountRepository };
 export { createAgentRepository, PrismaAgentRepository };
 export { createAttachmentRepository, PrismaAttachmentRepository };
+export { createBillingEventRepository, PrismaBillingEventRepository };
 export {
   createEmailVerificationRepository,
   PrismaEmailVerificationRepository,
@@ -68,8 +81,10 @@ export { createPiiVaultRepository, PrismaPiiVaultRepository };
 export { createPlatformRepository, PrismaPlatformRepository };
 export { createSessionRepository, PrismaSessionRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
+export { createTenantBackupRepository, PrismaTenantBackupRepository };
 export { createTenantDataRepository, PrismaTenantDataRepository };
 export { createTenantPurgeRepository, PrismaTenantPurgeRepository };
+export { createTenantRestoreRepository, PrismaTenantRestoreRepository };
 export {
   createPlatformTenantRepository,
   createTenantRepository,
@@ -89,14 +104,17 @@ export {
   mapInvitation,
   mapMessage,
   mapOrder,
+  mapOutboundAttempt,
   mapPasswordReset,
   mapPii,
   mapSession,
   mapSlaPolicy,
   mapTenant,
+  mapTenantBackupRecord,
   mapTicket,
   mapTicketEvent,
   mapWebhookEvent,
+  normalizeBackupCounts,
   toInputJson,
   toInputJsonArray,
   toJsonArray,

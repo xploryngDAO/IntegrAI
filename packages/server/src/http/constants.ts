@@ -29,6 +29,13 @@ export const MAX_PAGE_SIZE = 100;
 export const WEBHOOK_DURATION_HEADER = 'x-sac-duration-ms';
 
 /**
+ * Header carrying the HMAC SHA-256 (hex) of the raw billing webhook body.
+ * The gateway contract is provider-agnostic: an adapter in front of Stripe/
+ * Pagar.me must produce this header and the normalized payload.
+ */
+export const BILLING_SIGNATURE_HEADER = 'x-billing-signature';
+
+/**
  * Diagnostics perform live token exchanges and marketplace reads, so they get a
  * generous per-request deadline (30s) instead of the normal fast-path budget.
  * Exceeding it answers 504 without affecting webhooks or any other route.

@@ -12,12 +12,14 @@
 | Limites | `max_agents` ao convidar/aceitar convite; `max_accounts` ao conectar loja nova |
 | Console | `GET /platform/tenants` (paginação + busca + billing prefill), `PATCH /platform/tenants/:id`, `GET /platform/metrics`, `GET /platform/tenants/:id/metrics`, `GET /platform/alerts`, `POST /platform/tenants/:id/purge` |
 | Billing (base) | `GET /platform/billing/summary` (MRR por plano), `PATCH /platform/tenants/:id/billing`; preços em `shared/plans.ts`; `billingStatus`/`trialEndsAt`/`billingEmail` no item da listagem |
+| Gateway (contrato) | `POST /billing/webhook` público com HMAC SHA-256 do raw body (`x-billing-signature`), máquina de estados em `billing_status` e idempotência por `externalId` em `webhook_events`; `POST /platform/tenants/:id/checkout` (URL por template, sem chamada externa); `GET /platform/billing/events` (auditoria) |
 | LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete), purga física diária (`queue.tenant.purge`) + purga manual, com remoção dos objetos S3 do workspace antes do delete transacional |
 | Status page | `GET /status` e `GET /api/v1/status` públicos (probes de infra + contadores agregados por canal) |
 | Sessão | tenant `SUSPENDED`/`DELETED` responde `403 TENANT_INACTIVE` no login e em toda requisição |
 
-Fora do escopo desta fase (backlog): integração com gateway de pagamento
-(Stripe/Pagar.me etc.), backup/restore por tenant e UI do console.
+Fora do escopo desta fase (backlog): SDK/adapter de um gateway real
+(Stripe/Pagar.me etc. — o contrato provider-agnóstico já existe) e UI do
+console. Backup/restore por tenant: [PHASE4_BACKUP_RESTORE](PHASE4_BACKUP_RESTORE.md).
 
 ## Modelo de dados
 
@@ -60,6 +62,12 @@ Decisões:
    console lê contas, quotas, SLA e convites no momento da consulta. Isso evita
    um job de reconciliação e nunca mostra um alerta obsoleto; em troca, o custo
    é uma leitura por chamada (cache é otimização futura).
+9. **Billing reusa `webhook_events` em vez de criar tabela nova.** O índice
+   único `(marketplace, event_id)` já dá idempotência cross-process e a purga
+   LGPD já apaga por `tenant_id`. Para isso o enum `Marketplace` ganhou o valor
+   `BILLING` (migration `20251114010000_phase4_billing_gateway`), usado somente
+   em `webhook_events`; contas, tickets e políticas continuam restritos aos três
+   canais reais (os agregadores ignoram `BILLING` defensivamente).
 
 ## Limites (quota)
 
@@ -283,6 +291,93 @@ faturas, proration, impostos e método de pagamento; transicionar
 `TRIALING → PAST_DUE` por job de dunning e `TRIALING → CANCELED` ao fim do
 trial. Nada disso muda o contrato atual das rotas.
 
+### Gateway contract (provider-agnóstico)
+
+A Fase 4 não inclui SDK nem adapter de gateway: a API é o **contrato** que um
+adapter (Stripe, Pagar.me, etc.) deve alimentar. Nenhuma chamada externa é feita
+por estas rotas.
+
+#### `POST /api/v1/billing/webhook` (público na allowlist)
+
+- Autenticação: HMAC SHA-256 **do raw body** no header `x-billing-signature`
+  (hex; `sha256=<hex>` também é aceito). O secret é
+  `BILLING_WEBHOOK_SECRET`.
+- Sem `BILLING_WEBHOOK_SECRET` → `503 BILLING_NOT_CONFIGURED` com
+  `details.missing = ["BILLING_WEBHOOK_SECRET"]` e `details.remediation`.
+- Assinatura ausente/inválida → `401 INVALID_SIGNATURE` (verificada antes de
+  qualquer parsing do payload).
+- Payload **normalizado** (o adapter traduz o evento nativo):
+
+  ```json
+  {
+    "type": "subscription.activated",
+    "tenantId": "uuid",
+    "tenantSlug": "acme",
+    "plan": "PRO",
+    "currentPeriodEnd": "2026-12-05T00:00:00.000Z",
+    "amountBrl": 299,
+    "externalId": "evt_123"
+  }
+  ```
+
+  `type` ∈ `subscription.activated | subscription.updated | payment.succeeded |
+  payment.failed | subscription.canceled`; `tenantId` **ou** `tenantSlug` é
+  obrigatório (id tem precedência; os dois precisam concordar); `plan`,
+  `currentPeriodEnd`, `amountBrl` e `externalId` são opcionais.
+
+- Máquina de estados em `tenants.billing_status`:
+
+  | Evento | Transição |
+  |---|---|
+  | `subscription.activated`, `payment.succeeded` | qualquer estado → `ACTIVE` |
+  | `payment.failed` | `TRIALING`/`ACTIVE` → `PAST_DUE`; `CANCELED` permanece |
+  | `subscription.canceled` | qualquer estado → `CANCELED` |
+  | `subscription.updated` | não muda o status; aplica `plan`/quota |
+
+  Quando `plan` muda, as quotas são realinhadas aos defaults do plano (mesma
+  regra do `PATCH /platform/tenants/:id`); custom quotas são preservadas quando
+  o plano não muda.
+
+- Idempotência: `eventId = billing:<externalId>`, persistido em
+  `webhook_events` (`marketplace = BILLING`, `topic` = tipo, `payload` =
+  payload normalizado) sob o índice único `(marketplace, event_id)`. Replay →
+  HTTP 200 `{ status: "DUPLICATE" }` sem reaplicar nada. Um evento gravado como
+  `FAILED` é reprocessado no retry (o retry não é tratado como duplicado).
+- Tenant desconhecido → `404`; workspace suspenso/deletado → `409 CONFLICT`
+  (`details.code = TENANT_INACTIVE`). Essas recusas **não** gravam o
+  `externalId`, para que um reenvio corrigido seja aceito. Reutilizar um
+  `externalId` já vinculado a OUTRO workspace → `409 CONFLICT`
+  (`details.code = BILLING_EVENT_TENANT_MISMATCH`), nunca escrita cross-tenant.
+- Logs estruturados: `billing.webhook.received`, `billing.webhook.processed`,
+  `billing.webhook.duplicate`, `billing.webhook.invalid_signature`,
+  `billing.webhook.not_configured`, `billing.webhook.unknown_tenant`,
+  `billing.webhook.inactive_tenant`, `billing.webhook.failed`.
+- `currentPeriodEnd` não tem coluna em `tenants`: fica auditado no payload do
+  evento (pendência: coluna `billing_current_period_end`).
+
+#### `POST /api/v1/platform/tenants/:id/checkout` (platform admin)
+
+Monta a URL do checkout hospedado **sem chamar o gateway**:
+
+- `BILLING_CHECKOUT_URL_TEMPLATE` com os placeholders `{tenantId}`, `{slug}`,
+  `{plan}`, `{email}`, `{successUrl}` e `{cancelUrl}`, substituídos com
+  `encodeURIComponent`.
+- `{successUrl}`/`{cancelUrl}` vêm de `BILLING_SUCCESS_URL`/`BILLING_CANCEL_URL`;
+  quando ausentes, o default é `<primeira WEB_ORIGIN>/billing/success` e
+  `/billing/cancel`.
+- Sem template (ou template que não rende uma URL absoluta http(s)) → `503
+  BILLING_NOT_CONFIGURED`; workspace desconhecido → `404`; soft-deleted →
+  `409 CONFLICT` (`details.code = TENANT_DELETED`).
+- Resposta: `{ "data": { "checkoutUrl": "https://..." } }`.
+
+#### `GET /api/v1/platform/billing/events?limit=50` (platform admin)
+
+Auditoria dos últimos callbacks de billing, mais recentes primeiro.
+`limit` ∈ 1..100 (default 50), `422` fora da faixa. Resposta:
+`{ data: { limit, items: [{ id, type, tenantId, tenantSlug, status, receivedAt }] } }`.
+O `status` é o de `webhook_events` (`RECEIVED | PROCESSED | FAILED`), o `type` é
+o evento normalizado e `tenantSlug` é resolvido no momento da consulta.
+
 ## LGPD por tenant
 
 ### `GET /tenants/me/export` (ADMIN do tenant)
@@ -357,7 +452,9 @@ Regras:
 - Um candidato sem `deleted_at` é recusado defensivamente
   (`TENANT_NOT_SOFT_DELETED`) — nunca há hard delete de workspace ativo.
 - **Retenção legal** (fiscal/financeiro) deve ser avaliada antes de encurtar o
-  prazo de 30 dias. A purga é irreversível (não há restore nesta fase).
+  prazo de 30 dias. A purga é irreversível para os dados relacionais; um backup
+  anterior (se existir) permite recriar um workspace NOVO — ver
+  [PHASE4_BACKUP_RESTORE](PHASE4_BACKUP_RESTORE.md).
 
 ## Status page pública
 
@@ -426,6 +523,13 @@ Regras:
   ordenação por severidade e janelas de consulta.
 - `PlatformBilling.test.ts` — MRR por plano, trials/inadimplentes, PATCH
   (status/trial/e-mail), limpeza com `null`, 404/409/422.
+- `BillingService.test.ts` — secret ausente (503), HMAC inválido/ausente (401),
+  cada transição da máquina de estados, plano/quota, idempotência por
+  `externalId`, retry de `FAILED`, validação de tenant, checkout (template,
+  variáveis, 503/404/409) e listagem dos eventos.
+- `billing-routes.test.ts` — HTTP do webhook público (raw body + assinatura),
+  401/503/200/200-duplicado, checkout 200/503/403/422 e
+  `GET /platform/billing/events` (limite, ordenação, 403).
 - `repositories/platform.tenant-metrics.test.ts` — escopo `tenant_id` das
   agregações, snapshot de alertas e filtro de soft-deleted no billing.
 - `TenantPrivacy.test.ts` — export sem segredos/PII, delete com senha/slug e erros.

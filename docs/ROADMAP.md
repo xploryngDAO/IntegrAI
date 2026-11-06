@@ -86,12 +86,13 @@ Checklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSI
 Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 
 ### Fase 4 — Plataforma e operação
-Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md).
+Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md). Backup/restore:
+[PHASE4_BACKUP_RESTORE](PHASE4_BACKUP_RESTORE.md).
 
 - Console interno: tenants, planos, limites, uso, suspensão. ✅ (sem UI ainda)
-- Billing (assinatura) e quotas por plano. ✅ quotas; ✅ base de billing (status/trial/contato + prefill na lista + summary MRR); ⏳ gateway
+- Billing (assinatura) e quotas por plano. ✅ quotas; ✅ base de billing (status/trial/contato + prefill na lista + summary MRR); ✅ contrato de gateway provider-agnóstico (webhook HMAC + estado + checkout por template + auditoria); ⏳ adapter de um gateway real
 - Métricas por tenant (SLA, volume, erros), alertas e status page. ✅ métricas globais e por tenant; ✅ alertas derivados; ✅ `GET /status` público
-- Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete + purga física (job diário) com limpeza dos artefatos S3; ⏳ restore
+- Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete + purga física (job diário) com limpeza dos artefatos S3; ✅ backup JSON por tenant (`tenant_backups` + `backups/<slug>/<timestamp>.json`) e restore transacional em workspace NOVO (sem credenciais)
 
 > **Fase 4 (parcial) concluída:** `plan`/quotas por tenant, gate de
 > `max_agents`/`max_accounts`, console `/platform/*` (JWT + `is_platform_admin`)
@@ -100,8 +101,12 @@ Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md).
 > exportação LGPD, soft delete com `403 TENANT_INACTIVE` e purga física diária
 > (`queue.tenant.purge`, 03:00, após 30 dias) que apaga também os objetos S3 do
 > workspace. Status page pública (`GET /status` e `GET /api/v1/status`) com
-> probes de infraestrutura e contadores agregados por canal. Pendências: gateway
-> de pagamento, UI do console e restore.
+> probes de infraestrutura e contadores agregados por canal. Backup/restore por
+> tenant (`POST /platform/tenants/:id/backup`, `GET .../backups`,
+> `POST /platform/tenants/restore`): artefato JSON sem credenciais, índice em
+> `tenant_backups` e restore transacional que recria o workspace com ids novos,
+> lojas `DISCONNECTED` e operadores com senha temporária/`must_reset_password`.
+> Pendências: adapter de gateway real e UI do console.
 
 ## CI
 
@@ -132,4 +137,6 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 4 — planos/quotas, console `/platform` (busca + purge manual), métricas (global e por tenant) e LGPD (export + soft delete + purga física)
 - [x] Fase 4 — alertas operacionais derivados (contas/quotas/SLA/lifecycle) e base de billing (status/trial/contato + summary MRR)
 - [x] Fase 4 — prefill de billing na listagem do console, limpeza dos artefatos S3 na purga e status page pública
-- [ ] Fase 4 — gateway de pagamento, UI do console, restore
+- [x] Fase 4 — contrato de gateway provider-agnóstico (webhook HMAC/idempotente + máquina de estados + checkout por template + auditoria de eventos)
+- [x] Fase 4 — backup/restore por tenant (`tenant_backups`, `must_reset_password`, S3 `backups/<slug>/<timestamp>.json`, restore transacional)
+- [ ] Fase 4 — adapter de gateway real e UI do console

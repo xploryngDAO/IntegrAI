@@ -7,6 +7,7 @@ export * from './message.schema';
 export * from './account.schema';
 export * from './tenant.schema';
 export * from './platform.schema';
+export * from './billing.schema';
 export * from './diagnostics.schema';
 export * from './file.schema';
 export * from './telemetry.schema';

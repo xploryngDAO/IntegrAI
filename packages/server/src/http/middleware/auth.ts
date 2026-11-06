@@ -36,6 +36,9 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   // The short-lived challenge JWT in the body authenticates the second factor;
   // a full access token does not exist yet at this point.
   '/api/v1/auth/2fa/challenge',
+  // Payment gateway callback (Fase 4): a gateway cannot present a JWT. The
+  // HMAC SHA-256 of the raw body (`x-billing-signature`) authenticates it.
+  '/api/v1/billing/webhook',
 ];
 
 const OAUTH_CALLBACK_PATH = /^\/api\/v1\/accounts\/oauth\/[a-z]+\/callback$/;

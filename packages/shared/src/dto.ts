@@ -11,7 +11,7 @@ import type {
   TicketStatus,
   TicketType,
 } from './enums';
-import type { BillingStatus, PlanLimits, TenantPlan } from './plans';
+import type { BillingStatus, BillingWebhookType, PlanLimits, TenantPlan } from './plans';
 
 /* ==========================================================================
  * Persistence records (Date-based, consumed by repositories + services)
@@ -164,6 +164,23 @@ export interface TicketEventRecord {
   createdAt: Date;
 }
 
+/** Operations-only audit row (`outbound_attempts`): route, policy, response. */
+export interface OutboundAttemptRecord {
+  id: string;
+  ticketId: string;
+  messageId: string | null;
+  channelRoute: ChannelRoute;
+  status: DeliveryStatus;
+  requestPayload: Record<string, unknown>;
+  responsePayload: Record<string, unknown>;
+  httpStatus: number | null;
+  attempt: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+  createdAt: Date;
+}
+
 export interface AgentRecord {
   id: string;
   tenantId: string | null;
@@ -191,6 +208,11 @@ export interface AgentRecord {
    * `PLATFORM_ADMIN_EMAILS`), never through a self-service flow.
    */
   isPlatformAdmin: boolean;
+  /**
+   * Fase 4 (restore): operator recreated with a random temporary password; the
+   * next password reset is mandatory and clears the flag.
+   */
+  mustResetPassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -424,6 +446,57 @@ export interface TenantBillingView {
   updatedAt: string;
 }
 
+/* ==========================================================================
+ * Fase 4 - provider-agnostic billing gateway (webhook + checkout + audit)
+ * ========================================================================== */
+
+/** Lifecycle of one billing audit row (`webhook_events.status`). */
+export type BillingEventStatus =
+  | 'RECEIVED'
+  | 'DUPLICATE'
+  | 'PROCESSED'
+  | 'FAILED'
+  | 'DEAD_LETTER';
+
+/**
+ * Outcome of one billing webhook delivery.
+ *
+ * `duplicate` is true when the `externalId` was already processed: the caller
+ * answers HTTP 200 and never re-applies the transition.
+ */
+export interface BillingWebhookResult {
+  type: BillingWebhookType;
+  /** `billing:<externalId>` (the `webhook_events.event_id`), null when absent. */
+  eventId: string | null;
+  tenantId: string;
+  duplicate: boolean;
+  previousBillingStatus: BillingStatus;
+  billingStatus: BillingStatus;
+  /** Cycle end informed by the gateway (audit only; no tenant column yet). */
+  currentPeriodEnd: string | null;
+}
+
+/** `POST /platform/tenants/:id/checkout` - hosted checkout URL (no gateway call). */
+export interface BillingCheckoutResult {
+  checkoutUrl: string;
+}
+
+/** Row of `GET /platform/billing/events` (audit trail from `webhook_events`). */
+export interface BillingEventSummary {
+  id: string;
+  type: BillingWebhookType | null;
+  tenantId: string | null;
+  tenantSlug: string | null;
+  status: BillingEventStatus;
+  receivedAt: string;
+}
+
+/** `GET /platform/billing/events?limit=` payload. */
+export interface BillingEventListResult {
+  items: BillingEventSummary[];
+  limit: number;
+}
+
 /** Rows physically removed for one workspace, per table (LGPD purge audit). */
 export interface TenantPurgeCounts {
   sessions: number;
@@ -623,6 +696,316 @@ export interface TenantExportPayload {
   tickets: TenantExportTicket[];
   messages: TenantExportMessage[];
   events: TenantExportEvent[];
+}
+
+/* ==========================================================================
+ * FASE 4 - BACKUP / RESTORE POR WORKSPACE
+ * ==========================================================================
+ *
+ * The backup artifact is a self-contained JSON document stored in the raw
+ * bucket (`backups/<tenantSlug>/<timestamp>.json`). Every row is already
+ * JSON-safe (ISO strings), so the persisted artifact and the parsed payload
+ * share the exact same shape.
+ *
+ * What is deliberately excluded:
+ *  - `agents.password_hash`, `agents.two_factor_secret_enc` and recovery codes;
+ *  - `marketplace_accounts.access_token_enc` / `refresh_token_enc` (restored
+ *    accounts come back DISCONNECTED: the stores must be reconnected);
+ *  - `sessions`, `invitations`, `password_resets`, `email_verifications` — auth
+ *    state is never restored;
+ *  - `webhook_events.payload`, `payload_s3_uri` and `resource` (raw marketplace
+ *    dumps that may contain buyer PII);
+ *  - `buyer_pii_vault` (restricted marketplace data, auto-purged separately).
+ */
+
+/** Per-table row counts captured by a backup (also returned by a restore). */
+export interface TenantBackupCounts {
+  agents: number;
+  accounts: number;
+  tickets: number;
+  messages: number;
+  attachments: number;
+  events: number;
+  outboundAttempts: number;
+  orders: number;
+  slaPolicies: number;
+  webhookEvents: number;
+}
+
+/** Header of a backup artifact. `kind` distinguishes it from an LGPD export. */
+export interface TenantBackupMeta {
+  kind: 'tenant-backup';
+  formatVersion: string;
+  createdAt: string;
+  createdBy: string;
+  sourceTenantId: string;
+  sourceTenantSlug: string;
+  sourceTenantName: string;
+  counts: TenantBackupCounts;
+  notes: string[];
+}
+
+/** Tenant settings restored into the NEW workspace (never the old id/slug). */
+export interface TenantBackupTenant {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  plan: TenantPlan;
+  maxAccounts: number;
+  maxAgents: number;
+  billingStatus: BillingStatus;
+  trialEndsAt: string | null;
+  billingEmail: string | null;
+  onboardingCompletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Operator row WITHOUT `passwordHash` / `twoFactorSecretEnc`. */
+export interface TenantBackupAgent {
+  id: string;
+  email: string;
+  name: string;
+  role: AgentRole;
+  presence: AgentPresenceStatus;
+  avatarColor: string;
+  maxConcurrent: number;
+  isActive: boolean;
+  lastSeenAt: string | null;
+  emailVerifiedAt: string | null;
+  twoFactorEnabled: boolean;
+  isPlatformAdmin: boolean;
+  /** True when the operator was created by a restore with a random password. */
+  mustResetPassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Connected store WITHOUT access/refresh tokens. */
+export interface TenantBackupAccount {
+  id: string;
+  marketplace: Marketplace;
+  displayName: string;
+  externalSellerId: string;
+  marketplaceSiteId: string;
+  status: AccountStatus;
+  channelConfig: Record<string, unknown>;
+  tokenExpiresAt: string | null;
+  authExpiresAt: string | null;
+  lastTokenRefreshAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantBackupTicket {
+  id: string;
+  accountId: string;
+  marketplace: Marketplace;
+  ticketType: TicketType;
+  externalReferenceId: string;
+  externalOrderId: string | null;
+  orderCacheId: string | null;
+  packId: string | null;
+  claimId: string | null;
+  conversationId: string | null;
+  returnSn: string | null;
+  subject: string | null;
+  buyerExternalId: string | null;
+  buyerDisplayName: string | null;
+  buyerAnonymizedEmail: string | null;
+  buyerContactHash: string | null;
+  hasActiveClaim: boolean;
+  status: TicketStatus;
+  priority: TicketPriority;
+  slaDeadlineAt: string;
+  slaTargetAt: string | null;
+  slaLegMinutes: number | null;
+  slaBreached: boolean;
+  slaState: SlaState;
+  firstResponseAt: string | null;
+  resolvedAt: string | null;
+  lastInboundAt: string | null;
+  lastOutboundAt: string | null;
+  lastMessageAt: string | null;
+  unreadCount: number;
+  assignedAgentId: string | null;
+  assignedQueue: string | null;
+  channelMetadata: Record<string, unknown>;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantBackupMessage {
+  id: string;
+  ticketId: string;
+  externalMessageId: string | null;
+  inReplyToId: string | null;
+  referencesIds: string[];
+  direction: MessageDirection;
+  channelRouteUsed: ChannelRoute;
+  messageType: string;
+  bodyCleanText: string;
+  bodyHtml: string | null;
+  contentPayload: Record<string, unknown>;
+  bodyRawS3Uri: string | null;
+  deliveryStatus: DeliveryStatus;
+  errorDetail: string | null;
+  isInternalNote: boolean;
+  authorAgentId: string | null;
+  marketplaceCreatedAt: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `message_attachments` metadata only: the binary lives in object storage. */
+export interface TenantBackupAttachment {
+  id: string;
+  messageId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string | null;
+  s3Uri: string;
+  externalUploadId: string | null;
+  isEvidence: boolean;
+  createdAt: string;
+}
+
+export interface TenantBackupEvent {
+  id: string;
+  ticketId: string;
+  eventType: string;
+  actorAgentId: string | null;
+  actorLabel: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TenantBackupOutboundAttempt {
+  id: string;
+  ticketId: string;
+  messageId: string | null;
+  channelRoute: ChannelRoute;
+  status: DeliveryStatus;
+  requestPayload: Record<string, unknown>;
+  responsePayload: Record<string, unknown>;
+  httpStatus: number | null;
+  attempt: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface TenantBackupOrder {
+  id: string;
+  accountId: string;
+  marketplace: Marketplace;
+  externalOrderId: string;
+  packId: string | null;
+  buyerExternalId: string | null;
+  buyerNameOrNick: string | null;
+  buyerAnonymizedEmail: string | null;
+  orderStatus: string;
+  fulfillmentType: string | null;
+  totalAmount: number;
+  currency: string;
+  trackingNumber: string | null;
+  carrierName: string | null;
+  itemsSnapshot: OrderItemSnapshot[];
+  allowedActionsCache: Record<string, unknown>;
+  shippingSnapshot: Record<string, unknown>;
+  estimatedDeliveryAt: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  lastSyncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantBackupSlaPolicy {
+  id: string;
+  accountId: string | null;
+  marketplace: Marketplace;
+  ticketType: TicketType;
+  firstResponseMinutes: number;
+  targetMinutes: number;
+  warningMinutes: number;
+  businessHoursOnly: boolean;
+  isActive: boolean;
+}
+
+/** Webhook audit row WITHOUT the raw payload dump, S3 pointer or `resource`. */
+export interface TenantBackupWebhookEvent {
+  id: string;
+  marketplace: Marketplace;
+  accountId: string | null;
+  eventId: string | null;
+  topic: string | null;
+  status: 'RECEIVED' | 'DUPLICATE' | 'PROCESSED' | 'FAILED' | 'DEAD_LETTER';
+  signatureValid: boolean;
+  attempts: number;
+  receivedAt: string;
+  processedAt: string | null;
+}
+
+/** Full JSON artifact persisted at `backups/<tenantSlug>/<timestamp>.json`. */
+export interface TenantBackupPayload {
+  meta: TenantBackupMeta;
+  tenant: TenantBackupTenant;
+  agents: TenantBackupAgent[];
+  accounts: TenantBackupAccount[];
+  tickets: TenantBackupTicket[];
+  messages: TenantBackupMessage[];
+  attachments: TenantBackupAttachment[];
+  events: TenantBackupEvent[];
+  outboundAttempts: TenantBackupOutboundAttempt[];
+  orders: TenantBackupOrder[];
+  slaPolicies: TenantBackupSlaPolicy[];
+  webhookEvents: TenantBackupWebhookEvent[];
+}
+
+/** `POST /platform/tenants/:id/backup` response. */
+export interface TenantBackupResult {
+  backupKey: string;
+  sizeBytes: number;
+  counts: TenantBackupCounts;
+  createdAt: string;
+}
+
+/** One row of `GET /platform/tenants/:id/backups` (index table projection). */
+export interface TenantBackupView {
+  id: string;
+  tenantId: string;
+  backupKey: string;
+  sizeBytes: number;
+  counts: TenantBackupCounts;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** Body of `POST /platform/tenants/restore`. */
+export interface RestoreTenantCommand {
+  /** S3 key of a previous backup (`backups/<slug>/<timestamp>.json`). */
+  backupKey: string;
+  /** Slug of the NEW workspace (409 when already taken). */
+  newSlug: string;
+  /** Display name of the NEW workspace. */
+  newName: string;
+}
+
+/** `POST /platform/tenants/restore` response. */
+export interface RestoreTenantResult {
+  tenantId: string;
+  slug: string;
+  counts: TenantBackupCounts;
 }
 
 export interface EmailVerificationRecord {

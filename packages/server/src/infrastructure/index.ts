@@ -8,6 +8,7 @@ import type {
   IDistributedLock,
   IEmailService,
   IEmailVerificationRepository,
+  IBillingEventRepository,
   IHttpClient,
   IInvitationRepository,
   ILogger,
@@ -20,15 +21,18 @@ import type {
   ISessionRepository,
   ISlaPolicyRepository,
   ISecretCipher,
+  ITenantBackupRepository,
   ITenantDataRepository,
   ITenantPurgeRepository,
   ITenantRepository,
+  ITenantRestoreRepository,
   ITwoFactorRepository,
 } from '@sac/shared';
 import type { AppConfig } from '../config';
 import {
   createRepositories,
   createAgentRepository,
+  createBillingEventRepository,
   createEmailVerificationRepository,
   createInvitationRepository,
   createPasswordResetRepository,
@@ -36,9 +40,11 @@ import {
   createPlatformTenantRepository,
   createSessionRepository,
   createSlaPolicyRepository,
+  createTenantBackupRepository,
   createTenantDataRepository,
   createTenantPurgeRepository,
   createTenantRepository,
+  createTenantRestoreRepository,
   createTwoFactorRepository,
 } from '../application/repositories';
 import { SecretCipher } from './crypto/cipher';
@@ -77,6 +83,10 @@ export interface InfrastructureBundle {
   platform: IPlatformRepository;
   tenantData: ITenantDataRepository;
   tenantPurge: ITenantPurgeRepository;
+  /** Fase 4 billing gateway audit/idempotency rows (`webhook_events`). */
+  billingEvents: IBillingEventRepository;
+  tenantBackups: ITenantBackupRepository;
+  tenantRestore: ITenantRestoreRepository;
   emailVerifications: IEmailVerificationRepository;
   invitations: IInvitationRepository;
   passwordResets: IPasswordResetRepository;
@@ -150,6 +160,9 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const platform = createPlatformRepository(prisma);
   const tenantData = createTenantDataRepository(prisma);
   const tenantPurge = createTenantPurgeRepository(prisma);
+  const billingEvents = createBillingEventRepository(prisma);
+  const tenantBackups = createTenantBackupRepository(prisma);
+  const tenantRestore = createTenantRestoreRepository(prisma);
   const emailVerifications = createEmailVerificationRepository(prisma);
   const invitations = createInvitationRepository(prisma);
   const passwordResets = createPasswordResetRepository(prisma);
@@ -188,6 +201,9 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     platform,
     tenantData,
     tenantPurge,
+    billingEvents,
+    tenantBackups,
+    tenantRestore,
     emailVerifications,
     invitations,
     passwordResets,

@@ -17,6 +17,7 @@ import { AccountService } from './application/AccountService';
 import { AgentService } from './application/AgentService';
 import { AuthService } from './application/AuthService';
 import { AuthSessionService } from './application/AuthSessionService';
+import { BillingService } from './application/BillingService';
 import { DiagnosticsService } from './application/DiagnosticsService';
 import { FileService } from './application/FileService';
 import { HealthService } from './application/HealthService';
@@ -30,6 +31,7 @@ import { PlanLimitService } from './application/PlanLimitService';
 import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
 import { StatusService } from './application/StatusService';
+import { TenantBackupService } from './application/TenantBackupService';
 import { TenantPrivacyService } from './application/TenantPrivacyService';
 import { TenantPurgeService } from './application/TenantPurgeService';
 import { TenantService } from './application/TenantService';
@@ -231,6 +233,33 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  // Fase 4: provider-agnostic payment gateway contract. No SDK/adapter is
+  // loaded: the webhook is authenticated by HMAC and checkout is a local
+  // template, so the API never calls a payment provider.
+  const billing = new BillingService({
+    logger: infra.logger,
+    clock: infra.clock,
+    billing: config.billing,
+    repos: {
+      tenants: infra.tenants,
+      platformTenants: infra.platformTenants,
+      billingEvents: infra.billingEvents,
+    },
+  });
+
+  // Fase 4: backup/restore por workspace. The artifact lives in the raw bucket;
+  // `tenant_backups` only indexes it. Restore always creates a NEW tenant.
+  const tenantBackup = new TenantBackupService({
+    logger: infra.logger,
+    clock: infra.clock,
+    storage: infra.storage,
+    repos: {
+      tenants: infra.tenants,
+      backups: infra.tenantBackups,
+      restore: infra.tenantRestore,
+    },
+  });
+
   // Fase 4/LGPD: physical purge of workspaces soft-deleted 30+ days ago. The
   // same service backs the daily `queue.tenant.purge` job and the manual
   // platform-admin endpoint, so the retention policy exists in one place.
@@ -414,8 +443,10 @@ export function createContainer(args: ContainerArgs): IAppServices {
     tenants,
     tenantPrivacy,
     tenantPurge,
+    tenantBackup,
     planLimits,
     platform,
+    billing,
     tickets,
     ticketCommands,
     outbound,

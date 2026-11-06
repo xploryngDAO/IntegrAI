@@ -9,6 +9,7 @@ import type {
   TenantBillingPatch,
   TenantPolicyPatch,
   TenantRecord,
+  TenantSubscriptionPatch,
   UpdateTenantInput,
 } from '@sac/shared';
 import { mapTenant } from './mappers';
@@ -167,6 +168,29 @@ export class PrismaTenantRepository implements ITenantRepository, IPlatformTenan
     if (patch.billingStatus !== undefined) data.billingStatus = patch.billingStatus;
     if (patch.trialEndsAt !== undefined) data.trialEndsAt = patch.trialEndsAt;
     if (patch.billingEmail !== undefined) data.billingEmail = patch.billingEmail;
+
+    const record = await this.prisma.tenant.update({ where: { id }, data });
+    return mapTenant(record);
+  }
+
+  /**
+   * Subscription update driven by the provider-agnostic billing webhook.
+   *
+   * Unlike `applyBilling` it may also change the plan label and the effective
+   * quotas, so the gateway transition and the commercial plan land in ONE row
+   * update (no half-applied upgrade). The console keeps using `applyPolicies`
+   * and `applyBilling`.
+   */
+  async applySubscription(
+    id: string,
+    patch: TenantSubscriptionPatch,
+  ): Promise<TenantRecord> {
+    const data: Prisma.TenantUpdateInput = {};
+    if (patch.billingStatus !== undefined) data.billingStatus = patch.billingStatus;
+    if (patch.plan !== undefined) data.plan = patch.plan;
+    if (patch.maxAccounts !== undefined) data.maxAccounts = patch.maxAccounts;
+    if (patch.maxAgents !== undefined) data.maxAgents = patch.maxAgents;
+    if (patch.trialEndsAt !== undefined) data.trialEndsAt = patch.trialEndsAt;
 
     const record = await this.prisma.tenant.update({ where: { id }, data });
     return mapTenant(record);

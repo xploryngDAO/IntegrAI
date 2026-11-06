@@ -12,6 +12,9 @@ import type {
   AgentLoad,
   ApiEnvelope,
   AvailableActionView,
+  BillingCheckoutResult,
+  BillingEventListResult,
+  BillingWebhookResult,
   ChannelHealthView,
   ConnectorDescriptor,
   DeleteTenantCommand,
@@ -20,6 +23,10 @@ import type {
   PageRequest,
   Paginated,
   PlanUsageView,
+  RestoreTenantCommand,
+  RestoreTenantResult,
+  TenantBackupResult,
+  TenantBackupView,
   PlatformAlertsResult,
   PlatformBillingSummary,
   PlatformMetrics,
@@ -287,6 +294,36 @@ export interface IPlatformService {
 }
 
 /* ==========================================================================
+ * Billing gateway (Fase 4) - provider-agnostic, no external call
+ * ========================================================================== */
+
+/**
+ * Raw gateway delivery. `rawBody` MUST be the exact request bytes: the HMAC is
+ * computed over them, never over a re-serialized payload. `body` is the parsed
+ * JSON (normalized contract) and is only inspected after the signature passes.
+ */
+export interface BillingWebhookCommand {
+  rawBody: Buffer;
+  signature?: string | null;
+  body?: unknown;
+}
+
+/**
+ * Payment gateway contract.
+ *
+ * - `handleWebhook`: 503 when `BILLING_WEBHOOK_SECRET` is absent, 401 on a bad
+ *   signature, 200 (duplicate included) on an accepted event.
+ * - `checkout`: hosted checkout URL rendered from the env template; 503 when the
+ *   template is absent. Nothing is sent to the provider.
+ * - `listEvents`: audit trail of the last billing callbacks.
+ */
+export interface IBillingService {
+  handleWebhook(command: BillingWebhookCommand): Promise<BillingWebhookResult>;
+  checkout(tenantId: string): Promise<BillingCheckoutResult>;
+  listEvents(limit?: number): Promise<BillingEventListResult>;
+}
+
+/* ==========================================================================
  * LGPD physical purge (Fase 4): soft delete + 30-day grace -> hard delete
  * ========================================================================== */
 
@@ -308,6 +345,32 @@ export interface ITenantPurgeService {
   run(options?: TenantPurgeRunOptions): Promise<TenantPurgeRunResult>;
   /** Manual purge of a single ALREADY soft-deleted workspace. */
   purgeTenant(tenantId: string, actorId?: string | null): Promise<TenantPurgeResult>;
+}
+
+/* ==========================================================================
+ * Backup / restore por workspace (Fase 4)
+ * ========================================================================== */
+
+/**
+ * Platform-admin backup and restore.
+ *
+ *  - `createBackup` writes a complete JSON artifact to
+ *    `backups/<tenantSlug>/<timestamp>.json` and indexes it in `tenant_backups`.
+ *  - `listBackups` reads the index (the storage port has no ListObjects).
+ *  - `restore` creates a NEW workspace from an artifact: never overwrites an
+ *    existing tenant, never restores credentials (stores must be reconnected),
+ *    and regenerates every agent password (`mustResetPassword`).
+ */
+export interface ITenantBackupService {
+  /** 404 unknown workspace; the artifact carries no credentials. */
+  createBackup(tenantId: string, actorId: string): Promise<TenantBackupResult>;
+  /** Newest first; 404 unknown workspace. */
+  listBackups(tenantId: string): Promise<TenantBackupView[]>;
+  /**
+   * 404 when the S3 object does not exist, 422 when it is not a valid backup,
+   * 409 when `newSlug` is already taken.
+   */
+  restore(command: RestoreTenantCommand, actorId: string): Promise<RestoreTenantResult>;
 }
 
 /* ==========================================================================
@@ -633,8 +696,10 @@ export interface IAppServices {
   readonly tenants: ITenantService;
   readonly tenantPrivacy: ITenantPrivacyService;
   readonly tenantPurge: ITenantPurgeService;
+  readonly tenantBackup: ITenantBackupService;
   readonly planLimits: IPlanLimitService;
   readonly platform: IPlatformService;
+  readonly billing: IBillingService;
   readonly tickets: ITicketQueryService;
   readonly ticketCommands: IUnifiedTicketService;
   readonly outbound: IOutboundRouterService;

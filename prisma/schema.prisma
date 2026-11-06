@@ -31,6 +31,10 @@ enum Marketplace {
   AMAZON
   MERCADO_LIVRE
   SHOPEE
+  /// Fase 4 - billing gateway audit rows in `webhook_events` (no marketplace
+  /// account). Kept out of `@sac/shared` MARKETPLACES on purpose: channel
+  /// surfaces iterate the three real marketplaces.
+  BILLING
 }
 
 enum AccountStatus {
@@ -229,6 +233,8 @@ model Tenant {
   createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  backups TenantBackup[]
+
   @@index([status])
   @@index([deletedAt])
   @@index([billingStatus])
@@ -258,6 +264,9 @@ model Agent {
   /// Fase 4: internal platform console operator (cross-tenant access). Granted
   /// only by the bootstrap/seed (`ADMIN_EMAIL` / `PLATFORM_ADMIN_EMAILS`).
   isPlatformAdmin    Boolean             @default(false) @map("is_platform_admin")
+  /// Fase 4 (restore): operator was recreated by a tenant restore with a random
+  /// temporary password. Cleared by the next password reset.
+  mustResetPassword  Boolean             @default(false) @map("must_reset_password")
   createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -623,4 +632,34 @@ model SlaPolicy {
 
   @@unique([accountId, marketplace, ticketType])
   @@map("sla_policies")
+}
+
+// ----------------------------------------------------------------------------
+// TENANT BACKUPS (Fase 4 - backup/restore per workspace)
+// ----------------------------------------------------------------------------
+
+/// Index of the JSON backup artifacts stored in object storage.
+///
+/// `IObjectStorage` has no ListObjects, so this table is the source of truth for
+/// `GET /platform/tenants/:id/backups`: each row points to a
+/// `backups/<tenantSlug>/<timestamp>.json` object and keeps the small metadata
+/// the console renders (size, per-table counts, author). The artifact itself is
+/// never duplicated in Postgres.
+model TenantBackup {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// Key inside the raw bucket (`backups/<slug>/<timestamp>.json`).
+  s3Key     String   @map("s3_key") @db.VarChar(512)
+  sizeBytes Int      @map("size_bytes")
+  /// Per-table row counts captured at backup time (JSON object).
+  counts    Json     @default("{}")
+  /// Platform admin that requested the backup (null for system/restored rows).
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, s3Key])
+  @@index([tenantId, createdAt])
+  @@map("tenant_backups")
 }

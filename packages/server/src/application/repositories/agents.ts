@@ -67,7 +67,12 @@ export class PrismaAgentRepository implements IAgentRepository {
   }
 
   async updatePassword(id: string, passwordHash: string): Promise<void> {
-    await this.prisma.agent.update({ where: { id }, data: { passwordHash } });
+    // A password reset also clears the restore marker: the operator chose a new
+    // password, so the random temporary one no longer applies.
+    await this.prisma.agent.update({
+      where: { id },
+      data: { passwordHash, mustResetPassword: false },
+    });
   }
 
   async markEmailVerified(id: string, at: Date): Promise<void> {
