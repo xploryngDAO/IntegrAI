@@ -121,3 +121,13 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
   (b) gerenciados (Postgres/Redis + host Node) com `DATABASE_URL`/`REDIS_URL`;
   (c) túnel atual como transitório.
 - Nenhuma compra/DNS foi alterada. Detalhes no comentário da issue #2.
+
+### Opções de VPS (catálogo 2026-11-06)
+
+| Plano | Recursos | Anual (1º período) | Observação |
+|---|---|---|---|
+| KVM 1 | 1 vCPU · 4 GB · 50 GB | R$ 395,88 (~R$ 32,99/mês) | suficiente para a stack atual |
+| KVM 2 | 2 vCPU · 8 GB · 100 GB | R$ 599,88 (~R$ 49,99/mês) | **recomendado** para produção inicial |
+| KVM 4 | 4 vCPU · 16 GB · 200 GB | R$ 839,88 | folga para growth |
+
+Sem compra feita; decisão registrada na issue #2.
