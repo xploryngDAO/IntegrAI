@@ -1,0 +1,89 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  security-probe:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sac
+          POSTGRES_PASSWORD: sac
+          POSTGRES_DB: sac_hub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sac -d sac_hub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://sac:sac@localhost:5432/sac_hub?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-security-probe-jwt-secret-32chars
+      ENCRYPTION_MASTER_KEY: zJ8kQ2mWv7bT1yN5cR9pLx4hF6dA0gU3sE2iO8qK5wY=
+      ENCRYPTION_KEY_ID: ci-probe-v1
+      S3_ENDPOINT: http://127.0.0.1:4568
+      S3_REGION: us-east-1
+      S3_BUCKET: sac-hub-raw
+      S3_ATTACHMENTS_BUCKET: sac-hub-attachments
+      S3_ACCESS_KEY_ID: ci-probe
+      S3_SECRET_ACCESS_KEY: ci-probe-secret
+      S3_FORCE_PATH_STYLE: 'true'
+      APP_BASE_URL: http://localhost:4000
+      WEB_ORIGIN: http://localhost:5173
+      PORT: '4000'
+      LOG_LEVEL: warn
+      ADMIN_EMAIL: admin@integr-ai.local
+      ADMIN_PASSWORD: IntegrAI-CI-2026!
+      ADMIN_NAME: CI Admin
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run build:shared
+      - run: npm run build:server
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+
+      - name: Start API
+        run: |
+          nohup node packages/server/dist/index.js > api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/api/v1/health > /dev/null; then
+              echo "API ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready"; cat api.log; exit 1
+
+      - name: Isolation probe
+        run: node scripts/isolation-test.mjs http://127.0.0.1:4000 admin@integr-ai.local 'IntegrAI-CI-2026!'
+
+      - name: Security probe
+        run: node scripts/security-probe.mjs http://127.0.0.1:4000 admin@integr-ai.local 'IntegrAI-CI-2026!'
+
+      - name: API log on failure
+        if: failure()
+        run: tail -n 200 api.log
