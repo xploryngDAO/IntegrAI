@@ -21,12 +21,15 @@ import type {
   Paginated,
   PlanUsageView,
   PlatformMetrics,
+  PlatformTenantListQuery,
   PlatformTenantListResult,
   PlatformTenantUpdateCommand,
   PlatformTenantView,
   QueueSnapshot,
   TenantExportPayload,
   TenantProfile,
+  TenantPurgeResult,
+  TenantPurgeRunResult,
   TicketDetail,
   TicketListItem,
   TicketStats,
@@ -260,9 +263,34 @@ export interface IPlatformService {
    * revoking the flag takes effect immediately.
    */
   requirePlatformAdmin(actorId: string): Promise<void>;
-  listTenants(page: PageRequest): Promise<PlatformTenantListResult>;
+  /** Page + optional name/slug search; `total` reflects the filtered set. */
+  listTenants(query: PlatformTenantListQuery): Promise<PlatformTenantListResult>;
   updateTenant(tenantId: string, command: PlatformTenantUpdateCommand): Promise<PlatformTenantView>;
   metrics(): Promise<PlatformMetrics>;
+}
+
+/* ==========================================================================
+ * LGPD physical purge (Fase 4): soft delete + 30-day grace -> hard delete
+ * ========================================================================== */
+
+export interface TenantPurgeRunOptions {
+  /** Overrides the batch size (defaults to `TENANT_PURGE_BATCH_SIZE`). */
+  limit?: number;
+}
+
+/**
+ * Physical deletion of workspaces soft-deleted more than
+ * `TENANT_PURGE_RETENTION_DAYS` ago.
+ *
+ * Runs from the daily `queue.tenant.purge` scheduler; `purgeTenant` is the
+ * manual platform-admin entry point (`POST /platform/tenants/:id/purge`) that
+ * skips the grace period but never purges a workspace that is not deleted.
+ */
+export interface ITenantPurgeService {
+  /** One bounded sweep: finds eligible workspaces and purges each one. */
+  run(options?: TenantPurgeRunOptions): Promise<TenantPurgeRunResult>;
+  /** Manual purge of a single ALREADY soft-deleted workspace. */
+  purgeTenant(tenantId: string, actorId?: string | null): Promise<TenantPurgeResult>;
 }
 
 /* ==========================================================================
@@ -575,6 +603,7 @@ export interface IAppServices {
   readonly accounts: IAccountService;
   readonly tenants: ITenantService;
   readonly tenantPrivacy: ITenantPrivacyService;
+  readonly tenantPurge: ITenantPurgeService;
   readonly planLimits: IPlanLimitService;
   readonly platform: IPlatformService;
   readonly tickets: ITicketQueryService;

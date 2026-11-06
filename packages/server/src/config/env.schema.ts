@@ -194,6 +194,12 @@ export const envSchema = z.object({
   SLA_SCAN_CRON: stringFromEnv('*/1 * * * *'),
   PII_PURGE_CRON: stringFromEnv('0 */6 * * *'),
   PII_RETENTION_DAYS: intFromEnv(30, 1, 3_650),
+  /**
+   * Daily LGPD physical purge of workspaces soft-deleted more than
+   * `TENANT_PURGE_RETENTION_DAYS` ago (default 03:00, low-traffic window).
+   */
+  TENANT_PURGE_CRON: stringFromEnv('0 3 * * *'),
+  TENANT_PURGE_RETENTION_DAYS: intFromEnv(30, 1, 3_650),
 
   /* --------------------------- feature flags ------------------------------ */
 });

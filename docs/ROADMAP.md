@@ -91,13 +91,14 @@ Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md).
 - Console interno: tenants, planos, limites, uso, suspensão. ✅ (sem UI ainda)
 - Billing (assinatura) e quotas por plano. ✅ quotas; ⏳ billing
 - Métricas por tenant (SLA, volume, erros), alertas e status page. ✅ métricas globais; ⏳ alertas/status page
-- Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete; ⏳ purge físico e restore
+- Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete + purga física (job diário); ⏳ restore
 
 > **Fase 4 (parcial) concluída:** `plan`/quotas por tenant, gate de
-> `max_agents`/`max_accounts`, console `/platform/*` (JWT + `is_platform_admin`),
-> métricas globais, exportação LGPD e soft delete com `403 TENANT_INACTIVE`.
-> Pendências: purga física (job futuro), billing, UI do console, cache do check
-> de tenant por request.
+> `max_agents`/`max_accounts`, console `/platform/*` (JWT + `is_platform_admin`)
+> com busca server-side e purge manual, métricas globais, exportação LGPD, soft
+> delete com `403 TENANT_INACTIVE` e purga física diária (`queue.tenant.purge`,
+> 03:00, após 30 dias). Pendências: billing, UI do console, limpeza dos
+> artefatos S3 da purga, restore e cache do check de tenant por request.
 
 ## CI
 
@@ -122,7 +123,8 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 0 — testes de isolamento automatizados (`npm run test:isolation` 5/5: conta, tickets, detalhe 404, cleanup)
 - [x] Fase 1 — schema (invitations, password_resets, email_verifications, sessions, email_verified_at)
 - [x] Fase 1 — signup + verificação de e-mail (endpoints, gate de login, EmailService, testes 19+9)`n- [x] Fase 1 — reset de senha + sessões/refresh rotativo/logout`n- [x] Fase 1 — UI de signup/verificação/reset/forgot (SPA)`n- [x] Fase 1 — convites de operadores (criar/listar/revogar/aceite + RBAC)`n- [x] Fase 1 — 2FA TOTP (setup/verify/disable/status, gate de login, challenge com TOTP/recovery code, testes RFC 6238)
+- [x] Fase 1 — rate limit real de auth sensível (login 10/15min por e-mail+IP; 2FA 5/15min por jti+IP; reset/reenvio 3/15min) com fallback em memória
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados
-- [x] Fase 4 — planos/quotas, console `/platform`, métricas e LGPD (export + soft delete)
-- [ ] Fase 4 — billing, purga física, UI do console, alertas/status page
+- [x] Fase 4 — planos/quotas, console `/platform` (busca + purge manual), métricas e LGPD (export + soft delete + purga física)
+- [ ] Fase 4 — billing, UI do console, alertas/status page, limpeza S3 da purga, restore

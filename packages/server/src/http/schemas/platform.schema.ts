@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { ENTERPRISE_UNLIMITED, TENANT_PLANS } from '@sac/shared';
+import { ENTERPRISE_UNLIMITED, TENANT_PLANS, TENANT_SEARCH_MAX_LENGTH } from '@sac/shared';
 import { uuidSchema } from './enums.schema';
+import { blankAsUndefined } from './common';
 
 /**
  * Schemas for the Fase 4 platform console (`/platform/*`).
@@ -8,10 +9,18 @@ import { uuidSchema } from './enums.schema';
  * Every route is JWT + `is_platform_admin`; the schemas only shape the payload.
  */
 
-/** `GET /platform/tenants?page=&pageSize=`. */
+/**
+ * `GET /platform/tenants?page=&pageSize=&search=`.
+ *
+ * `search` is matched server-side against `name` OR `slug` (case-insensitive
+ * `contains`); a blank `?search=` is treated as "no filter" instead of a 422.
+ */
 export const platformTenantListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  search: blankAsUndefined(
+    z.string().trim().min(1).max(TENANT_SEARCH_MAX_LENGTH).optional(),
+  ),
 });
 
 export const platformTenantParamsSchema = z.object({

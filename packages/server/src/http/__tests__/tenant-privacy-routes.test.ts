@@ -61,7 +61,7 @@ const DELETED: DeleteTenantResult = {
   slug: 'acme',
   status: 'DELETED',
   deletedAt: '2026-11-05T12:00:00.000Z',
-  purge: { scheduled: false, note: 'job futuro' },
+  purge: { scheduled: true, note: 'queue.tenant.purge em 30 dias' },
 };
 
 describe('tenant LGPD routes', () => {

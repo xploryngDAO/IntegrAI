@@ -6,8 +6,8 @@ import type {
   IPlatformService,
   IPlatformTenantRepository,
   ITenantRepository,
-  PageRequest,
   PlatformMetrics,
+  PlatformTenantListQuery,
   PlatformTenantListResult,
   PlatformTenantUpdateCommand,
   PlatformTenantView,
@@ -15,7 +15,14 @@ import type {
   TenantRecord,
   TenantUsageCounts,
 } from '@sac/shared';
-import { AuthorizationError, ConflictError, NotFoundError, PLAN_LIMITS, ValidationError } from '@sac/shared';
+import {
+  AuthorizationError,
+  ConflictError,
+  NotFoundError,
+  PLAN_LIMITS,
+  ValidationError,
+  normalizeTenantSearch,
+} from '@sac/shared';
 
 /**
  * ============================================================================
@@ -26,13 +33,14 @@ import { AuthorizationError, ConflictError, NotFoundError, PLAN_LIMITS, Validati
  *
  *  - `requirePlatformAdmin` re-reads the operator from the database on every
  *    call (never trusts the JWT claim), so revoking the flag is immediate.
- *  - `listTenants` merges tenant rows with per-tenant usage counts.
+ *  - `listTenants` merges tenant rows with per-tenant usage counts and accepts
+ *    an optional server-side search (name OR slug, case-insensitive).
  *  - `updateTenant` changes plan/quota/status; changing the plan alone resets
  *    the quotas to that plan's defaults (explicit max* wins).
  *  - `metrics` is the global operational snapshot of `/platform/metrics`.
  *
  * A DELETED (LGPD) workspace cannot be reactivated through the console: only
- * the (future) purge/restore job owns that transition.
+ * the purge job (or the manual purge endpoint) owns that transition.
  */
 
 const SLA_RISK_HORIZON_MINUTES = 120;
@@ -83,8 +91,15 @@ export class PlatformService implements IPlatformService {
   /* Tenants                                                              */
   /* ==================================================================== */
 
-  async listTenants(page: PageRequest): Promise<PlatformTenantListResult> {
-    const result = await this.platformTenants.list(page);
+  async listTenants(query: PlatformTenantListQuery): Promise<PlatformTenantListResult> {
+    // The schema already trims/caps the term; normalizing here keeps direct
+    // service callers (console jobs, tests) consistent: blank == no filter.
+    const search = normalizeTenantSearch(query.search);
+    const result = await this.platformTenants.list({
+      page: query.page,
+      pageSize: query.pageSize,
+      ...(search !== undefined ? { search } : {}),
+    });
     const usage = await this.platform.usageFor(result.items.map((tenant) => tenant.id));
 
     return {

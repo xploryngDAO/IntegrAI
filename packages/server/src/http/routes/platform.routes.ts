@@ -17,5 +17,8 @@ export const platformRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, 
 
   app.get('/tenants', { preHandler: platformOnly }, controllers.listTenants);
   app.patch('/tenants/:id', { preHandler: platformOnly }, controllers.updateTenant);
+  // Manual LGPD purge: only for an ALREADY soft-deleted workspace (`deleted_at`
+  // set). The automatic path is the daily `queue.tenant.purge` scheduler.
+  app.post('/tenants/:id/purge', { preHandler: platformOnly }, controllers.purgeTenant);
   app.get('/metrics', { preHandler: platformOnly }, controllers.metrics);
 };

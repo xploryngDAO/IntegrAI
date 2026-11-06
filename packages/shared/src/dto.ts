@@ -280,6 +280,17 @@ export interface PlatformTenantListResult {
   totalPages: number;
 }
 
+/**
+ * Query of `GET /platform/tenants`: pagination + optional server-side search.
+ *
+ * `search` is the trimmed term (1..120 chars) matched with a case-insensitive
+ * `contains` against `name` OR `slug`. `total`/`totalPages` always reflect the
+ * filtered set, never the whole table.
+ */
+export interface PlatformTenantListQuery extends PageRequest {
+  search?: string;
+}
+
 /** Body of `PATCH /platform/tenants/:id`. */
 export interface PlatformTenantUpdateCommand {
   plan?: TenantPlan;
@@ -305,6 +316,53 @@ export interface PlatformMetrics {
   slaRiskHorizonMinutes: number;
 }
 
+/** Rows physically removed for one workspace, per table (LGPD purge audit). */
+export interface TenantPurgeCounts {
+  sessions: number;
+  invitations: number;
+  passwordResets: number;
+  emailVerifications: number;
+  twoFactorRecoveryCodes: number;
+  buyerPiiVault: number;
+  messageAttachments: number;
+  messages: number;
+  ticketEvents: number;
+  outboundAttempts: number;
+  tickets: number;
+  orders: number;
+  webhookEvents: number;
+  slaPolicies: number;
+  accounts: number;
+  agents: number;
+  tenant: number;
+}
+
+/**
+ * Outcome of one physical purge.
+ *
+ * `deletedAt` is the soft-delete marker that triggered the purge (null only
+ * when the tenant row had none) and `counts` is the per-table audit trail the
+ * job logs.
+ */
+export interface TenantPurgeResult {
+  tenantId: string;
+  slug: string;
+  deletedAt: string | null;
+  purgedAt: string;
+  counts: TenantPurgeCounts;
+  /** True when a platform administrator ran it manually instead of the cron. */
+  manual: boolean;
+}
+
+/** Outcome of one scheduled sweep (bounded by `TENANT_PURGE_BATCH_SIZE`). */
+export interface TenantPurgeRunResult {
+  startedAt: string;
+  finishedAt: string;
+  scanned: number;
+  purged: TenantPurgeResult[];
+  failures: Array<{ tenantId: string; error: string }>;
+}
+
 /** Output of `IPlanLimitService.usage` (upgrade prompt / console detail). */
 export interface PlanUsageView {
   plan: TenantPlan;
@@ -325,9 +383,13 @@ export interface DeleteTenantResult {
   slug: string;
   status: 'DELETED';
   deletedAt: string;
-  /** Physical purge is NOT scheduled yet: it is a future platform job. */
+  /**
+   * Physical purge handled by the daily `queue.tenant.purge` job after the
+   * retention grace period (`TENANT_PURGE_RETENTION_DAYS`, 30 days) or by a
+   * platform admin (`POST /platform/tenants/:id/purge`).
+   */
   purge: {
-    scheduled: false;
+    scheduled: boolean;
     note: string;
   };
 }

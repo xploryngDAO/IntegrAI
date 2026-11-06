@@ -326,12 +326,12 @@ describe('TenantPrivacyService.deleteTenant', () => {
       slug: 'acme',
       status: 'DELETED',
       deletedAt: NOW.toISOString(),
-      purge: { scheduled: false, note: expect.any(String) },
+      purge: { scheduled: true, note: expect.any(String) },
     });
     expect(h.tenant.status).toBe('DELETED');
     expect(h.tenant.deletedAt).toEqual(NOW);
     expect(h.tenantData.revoked).toEqual([{ tenantId: TENANT_ID, at: NOW }]);
-    expect(result.purge.note).toMatch(/job futuro|purge/i);
+    expect(result.purge.note).toMatch(/queue\.tenant\.purge|30 dias/i);
   });
 
   it('rejects a wrong password with 403 and changes nothing', async () => {

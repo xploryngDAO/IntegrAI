@@ -4,11 +4,13 @@ import type { FastifyInstance } from 'fastify';
 import type {
   ILogger,
   IPlatformService,
+  ITenantPurgeService,
   PlatformMetrics,
   PlatformTenantListResult,
   PlatformTenantView,
+  TenantPurgeResult,
 } from '@sac/shared';
-import { AuthorizationError } from '@sac/shared';
+import { AuthorizationError, ConflictError, NotFoundError } from '@sac/shared';
 
 import type { HttpRouteContext } from '../types';
 import { platformRoutes } from '../routes/platform.routes';
@@ -26,8 +28,10 @@ const noopLogger: ILogger = {
   error(): void {},
 };
 
+const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+
 const TENANT_VIEW: PlatformTenantView = {
-  id: '11111111-1111-4111-8111-111111111111',
+  id: TENANT_ID,
   slug: 'acme',
   name: 'Acme',
   plan: 'PRO',
@@ -47,6 +51,33 @@ const LIST: PlatformTenantListResult = {
   totalPages: 1,
 };
 
+const PURGE_RESULT: TenantPurgeResult = {
+  tenantId: TENANT_ID,
+  slug: 'acme',
+  deletedAt: '2026-10-01T10:00:00.000Z',
+  purgedAt: '2026-11-05T12:00:00.000Z',
+  counts: {
+    sessions: 2,
+    invitations: 1,
+    passwordResets: 0,
+    emailVerifications: 1,
+    twoFactorRecoveryCodes: 8,
+    buyerPiiVault: 3,
+    messageAttachments: 2,
+    messages: 10,
+    ticketEvents: 4,
+    outboundAttempts: 5,
+    tickets: 3,
+    orders: 2,
+    webhookEvents: 6,
+    slaPolicies: 1,
+    accounts: 1,
+    agents: 2,
+    tenant: 1,
+  },
+  manual: true,
+};
+
 const METRICS: PlatformMetrics = {
   generatedAt: '2026-11-05T12:00:00.000Z',
   totalTenants: 3,
@@ -64,6 +95,7 @@ describe('platform console routes', () => {
   let requirePlatformAdmin: ReturnType<typeof vi.fn>;
   let listTenants: ReturnType<typeof vi.fn>;
   let updateTenant: ReturnType<typeof vi.fn>;
+  let purgeTenant: ReturnType<typeof vi.fn>;
   let metrics: ReturnType<typeof vi.fn>;
 
   beforeAll(async () => {
@@ -73,11 +105,13 @@ describe('platform console routes', () => {
     });
     listTenants = vi.fn(async () => LIST);
     updateTenant = vi.fn(async () => TENANT_VIEW);
+    purgeTenant = vi.fn(async () => PURGE_RESULT);
     metrics = vi.fn(async () => METRICS);
 
     const ctx = {
       services: {
         platform: { requirePlatformAdmin, listTenants, updateTenant, metrics } as unknown as IPlatformService,
+        tenantPurge: { purgeTenant } as unknown as ITenantPurgeService,
         logger: noopLogger,
       },
       hub: {},
@@ -112,6 +146,7 @@ describe('platform console routes', () => {
     requirePlatformAdmin.mockClear();
     listTenants.mockClear();
     updateTenant.mockClear();
+    purgeTenant.mockClear();
     metrics.mockClear();
   });
 
@@ -119,6 +154,7 @@ describe('platform console routes', () => {
     for (const [method, path] of [
       ['GET', '/api/v1/platform/tenants'],
       ['PATCH', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111'],
+      ['POST', '/api/v1/platform/tenants/11111111-1111-4111-8111-111111111111/purge'],
       ['GET', '/api/v1/platform/metrics'],
     ] as const) {
       expect(isPublicRoute(method, path)).toBe(false);
@@ -142,6 +178,10 @@ describe('platform console routes', () => {
         url: '/platform/tenants/11111111-1111-4111-8111-111111111111',
         payload: { plan: 'PRO' },
       },
+      {
+        method: 'POST' as const,
+        url: '/platform/tenants/11111111-1111-4111-8111-111111111111/purge',
+      },
     ]) {
       const response = await app.inject({
         ...request,
@@ -153,6 +193,7 @@ describe('platform console routes', () => {
     }
     expect(listTenants).not.toHaveBeenCalled();
     expect(updateTenant).not.toHaveBeenCalled();
+    expect(purgeTenant).not.toHaveBeenCalled();
     expect(metrics).not.toHaveBeenCalled();
   });
 
@@ -178,6 +219,40 @@ describe('platform console routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(listTenants).toHaveBeenCalledWith({ page: 1, pageSize: 25 });
+  });
+
+  it('GET /platform/tenants forwards the trimmed search term', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/platform/tenants?page=1&pageSize=10&search=%20Acme%20',
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listTenants).toHaveBeenCalledWith({ page: 1, pageSize: 10, search: 'Acme' });
+  });
+
+  it('GET /platform/tenants treats a blank search as absent', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/platform/tenants?search=',
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listTenants).toHaveBeenCalledWith({ page: 1, pageSize: 25 });
+  });
+
+  it('GET /platform/tenants rejects a search longer than 120 chars with 422', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/platform/tenants?search=${'a'.repeat(121)}`,
+      headers: { 'x-test-agent': 'platform-admin' },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(listTenants).not.toHaveBeenCalled();
   });
 
   it('GET /platform/tenants rejects invalid pagination with 422', async () => {
@@ -248,5 +323,66 @@ describe('platform console routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ data: METRICS });
     expect(metrics).toHaveBeenCalledTimes(1);
+  });
+
+  describe('POST /platform/tenants/:id/purge (manual LGPD purge)', () => {
+    const purgedCounts = PURGE_RESULT.counts;
+
+    it('runs the purge for a platform admin and returns the per-table counts', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/platform/tenants/${TENANT_ID}/purge`,
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(purgeTenant).toHaveBeenCalledWith(TENANT_ID, 'platform-admin');
+      expect(response.json()).toEqual({ data: PURGE_RESULT });
+      expect(purgedCounts.tenant).toBe(1);
+    });
+
+    it('rejects a non-UUID tenant id with 422', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/platform/tenants/not-a-uuid/purge',
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+      expect(purgeTenant).not.toHaveBeenCalled();
+    });
+
+    it('maps the "workspace is not deleted" refusal to 409', async () => {
+      purgeTenant.mockRejectedValueOnce(
+        new ConflictError('Only soft-deleted workspaces can be purged', {
+          code: 'TENANT_NOT_DELETED',
+        }),
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/platform/tenants/${TENANT_ID}/purge`,
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        error: { code: 'CONFLICT', details: { code: 'TENANT_NOT_DELETED' } },
+      });
+    });
+
+    it('propagates an unknown workspace as 404', async () => {
+      purgeTenant.mockRejectedValueOnce(new NotFoundError('Tenant', TENANT_ID));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/platform/tenants/${TENANT_ID}/purge`,
+        headers: { 'x-test-agent': 'platform-admin' },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    });
   });
 });

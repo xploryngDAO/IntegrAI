@@ -11,6 +11,7 @@ import { requireAgent } from '../middleware/auth';
 export interface PlatformControllers {
   listTenants: RouteHandler;
   updateTenant: RouteHandler;
+  purgeTenant: RouteHandler;
   metrics: RouteHandler;
 }
 
@@ -25,10 +26,14 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
   const { services } = ctx;
 
   return {
-    /** `GET /platform/tenants?page&pageSize` - tenants + plan + limits + counts. */
+    /**
+     * `GET /platform/tenants?page&pageSize&search` - tenants + plan + limits +
+     * counts. `search` filters by name/slug server-side (case-insensitive) and
+     * the envelope keeps the filtered `total`/`totalPages`.
+     */
     async listTenants(request) {
       const query = parseInput(platformTenantListQuerySchema, request.query, 'query');
-      return ok(await services.platform.listTenants({ page: query.page, pageSize: query.pageSize }));
+      return ok(await services.platform.listTenants(query));
     },
 
     /** `PATCH /platform/tenants/:id` - plan, quotas or status. */
@@ -45,6 +50,28 @@ export function createPlatformControllers(ctx: HttpRouteContext): PlatformContro
       });
 
       return ok(updated);
+    },
+
+    /**
+     * `POST /platform/tenants/:id/purge` - LGPD physical deletion, run manually.
+     *
+     * Only a soft-deleted workspace can be purged (409 otherwise); the daily
+     * `queue.tenant.purge` job is the automatic path.
+     */
+    async purgeTenant(request) {
+      const { id } = parseInput(platformTenantParamsSchema, request.params, 'params');
+      const actorId = requireAgent(request).id;
+      const result = await services.tenantPurge.purgeTenant(id, actorId);
+
+      services.logger.info('http.platform.tenant_purged', {
+        requestId: request.id,
+        actorId,
+        tenantId: id,
+        slug: result.slug,
+        counts: result.counts,
+      });
+
+      return ok(result);
     },
 
     /** `GET /platform/metrics` - global operational totals. */

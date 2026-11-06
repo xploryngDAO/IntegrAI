@@ -28,6 +28,7 @@ import {
   AuthorizationError,
   ConflictError,
   NotFoundError,
+  TENANT_PURGE_RETENTION_DAYS,
   ValidationError,
   isTenantActive,
 } from '@sac/shared';
@@ -46,7 +47,8 @@ import {
  *    password comparison) plus the exact workspace slug, then performs a SOFT
  *    delete (`status='DELETED'`, `deleted_at=now`) and revokes every live
  *    refresh session of the tenant. Accounts, tickets and messages are kept for
- *    audit; the physical purge is a future platform job.
+ *    audit until the daily LGPD purge job (`TenantPurgeService`) removes them
+ *    after the retention grace period, or a platform admin purges on demand.
  *
  * Errors are stable: 404 unknown tenant, 409 already deleted, 422 slug/field
  * validation, 403 wrong password or caller that is not an ADMIN of the tenant.
@@ -64,8 +66,7 @@ const EXPORT_NOTES: readonly string[] = [
   'A exportação é limitada por tenant: no máximo 1.000 tickets e 5.000 mensagens; o campo meta.truncated indica corte.',
 ];
 
-const DELETE_PURGE_NOTE =
-  'Exclusão física (purge) ainda não é executada por este endpoint: é um job futuro de plataforma, previsto em docs/PHASE4_PLATFORM.md; os dados permanecem preservados para auditoria.';
+const DELETE_PURGE_NOTE = `Exclusão física agendada: o job diário queue.tenant.purge (03:00) remove os dados após o prazo de retenção de ${TENANT_PURGE_RETENTION_DAYS} dias; até lá eles permanecem preservados para auditoria. Um administrador de plataforma pode antecipar via POST /platform/tenants/:id/purge.`;
 
 const SECRET_KEY_PATTERN = /(token|secret|password|senha|api[_-]?key|private[_-]?key)/i;
 
@@ -218,7 +219,7 @@ export class TenantPrivacyService implements ITenantPrivacyService {
       slug: updated.slug,
       status: 'DELETED',
       deletedAt: now.toISOString(),
-      purge: { scheduled: false, note: DELETE_PURGE_NOTE },
+      purge: { scheduled: true, note: DELETE_PURGE_NOTE },
     };
   }
 }

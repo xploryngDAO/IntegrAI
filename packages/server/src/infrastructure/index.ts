@@ -21,6 +21,7 @@ import type {
   ISlaPolicyRepository,
   ISecretCipher,
   ITenantDataRepository,
+  ITenantPurgeRepository,
   ITenantRepository,
   ITwoFactorRepository,
 } from '@sac/shared';
@@ -36,6 +37,7 @@ import {
   createSessionRepository,
   createSlaPolicyRepository,
   createTenantDataRepository,
+  createTenantPurgeRepository,
   createTenantRepository,
   createTwoFactorRepository,
 } from '../application/repositories';
@@ -74,6 +76,7 @@ export interface InfrastructureBundle {
   platformTenants: IPlatformTenantRepository;
   platform: IPlatformRepository;
   tenantData: ITenantDataRepository;
+  tenantPurge: ITenantPurgeRepository;
   emailVerifications: IEmailVerificationRepository;
   invitations: IInvitationRepository;
   passwordResets: IPasswordResetRepository;
@@ -146,6 +149,7 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const platformTenants = createPlatformTenantRepository(prisma);
   const platform = createPlatformRepository(prisma);
   const tenantData = createTenantDataRepository(prisma);
+  const tenantPurge = createTenantPurgeRepository(prisma);
   const emailVerifications = createEmailVerificationRepository(prisma);
   const invitations = createInvitationRepository(prisma);
   const passwordResets = createPasswordResetRepository(prisma);
@@ -183,6 +187,7 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     platformTenants,
     platform,
     tenantData,
+    tenantPurge,
     emailVerifications,
     invitations,
     passwordResets,

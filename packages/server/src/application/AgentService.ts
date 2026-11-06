@@ -30,6 +30,7 @@ import {
 } from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
+import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { signTwoFactorChallengeToken } from './auth/two-factor-token';
 import { toAgentSummary, compareAgentsByPresence } from './mappers';
 
@@ -41,6 +42,9 @@ import { toAgentSummary, compareAgentsByPresence } from './mappers';
  * Operator auth + presence.
  *
  *  - passwords are verified with bcrypt (constant-time, never logged);
+ *  - login is rate limited BEFORE any credential work (10 attempts / 15 min per
+ *    e-mail + client IP, Redis-backed with an in-process fallback) so brute
+ *    force answers a stable `429 RATE_LIMITED`;
  *  - JWT (`HS256`) carries only the agent identity, signed with JWT_SECRET and
  *    expiring according to JWT_EXPIRES_IN;
  *  - presence is written to Postgres (durable) AND Redis with a short TTL plus a
@@ -65,6 +69,11 @@ export interface AgentServiceDependencies {
    * would still be able to authenticate.
    */
   tenants?: ITenantRepository;
+  /**
+   * Login throttle. Optional only so legacy harnesses keep compiling: when
+   * omitted the service builds one from the injected `cache`/`clock`.
+   */
+  rateLimiter?: AuthRateLimiter;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -100,6 +109,7 @@ export class AgentService implements IAgentService {
   private readonly tickets: ITicketRepository;
   private readonly sessions: IAuthSessionService | undefined;
   private readonly tenants: ITenantRepository | undefined;
+  private readonly rateLimiter: AuthRateLimiter;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -113,6 +123,9 @@ export class AgentService implements IAgentService {
     this.tickets = deps.repos.tickets;
     this.sessions = deps.sessions;
     this.tenants = deps.tenants;
+    this.rateLimiter =
+      deps.rateLimiter ??
+      new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('AgentService requires a configured JWT_SECRET (min 16 chars)');
@@ -128,6 +141,15 @@ export class AgentService implements IAgentService {
     if (normalizedEmail === '' || !password) {
       throw new ValidationError('Email and password are required');
     }
+
+    // Brute-force gate. Runs BEFORE the account lookup and the bcrypt compare so
+    // a saturated window costs no CPU and cannot be used to probe accounts: the
+    // 429 depends only on the e-mail + IP pair, never on whether the account
+    // exists. The counter is incremented for successful logins too.
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.login,
+      CACHE_KEYS.authLoginAttempts(normalizedEmail, normalizeClientIp(device?.ip)),
+    );
 
     const agent = await this.agents.findByEmail(normalizedEmail);
     // Always run a bcrypt comparison so an unknown e-mail and a wrong password
@@ -417,3 +439,12 @@ export class AgentService implements IAgentService {
   }
 }
 
+/**
+ * Client IP used in the login throttle key. A request without a resolvable
+ * address (internal worker, unit harness) is grouped under `unknown` so it still
+ * has a window instead of silently bypassing the limiter.
+ */
+function normalizeClientIp(value?: string | null): string {
+  const ip = (value ?? '').trim();
+  return ip.length > 0 ? ip : 'unknown';
+}

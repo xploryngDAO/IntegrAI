@@ -30,6 +30,7 @@ import { PlanLimitService } from './application/PlanLimitService';
 import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
 import { TenantPrivacyService } from './application/TenantPrivacyService';
+import { TenantPurgeService } from './application/TenantPurgeService';
 import { TenantService } from './application/TenantService';
 import { TicketQueryService } from './application/TicketQueryService';
 import { TwoFactorService } from './application/TwoFactorService';
@@ -229,6 +230,19 @@ export function createContainer(args: ContainerArgs): IAppServices {
     },
   });
 
+  // Fase 4/LGPD: physical purge of workspaces soft-deleted 30+ days ago. The
+  // same service backs the daily `queue.tenant.purge` job and the manual
+  // platform-admin endpoint, so the retention policy exists in one place.
+  const tenantPurge = new TenantPurgeService({
+    logger: infra.logger,
+    clock: infra.clock,
+    retentionDays: config.tenantPurgeRetentionDays,
+    repos: {
+      tenants: infra.tenants,
+      purge: infra.tenantPurge,
+    },
+  });
+
   const sessions = new AuthSessionService({
     logger: infra.logger,
     clock: infra.clock,
@@ -379,6 +393,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     accounts,
     tenants,
     tenantPrivacy,
+    tenantPurge,
     planLimits,
     platform,
     tickets,
@@ -412,6 +427,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     slaScanCron: config.cron.slaScan,
     piiPurgeCron: config.cron.piiPurge,
     shopeeLostPushCron: config.cron.shopeeLostPush,
+    tenantPurgeCron: config.cron.tenantPurge,
     meliRefreshIntervalSeconds: config.meli.refreshIntervalSeconds,
     shopeeRefreshIntervalSeconds: config.shopee.refreshIntervalSeconds,
   };

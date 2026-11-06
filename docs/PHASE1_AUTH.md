@@ -66,6 +66,22 @@ Decisões:
 ## Segurança / LGPD
 
 - Rate limit por IP + e-mail em signup/login/reset; lockout progressivo.
+- **Rate limit implementado (Redis + fallback em memória)**, via
+  `application/auth/rate-limit.ts` (janela fixa: `INCR` + TTL atômico no Redis,
+  chave por e-mail/IP; se o Redis falhar, uma janela in-process equivalente
+  assume e o evento é logado como degradado):
+
+  | Endpoint | Limite | Chave | Resposta |
+  |---|---|---|---|
+  | `POST /auth/login` | 10 tentativas / 15 min | e-mail + IP | `429 RATE_LIMITED` |
+  | `POST /auth/2fa/challenge` | 5 tentativas / 15 min | `jti` do challenge **e** IP | `429 RATE_LIMITED` |
+  | `POST /auth/forgot-password` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
+  | `POST /auth/resend-verification` | 3 / 15 min | e-mail | `429 RATE_LIMITED` |
+
+  A tentativa é contada **antes** do lookup da conta e da verificação de
+  credencial: o `429` depende apenas do e-mail/IP, então não há enumeração (conta
+  existente e inexistente respondem igual). No 2FA, ao esgotar a janela o
+  challenge é queimado — nem o código correto o resgata depois.
 - Sem enumeração de contas (mensagens idênticas, tempos constantes).
 - Tokens de uso único, hash em repouso, TTL curto.
 - Auditoria de login, troca de senha, convite e 2FA.

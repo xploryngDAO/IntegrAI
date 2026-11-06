@@ -128,6 +128,58 @@ describe('PlatformService.listTenants', () => {
     expect(page.items).toHaveLength(2);
     expect(page.items.map((item) => item.slug)).toEqual(['tenant-2', 'tenant-1']);
   });
+
+  it('filters by name OR slug (case-insensitive) and keeps total/totalPages filtered', async () => {
+    const h = createHarness();
+    h.tenants.seed({
+      id: 'tenant-1',
+      slug: 'acme',
+      name: 'Acme',
+      createdAt: new Date('2026-11-01T10:00:00.000Z'),
+    });
+    h.tenants.seed({
+      id: 'tenant-2',
+      slug: 'beta',
+      name: 'Beta',
+      createdAt: new Date('2026-11-02T10:00:00.000Z'),
+    });
+    h.tenants.seed({
+      id: 'tenant-3',
+      slug: 'acme-store',
+      name: 'Loja ACME',
+      createdAt: new Date('2026-11-03T10:00:00.000Z'),
+    });
+
+    const page = await h.service.listTenants({ page: 1, pageSize: 1, search: '  AcMe  ' });
+
+    expect(page.total).toBe(2);
+    expect(page.totalPages).toBe(2);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].slug).toBe('acme-store');
+    // Only the visible page asks for usage counts.
+    expect(h.platform.usageRequests).toEqual([['tenant-3']]);
+  });
+
+  it('trims the search term and treats a blank term as "no filter"', async () => {
+    const h = createHarness();
+    h.tenants.seed({ id: 'tenant-1', slug: 'acme', name: 'Acme' });
+
+    const blank = await h.service.listTenants({ page: 1, pageSize: 25, search: '   ' });
+
+    expect(blank.total).toBe(1);
+    expect(blank.items[0].slug).toBe('acme');
+  });
+
+  it('returns an empty page (total 0, totalPages 0) when nothing matches', async () => {
+    const h = createHarness();
+    h.tenants.seed({ id: 'tenant-1', slug: 'acme', name: 'Acme' });
+
+    const page = await h.service.listTenants({ page: 1, pageSize: 25, search: 'nothing-here' });
+
+    expect(page.items).toEqual([]);
+    expect(page.total).toBe(0);
+    expect(page.totalPages).toBe(0);
+  });
 });
 
 describe('PlatformService.updateTenant', () => {

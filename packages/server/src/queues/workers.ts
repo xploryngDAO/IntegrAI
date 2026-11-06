@@ -54,17 +54,28 @@ import type { OutboundRouterService } from '../application/OutboundRouterService
  *  - queue.outbound.dispatch: re-send a queued outbox message
  *  - queue.sla.scan: SlaEngine.sweep
  *  - queue.pii.purge: purge expired buyer PII
+ *  - queue.tenant.purge: physically delete workspaces soft-deleted 30+ days ago
  *  - queue.token.refresh: adapter.runMaintenance (tokens)
  *  - queue.shopee.lost-push: adapter.runMaintenance (lost pushes)
  */
 
-export type WorkerKind = 'inbound' | 'enrichment' | 'outbound' | 'sla' | 'pii' | 'token' | 'lostPush';
+export type WorkerKind =
+  | 'inbound'
+  | 'enrichment'
+  | 'outbound'
+  | 'sla'
+  | 'pii'
+  | 'purge'
+  | 'token'
+  | 'lostPush';
 
 export interface QueueRuntimeConfig {
   redisUrl: string;
   slaScanCron: string;
   piiPurgeCron: string;
   shopeeLostPushCron: string;
+  /** Daily LGPD purge cron (`0 3 * * *` by default). */
+  tenantPurgeCron: string;
   meliRefreshIntervalSeconds: number;
   shopeeRefreshIntervalSeconds: number;
   concurrency?: Partial<Record<WorkerKind, number>>;
@@ -100,6 +111,7 @@ const DEFAULT_CONCURRENCY: Record<WorkerKind, number> = {
   outbound: 3,
   sla: 1,
   pii: 1,
+  purge: 1,
   token: 1,
   lostPush: 1,
 };
@@ -152,6 +164,9 @@ export function createWorkers(deps: WorkerDependencies): Worker[] {
   );
   workers.push(
     buildWorker(deps, QUEUE_NAMES.piiPurge, 'pii', async () => processPiiPurge(deps)),
+  );
+  workers.push(
+    buildWorker(deps, QUEUE_NAMES.tenantPurge, 'purge', async () => processTenantPurge(deps)),
   );
   workers.push(
     buildWorker(deps, QUEUE_NAMES.tokenRefresh, 'token', async (job) =>
@@ -400,6 +415,21 @@ async function processPiiPurge(deps: WorkerDependencies): Promise<Record<string,
     deps.logger.info('queue.pii.purged', { purged, at: now.toISOString() });
   }
   return { purged, at: now.toISOString() };
+}
+
+/**
+ * Fase 4/LGPD: physical purge of every workspace soft-deleted more than the
+ * grace period ago. The service logs the per-table counts; the job only reports
+ * the sweep summary (the DLQ catches a total failure, e.g. DB unavailable).
+ */
+async function processTenantPurge(deps: WorkerDependencies): Promise<Record<string, unknown>> {
+  const result = await deps.services.tenantPurge.run();
+  return {
+    scanned: result.scanned,
+    purged: result.purged.length,
+    failures: result.failures.length,
+    tenantIds: result.purged.slice(0, 20).map((entry) => entry.tenantId),
+  };
 }
 
 async function processTokenRefresh(
@@ -720,7 +750,7 @@ function summarizeResult(result: unknown): unknown {
   if (typeof result === 'object') {
     const record = result as Record<string, unknown>;
     const summary: Record<string, unknown> = {};
-    for (const key of ['marketplace', 'hydrated', 'created', 'duplicates', 'messageId', 'deliveryStatus', 'purged', 'refreshed', 'failed', 'skipped', 'reason']) {
+    for (const key of ['marketplace', 'hydrated', 'created', 'duplicates', 'messageId', 'deliveryStatus', 'purged', 'scanned', 'failures', 'refreshed', 'failed', 'skipped', 'reason']) {
       if (record[key] !== undefined) summary[key] = record[key];
     }
     return summary;

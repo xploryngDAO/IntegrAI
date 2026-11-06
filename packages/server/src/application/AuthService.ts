@@ -20,6 +20,7 @@ import type {
 import { AppError, ConflictError, ValidationError } from '@sac/shared';
 
 import { hashToken, randomToken } from './auth/access-token';
+import { AUTH_RATE_LIMITS, AuthRateLimiter } from './auth/rate-limit';
 import { isUniqueConstraintViolation } from './repositories/errors';
 
 /**
@@ -33,10 +34,13 @@ import { isUniqueConstraintViolation } from './repositories/errors';
  *    its first ADMIN operator with `email_verified_at = null`; the plain token
  *    only ever exists in memory / in the e-mail link, the DB receives SHA-256.
  *  - `verifyEmail`: consumes a single-use token after checking hash + TTL + use.
- *  - `resendVerification`: no account enumeration (always resolves), throttled
- *    to one message per minute per e-mail through `ICache`.
- *  - `forgotPassword`: always resolves (202 at the edge), invalidates previous
- *    reset tokens, stores SHA-256 with a 30 min TTL and mails the link.
+ *  - `resendVerification`: no account enumeration (the caller always gets 202),
+ *    throttled to one message per minute AND to 3 requests / 15 min per e-mail;
+ *    the 15 min window answers `429 RATE_LIMITED` and is charged before the
+ *    account lookup, so known and unknown addresses behave identically.
+ *  - `forgotPassword`: always resolves for a valid address (202 at the edge),
+ *    invalidates previous reset tokens, stores SHA-256 with a 30 min TTL and
+ *    mails the link; also limited to 3 requests / 15 min per e-mail (429).
  *  - `resetPassword`: validates hash + TTL + single use, re-hashes the password
  *    with bcrypt cost 12 and revokes every live session of the operator.
  *
@@ -96,6 +100,11 @@ export interface AuthServiceDependencies {
   cache: ICache;
   email: IEmailService;
   config: AuthServiceConfig;
+  /**
+   * Reset/resend throttle. Optional only so legacy harnesses keep compiling:
+   * when omitted the service builds one from the injected `cache`/`clock`.
+   */
+  rateLimiter?: AuthRateLimiter;
   repos: {
     agents: IAgentRepository;
     tenants: ITenantRepository;
@@ -116,6 +125,7 @@ export class AuthService implements IAuthService {
   private readonly emailVerifications: IEmailVerificationRepository;
   private readonly passwordResets: IPasswordResetRepository;
   private readonly sessions: ISessionRepository;
+  private readonly rateLimiter: AuthRateLimiter;
   /** Last-resort throttle window when Redis is unreachable (single instance). */
   private readonly localResendWindows = new Map<string, number>();
 
@@ -130,6 +140,9 @@ export class AuthService implements IAuthService {
     this.emailVerifications = deps.repos.emailVerifications;
     this.passwordResets = deps.repos.passwordResets;
     this.sessions = deps.repos.sessions;
+    this.rateLimiter =
+      deps.rateLimiter ??
+      new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
   }
 
   /* ==================================================================== */
@@ -227,6 +240,13 @@ export class AuthService implements IAuthService {
     const normalized = normalizeEmail(email);
     if (!isValidEmail(normalized)) return;
 
+    // 3 / 15 min per address. Charged BEFORE the account lookup, so an unknown
+    // address and a real one hit exactly the same window (no enumeration).
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.resendVerification,
+      CACHE_KEYS.verificationResendAttempts(normalized),
+    );
+
     // Fixed 1/minute window; a Redis outage must not turn this endpoint into a
     // 500 (fail-open, the e-mail provider is still rate limited by the clock).
     if (!(await this.consumeResendBudget(normalized))) return;
@@ -250,12 +270,18 @@ export class AuthService implements IAuthService {
   /**
    * Always resolves: the HTTP layer answers 202 for every address, so a caller
    * cannot tell an existing account from an unknown one (and the time spent is
-   * dominated by the token work only when the account exists - the endpoint is
-   * rate limited at the edge, see `docs/PHASE1_AUTH.md`).
+   * dominated by the token work only when the account exists). The only
+   * non-202 outcome is `429 RATE_LIMITED` after 3 requests / 15 min for the same
+   * address - charged before the lookup, so it does not reveal the account.
    */
   async forgotPassword(email: string): Promise<void> {
     const normalized = normalizeEmail(email);
     if (!isValidEmail(normalized)) return;
+
+    await this.rateLimiter.assertAllowed(
+      AUTH_RATE_LIMITS.forgotPassword,
+      CACHE_KEYS.passwordResetRequest(normalized),
+    );
 
     const agent = await this.agents.findByEmail(normalized);
     if (agent === null || !agent.isActive) {

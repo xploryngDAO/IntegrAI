@@ -124,6 +124,7 @@ export type QueueName =
   | 'queue.pii.purge'
   | 'queue.shopee.lost-push'
   | 'queue.token.refresh'
+  | 'queue.tenant.purge'
   | 'queue.dlq';
 
 export const QUEUE_NAMES: Record<string, QueueName> = {
@@ -136,6 +137,8 @@ export const QUEUE_NAMES: Record<string, QueueName> = {
   piiPurge: 'queue.pii.purge',
   shopeeLostPush: 'queue.shopee.lost-push',
   tokenRefresh: 'queue.token.refresh',
+  /** Fase 4/LGPD: daily physical purge of soft-deleted workspaces. */
+  tenantPurge: 'queue.tenant.purge',
   deadLetter: 'queue.dlq',
 };
 

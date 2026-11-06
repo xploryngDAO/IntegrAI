@@ -25,6 +25,12 @@ import {
   normalizeRecoveryCode,
 } from './auth/recovery-codes';
 import {
+  AUTH_RATE_LIMITS,
+  AuthRateLimiter,
+  type AuthRateLimitDecision,
+  type AuthRateLimitTarget,
+} from './auth/rate-limit';
+import {
   TOTP_DIGITS,
   TOTP_PERIOD_SECONDS,
   TOTP_WINDOW,
@@ -57,6 +63,12 @@ import {
  *    the same code cannot open a second session inside its validation window;
  *  - recovery codes are single-use through a conditional `used_at IS NULL`;
  *  - the challenge JWT carries a `jti` burned after a successful redemption.
+ *
+ * Brute force:
+ *  - `POST /auth/2fa/challenge` allows 5 attempts per challenge `jti` and per
+ *    source IP (15 min window, Redis + in-process fallback); the 6th answers
+ *    `429 RATE_LIMITED` and, once the window is exhausted, the challenge is
+ *    burned so it can never be redeemed (even with the correct code).
  */
 
 export const TWO_FACTOR_ISSUER = 'SAC Hub';
@@ -92,6 +104,11 @@ export interface TwoFactorServiceDependencies {
   jwtSecret: string;
   /** Used to issue the real session once the challenge is redeemed. */
   agentsService: IAgentService;
+  /**
+   * Challenge throttle. Optional only so legacy harnesses keep compiling: when
+   * omitted the service builds one from the injected `cache`/`clock`.
+   */
+  rateLimiter?: AuthRateLimiter;
   repos: {
     agents: IAgentRepository;
     twoFactor: ITwoFactorRepository;
@@ -107,6 +124,7 @@ export class TwoFactorService implements ITwoFactorService {
   private readonly agentsService: IAgentService;
   private readonly agents: IAgentRepository;
   private readonly twoFactor: ITwoFactorRepository;
+  private readonly rateLimiter: AuthRateLimiter;
 
   constructor(deps: TwoFactorServiceDependencies) {
     this.logger = deps.logger.child({ component: 'TwoFactorService' });
@@ -117,6 +135,9 @@ export class TwoFactorService implements ITwoFactorService {
     this.agentsService = deps.agentsService;
     this.agents = deps.repos.agents;
     this.twoFactor = deps.repos.twoFactor;
+    this.rateLimiter =
+      deps.rateLimiter ??
+      new AuthRateLimiter({ cache: this.cache, clock: this.clock, logger: this.logger });
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('TwoFactorService requires a configured JWT_SECRET (min 16 chars)');
@@ -243,6 +264,12 @@ export class TwoFactorService implements ITwoFactorService {
     device?: SessionDeviceInfo,
   ): Promise<LoginSuccess> {
     const claims = verifyTwoFactorChallengeToken(challengeToken, this.jwtSecret);
+
+    // Brute-force gate runs BEFORE the operator lookup / code check: the jti and
+    // the source IP each have an independent 5-attempt window, and the attempt is
+    // charged even when the challenge is already burned (no free probing).
+    const attempts = await this.registerChallengeAttempt(claims.jti, device?.ip);
+
     const agent = await this.agents.findById(claims.userId);
     if (
       agent === null ||
@@ -274,7 +301,16 @@ export class TwoFactorService implements ITwoFactorService {
     }
 
     if (!authenticated) {
-      this.logger.warn('auth.2fa.challenge_failed', { userId: agent.id });
+      // The window is spent: burn the challenge so even a later correct code
+      // cannot redeem it; the next request is answered 429 by the limiter.
+      if (attempts.some((decision) => decision.remaining <= 0)) {
+        await this.burnChallenge(claims.jti, claims.expiresAt);
+      }
+      this.logger.warn('auth.2fa.challenge_failed', {
+        userId: agent.id,
+        attemptsUsed: Math.max(...attempts.map((decision) => decision.used)),
+        attemptsLimit: Math.min(...attempts.map((decision) => decision.policy.limit)),
+      });
       throw new AppError('INVALID_TOTP', 'Invalid two-factor code', 401);
     }
 
@@ -289,6 +325,35 @@ export class TwoFactorService implements ITwoFactorService {
   /* ==================================================================== */
   /* Internals                                                            */
   /* ==================================================================== */
+
+  /**
+   * Charges one attempt on both challenge buckets and throws
+   * `429 RATE_LIMITED` when either is exhausted.
+   *
+   * The IP bucket is only used when the request carries an address: a caller
+   * without one (internal replay, unit harness) gets the jti window only.
+   */
+  private async registerChallengeAttempt(
+    jti: string,
+    ip?: string | null,
+  ): Promise<AuthRateLimitDecision[]> {
+    const targets: AuthRateLimitTarget[] = [
+      {
+        policy: AUTH_RATE_LIMITS.twoFactorChallenge,
+        key: CACHE_KEYS.authTwoFactorChallengeAttempts(jti),
+      },
+    ];
+
+    const normalizedIp = (ip ?? '').trim();
+    if (normalizedIp.length > 0) {
+      targets.push({
+        policy: AUTH_RATE_LIMITS.twoFactorChallengeIp,
+        key: CACHE_KEYS.authTwoFactorIpAttempts(normalizedIp),
+      });
+    }
+
+    return this.rateLimiter.consumeAll(targets);
+  }
 
   private async loadActiveAgent(userId: string): Promise<AgentRecord> {
     const agent = await this.agents.findById(userId);

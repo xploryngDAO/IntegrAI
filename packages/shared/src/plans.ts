@@ -63,3 +63,20 @@ export function isTenantActive(tenant: {
 export function isTenantPlan(value: unknown): value is TenantPlan {
   return typeof value === 'string' && (TENANT_PLANS as readonly string[]).includes(value);
 }
+
+/* ==========================================================================
+ * Platform console search (Fase 4: `GET /platform/tenants?search=`)
+ * ========================================================================== */
+
+/** Longest accepted search term (chars) for the console tenant list. */
+export const TENANT_SEARCH_MAX_LENGTH = 120;
+
+/**
+ * Normalizes the console search term: trims it and treats blank/null/undefined
+ * as "no filter". The HTTP schema enforces the 1..120 length; this helper keeps
+ * service/repository callers (and direct tests) consistent.
+ */
+export function normalizeTenantSearch(value?: string | null): string | undefined {
+  const term = (value ?? '').trim();
+  return term.length > 0 ? term : undefined;
+}

@@ -10,16 +10,16 @@ import type {
   IPlatformTenantRepository,
   ITenantRepository,
   InvitationRecord,
-  PageRequest,
   Paginated,
   PlatformMetricsRecord,
+  PlatformTenantListQuery,
   TenantPolicyPatch,
   TenantRecord,
   TenantUsageCounts,
   UpdateTenantInput,
   UpsertInvitationInput,
 } from '@sac/shared';
-import { PLAN_LIMITS } from '@sac/shared';
+import { PLAN_LIMITS, normalizeTenantSearch } from '@sac/shared';
 
 /**
  * In-memory repositories shared by the Fase 4 unit tests.
@@ -133,18 +133,24 @@ export class InMemoryPlatformTenantRepository implements IPlatformTenantReposito
     private readonly now: () => Date = () => new Date('2026-11-01T12:00:00.000Z'),
   ) {}
 
-  async list(page: PageRequest): Promise<Paginated<TenantRecord>> {
-    const ordered = [...this.tenants.rows].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
-    const total = ordered.length;
-    const start = (page.page - 1) * page.pageSize;
+  async list(query: PlatformTenantListQuery): Promise<Paginated<TenantRecord>> {
+    const search = normalizeTenantSearch(query.search);
+    const filtered = [...this.tenants.rows]
+      .filter(
+        (row) =>
+          search === undefined ||
+          row.name.toLowerCase().includes(search.toLowerCase()) ||
+          row.slug.toLowerCase().includes(search.toLowerCase()),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const total = filtered.length;
+    const start = (query.page - 1) * query.pageSize;
     return {
-      items: ordered.slice(start, start + page.pageSize),
+      items: filtered.slice(start, start + query.pageSize),
       total,
-      page: page.page,
-      pageSize: page.pageSize,
-      totalPages: total === 0 ? 0 : Math.ceil(total / page.pageSize),
+      page: query.page,
+      pageSize: query.pageSize,
+      totalPages: total === 0 ? 0 : Math.ceil(total / query.pageSize),
     };
   }
 

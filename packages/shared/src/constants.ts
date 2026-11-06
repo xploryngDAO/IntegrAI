@@ -34,6 +34,24 @@ export const CACHE_KEYS = {
   /** Fixed-window throttle for `POST /auth/resend-verification` (1/min). */
   emailVerificationResend: (email: string): string =>
     `sac:auth:email-verification:resend:${email}`,
+  /*
+   * Sensitive-auth fixed windows (slice 2). Each key is a *window counter*
+   * (`INCR` + TTL on the first hit); the limits live in
+   * `application/auth/rate-limit.ts` so the policy and the key stay together.
+   */
+  /** Brute-force guard: login attempts per e-mail + client IP (10/15min). */
+  authLoginAttempts: (email: string, ip: string): string =>
+    `sac:auth:login:attempts:${email}:${ip}`,
+  /** 2FA challenge redemptions per challenge JWT `jti` (5/15min). */
+  authTwoFactorChallengeAttempts: (jti: string): string =>
+    `sac:auth:2fa:challenge-attempts:${jti}`,
+  /** 2FA challenge redemptions per source IP, across challenges (5/15min). */
+  authTwoFactorIpAttempts: (ip: string): string => `sac:auth:2fa:ip-attempts:${ip}`,
+  /** Password reset requests per e-mail (3/15min). */
+  passwordResetRequest: (email: string): string => `sac:auth:password-reset:request:${email}`,
+  /** Verification e-mail resends per e-mail (3/15min, on top of the 1/min key). */
+  verificationResendAttempts: (email: string): string =>
+    `sac:auth:email-verification:resend-attempts:${email}`,
   /** Single-use guard for a 2FA challenge JWT (`jti`, 5 min TTL). */
   twoFactorChallenge: (jti: string): string => `sac:auth:2fa:challenge:${jti}`,
   /** Last accepted TOTP time-step per operator (replay protection). */
@@ -51,7 +69,19 @@ export const JOB_NAMES = {
   piiPurge: 'pii.purge',
   shopeeLostPushRecover: 'shopee.lost-push.recover',
   tokenRefresh: 'token.refresh',
+  /** Fase 4/LGPD: physical purge of a workspace soft-deleted > 30 days ago. */
+  tenantPurge: 'tenant.purge',
 } as const;
+
+/**
+ * LGPD tenant purge (Fase 4).
+ *
+ * A workspace deleted through `DELETE /tenants/me` keeps every row for audit
+ * during a grace period; after that the daily job physically removes them.
+ */
+export const TENANT_PURGE_RETENTION_DAYS = 30;
+/** Max tenants purged by a single scheduled run (bounded job duration). */
+export const TENANT_PURGE_BATCH_SIZE = 25;
 
 /** Exponential backoff + jitter defaults (base, cap, attempts). */
 export const RETRY_POLICY = {

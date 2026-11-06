@@ -10,12 +10,12 @@
 |---|---|
 | Schema | `tenants.plan` (`TenantPlan`), `max_accounts`, `max_agents`, `deleted_at`; `agents.is_platform_admin` |
 | Limites | `max_agents` ao convidar/aceitar convite; `max_accounts` ao conectar loja nova |
-| Console | `GET /platform/tenants`, `PATCH /platform/tenants/:id`, `GET /platform/metrics` |
-| LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete) |
+| Console | `GET /platform/tenants` (paginação + busca), `PATCH /platform/tenants/:id`, `GET /platform/metrics`, `POST /platform/tenants/:id/purge` |
+| LGPD | `GET /tenants/me/export`, `DELETE /tenants/me` (soft delete), purga física diária (`queue.tenant.purge`) + purga manual |
 | Sessão | tenant `SUSPENDED`/`DELETED` responde `403 TENANT_INACTIVE` no login e em toda requisição |
 
-Fora do escopo desta fase (backlog): billing/assinatura, purga física, status
-page, alertas, backup/restore por tenant, UI do console.
+Fora do escopo desta fase (backlog): billing/assinatura, status page, alertas,
+backup/restore por tenant, UI do console e limpeza dos artefatos S3 da purga.
 
 ## Modelo de dados
 
@@ -70,7 +70,7 @@ removida (o operador pode liberar espaço).
 Autenticação: JWT normal **+ `agents.is_platform_admin`**. Sem o flag → `403`
 `AUTHORIZATION_ERROR` (mesmo para ADMIN de tenant).
 
-### `GET /platform/tenants?page=&pageSize=`
+### `GET /platform/tenants?page=&pageSize=&search=`
 `{ data: { items, total, page, pageSize, totalPages } }`, mais recente primeiro.
 Cada item:
 
@@ -84,6 +84,22 @@ Cada item:
   "createdAt": "2026-11-01T10:00:00.000Z"
 }
 ```
+
+`search` (opcional, 1..120 chars) é aplicado **no servidor**: `contains`
+case-insensitive em `name` **OU** `slug`. Um `?search=` vazio é tratado como
+ausência de filtro; acima de 120 chars → `422`. `total`/`totalPages` refletem o
+conjunto filtrado (o `count` usa o mesmo `where` do `findMany`), e só os itens da
+página consultam contagens de uso.
+
+### `POST /platform/tenants/:id/purge`
+Purga física **manual** (LGPD) de um workspace já soft-deleted.
+
+- 200 com o resultado da purga (`tenantId`, `slug`, `deletedAt`, `purgedAt`,
+  `counts` por tabela, `manual: true`).
+- `404` workspace desconhecido; `409 CONFLICT` (`details.code =
+  TENANT_NOT_DELETED`) quando `deleted_at` é `null` — a purga manual ignora o
+  prazo de 30 dias, mas nunca apaga um workspace ativo.
+- A rota é `JWT + is_platform_admin`; o job diário usa o mesmo serviço.
 
 ### `PATCH /platform/tenants/:id`
 Body `{ plan?, maxAccounts?, maxAgents?, status? }` (`.strict()`, ao menos um).
@@ -144,17 +160,44 @@ Body `{ password, confirmSlug }`, ambos obrigatórios:
 2. `password` é comparada com bcrypt contra o hash do ADMIN autenticado → senão 403 `INVALID_PASSWORD`.
 3. Revoga todas as sessões refresh do tenant (`sessions.revoked_at = now`).
 4. Soft delete: `status = 'DELETED'`, `deleted_at = now`.
-5. Resposta `202` com `{ tenantId, slug, status, deletedAt, purge: { scheduled: false, note } }`.
+5. Resposta `202` com `{ tenantId, slug, status, deletedAt, purge: { scheduled: true, note } }`.
 
 Contas, agentes, tickets, mensagens e eventos **permanecem** (auditoria). A
 partir do próximo request, qualquer token do tenant recebe
 `403 TENANT_INACTIVE`; o login também é bloqueado.
 
-> **Purge físico é job futuro.** Não existe rotina de exclusão definitiva nesta
-> fase. O endpoint registra a intenção (`deleted_at`) e a resposta declara
-> `purge.scheduled = false`. O job futuro deve: respeitar retenções legais
-> (fiscal/financeiro), apagar `buyer_pii_vault` e artefatos S3, e então remover
-> as linhas do tenant.
+## Purga física (LGPD)
+
+O soft delete preserva tudo; a exclusão definitiva é feita pelo
+`TenantPurgeService`, usado por dois caminhos:
+
+| Caminho | Quando | Prazo de carência |
+|---|---|---|
+| `queue.tenant.purge` (BullMQ, cron `0 3 * * *`) | diário, 03:00 | respeita `TENANT_PURGE_RETENTION_DAYS` (default 30) |
+| `POST /platform/tenants/:id/purge` (platform admin) | sob demanda | ignora a carência; exige `deleted_at` |
+
+Regras:
+
+- **Uma transação por tenant** (`PrismaTenantPurgeRepository.purge`), com ordem
+  FK-safe: `sessions` → `invitations` → `password_resets` /
+  `email_verifications` / `two_factor_recovery_codes` (pelos ids dos agentes) →
+  `buyer_pii_vault` → `message_attachments` → `ticket_messages` →
+  `ticket_events` → `outbound_attempts` → `support_tickets` → `orders_cache` →
+  `sla_policies` → `webhook_events` → `marketplace_accounts` → `agents` →
+  `tenants`. Tabelas sem `tenant_id` são escopadas pela relação pai
+  (`ticket`/`account`).
+- Lote limitado por `TENANT_PURGE_BATCH_SIZE` (25): um backlog é drenado em dias
+  consecutivos em vez de bloquear o worker; `?limit` do endpoint manual não se
+  aplica (é sempre um tenant).
+- Falha de um tenant não interrompe o sweep: entra em `failures` e é logada
+  (`tenant.purge.failed`); sucesso loga `tenant.purge.tenant_deleted` com a
+  contagem por tabela e `tenant.purge.completed` com os totais.
+- Um candidato sem `deleted_at` é recusado defensivamente
+  (`TENANT_NOT_SOFT_DELETED`) — nunca há hard delete de workspace ativo.
+- **Pendência:** os artefatos S3 (`body_raw_s3_uri`, `s3_uri` de anexos) não são
+  apagados por este job; dependem de lifecycle policy do bucket / follow-up.
+  Retenções legais (fiscal/financeiro) devem ser avaliadas antes de encurtar o
+  prazo de 30 dias.
 
 ## Segurança
 
@@ -174,6 +217,14 @@ partir do próximo request, qualquer token do tenant recebe
 - `PlatformService.test.ts` — RBAC, listagem/paginação, troca de plano/quota,
   métricas.
 - `TenantPrivacy.test.ts` — export sem segredos/PII, delete com senha/slug e erros.
+- `TenantPurge.test.ts` — carência de 30 dias, lote, falha isolada, purga manual
+  (409 para workspace ativo/404 desconhecido).
+- `repositories/tenant-purge.test.ts` — ordem FK-safe, transação única e escopo
+  por tenant (Prisma fake, sem banco).
+- `repositories/tenants.list.test.ts` — busca `name`/`slug` case-insensitive com
+  `findMany` e `count` usando o mesmo `where`.
+- `queues/tenantPurgeWiring.test.ts` — nomes de fila/job, cron `0 3 * * *` e
+  defaults de retenção (`buildSchedulerSpecs`, sem Redis).
 - `AgentTenantGate.test.ts` — login/verify de tenant ativo, suspenso, excluído e legado.
 - `platform-routes.test.ts` / `tenant-privacy-routes.test.ts` — HTTP, 401/403/422,
-  headers de download e 202.
+  busca, purga manual, headers de download e 202.

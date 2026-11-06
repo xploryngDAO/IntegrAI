@@ -16,6 +16,7 @@ import type { WorkerDependencies } from './workers';
  *
  *  - `queue.sla.scan`        -> config.cron.slaScan        (default every minute)
  *  - `queue.pii.purge`       -> config.cron.piiPurge       (every 6 hours)
+ *  - `queue.tenant.purge`    -> config.cron.tenantPurge    (daily, 03:00)
  *  - `queue.shopee.lost-push`-> config.cron.shopeeLostPush (every 5 minutes)
  *  - `queue.token.refresh`   -> marketplace refresh intervals (Meli ~5h45m,
  *                               Shopee 3h30m, per CHANNEL_CONTRACTS)
@@ -29,13 +30,63 @@ export interface SchedulerResources {
   connection: Redis | null;
 }
 
-interface SchedulerSpec {
+export interface SchedulerSpec {
   schedulerId: string;
   queueName: string;
   jobName: string;
   pattern?: string;
   everyMs?: number;
   data?: Record<string, unknown>;
+}
+
+/**
+ * Declarative scheduler table (pure: no Redis), exported so the cron contract is
+ * unit-testable without a broker.
+ */
+export function buildSchedulerSpecs(config: WorkerDependencies['config']): SchedulerSpec[] {
+  return [
+    {
+      schedulerId: 'sac:sla-scan',
+      queueName: QUEUE_NAMES.slaScan,
+      jobName: JOB_NAMES.slaScan,
+      pattern: config.slaScanCron,
+    },
+    {
+      schedulerId: 'sac:pii-purge',
+      queueName: QUEUE_NAMES.piiPurge,
+      jobName: JOB_NAMES.piiPurge,
+      pattern: config.piiPurgeCron,
+    },
+    {
+      // LGPD physical purge: one daily sweep at 03:00 (low-traffic window). The
+      // job itself is bounded by TENANT_PURGE_BATCH_SIZE, so a backlog is
+      // drained across consecutive days instead of blocking the worker.
+      schedulerId: 'sac:tenant-purge',
+      queueName: QUEUE_NAMES.tenantPurge,
+      jobName: JOB_NAMES.tenantPurge,
+      pattern: config.tenantPurgeCron,
+    },
+    {
+      schedulerId: 'sac:shopee-lost-push',
+      queueName: QUEUE_NAMES.shopeeLostPush,
+      jobName: JOB_NAMES.shopeeLostPushRecover,
+      pattern: config.shopeeLostPushCron,
+    },
+    {
+      schedulerId: 'sac:token-refresh:meli',
+      queueName: QUEUE_NAMES.tokenRefresh,
+      jobName: JOB_NAMES.tokenRefresh,
+      everyMs: Math.max(60, config.meliRefreshIntervalSeconds || 20_700) * 1_000,
+      data: { marketplace: 'MERCADO_LIVRE' },
+    },
+    {
+      schedulerId: 'sac:token-refresh:shopee',
+      queueName: QUEUE_NAMES.tokenRefresh,
+      jobName: JOB_NAMES.tokenRefresh,
+      everyMs: Math.max(60, config.shopeeRefreshIntervalSeconds || 12_600) * 1_000,
+      data: { marketplace: 'SHOPEE' },
+    },
+  ];
 }
 
 export async function registerSchedulers(deps: WorkerDependencies): Promise<SchedulerResources> {
@@ -65,40 +116,7 @@ export async function registerSchedulers(deps: WorkerDependencies): Promise<Sche
     return queue;
   };
 
-  const specs: SchedulerSpec[] = [
-    {
-      schedulerId: 'sac:sla-scan',
-      queueName: QUEUE_NAMES.slaScan,
-      jobName: JOB_NAMES.slaScan,
-      pattern: deps.config.slaScanCron,
-    },
-    {
-      schedulerId: 'sac:pii-purge',
-      queueName: QUEUE_NAMES.piiPurge,
-      jobName: JOB_NAMES.piiPurge,
-      pattern: deps.config.piiPurgeCron,
-    },
-    {
-      schedulerId: 'sac:shopee-lost-push',
-      queueName: QUEUE_NAMES.shopeeLostPush,
-      jobName: JOB_NAMES.shopeeLostPushRecover,
-      pattern: deps.config.shopeeLostPushCron,
-    },
-    {
-      schedulerId: 'sac:token-refresh:meli',
-      queueName: QUEUE_NAMES.tokenRefresh,
-      jobName: JOB_NAMES.tokenRefresh,
-      everyMs: Math.max(60, deps.config.meliRefreshIntervalSeconds || 20_700) * 1_000,
-      data: { marketplace: 'MERCADO_LIVRE' },
-    },
-    {
-      schedulerId: 'sac:token-refresh:shopee',
-      queueName: QUEUE_NAMES.tokenRefresh,
-      jobName: JOB_NAMES.tokenRefresh,
-      everyMs: Math.max(60, deps.config.shopeeRefreshIntervalSeconds || 12_600) * 1_000,
-      data: { marketplace: 'SHOPEE' },
-    },
-  ];
+  const specs = buildSchedulerSpecs(deps.config);
 
   for (const spec of specs) {
     try {

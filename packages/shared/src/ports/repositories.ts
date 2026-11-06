@@ -24,10 +24,12 @@ import type {
   PageRequest,
   Paginated,
   PasswordResetRecord,
+  PlatformTenantListQuery,
   SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
   TenantPolicyPatch,
+  TenantPurgeCounts,
   TenantRecord,
   TenantUsageCounts,
   TicketEventRecord,
@@ -558,12 +560,31 @@ export interface IPlatformRepository {
 
 /** Admin-only tenant writes (plan, quota, status, soft delete). */
 export interface IPlatformTenantRepository {
-  /** Newest first, tenant-level pagination (the console list). */
-  list(page: PageRequest): Promise<Paginated<TenantRecord>>;
+  /**
+   * Newest first, tenant-level pagination (the console list).
+   *
+   * When `query.search` is present the page AND the total are scoped to rows
+   * whose `name` or `slug` contains the term (case-insensitive).
+   */
+  list(query: PlatformTenantListQuery): Promise<Paginated<TenantRecord>>;
   /** Applies plan/quota/status; unknown id throws (Prisma P2025). */
   applyPolicies(id: string, patch: TenantPolicyPatch): Promise<TenantRecord>;
   /** Soft delete: `status='DELETED'`, `deleted_at=at`; data is preserved. */
   softDelete(id: string, at: Date): Promise<TenantRecord>;
+}
+
+/**
+ * Physical (LGPD) purge of a soft-deleted workspace.
+ *
+ * The repository owns the FK-safe delete order; the service owns the retention
+ * policy (grace period, batch size, logging). Everything happens in ONE
+ * transaction so a partially purged workspace can never exist.
+ */
+export interface ITenantPurgeRepository {
+  /** Soft-deleted tenants whose `deleted_at` is older than `cutoff`, oldest first. */
+  findPurgeable(cutoff: Date, limit: number): Promise<TenantRecord[]>;
+  /** Deletes every row owned by the tenant and returns the per-table counts. */
+  purge(tenantId: string): Promise<TenantPurgeCounts>;
 }
 
 export interface TenantDataSnapshotOptions {

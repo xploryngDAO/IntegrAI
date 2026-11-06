@@ -1,11 +1,11 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { PLAN_LIMITS } from '@sac/shared';
+import { PLAN_LIMITS, normalizeTenantSearch } from '@sac/shared';
 import type {
   CreateTenantInput,
   IPlatformTenantRepository,
   ITenantRepository,
-  PageRequest,
   Paginated,
+  PlatformTenantListQuery,
   TenantPolicyPatch,
   TenantRecord,
   UpdateTenantInput,
@@ -19,6 +19,24 @@ const MAX_PAGE_SIZE = 100;
 function clampInt(value: number, min: number, max: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+/**
+ * Console list filter: `name` OR `slug` contains the term.
+ *
+ * `mode: 'insensitive'` is Prisma/Postgres `ILIKE`, so the search is
+ * case-insensitive at the database (no rows are loaded to filter in memory).
+ * The SAME `where` is used by `count`, which keeps `total` and `totalPages`
+ * correct for a filtered page.
+ */
+function tenantSearchWhere(search: string | undefined): Prisma.TenantWhereInput {
+  if (search === undefined) return {};
+  return {
+    OR: [
+      { name: { contains: search, mode: 'insensitive' } },
+      { slug: { contains: search, mode: 'insensitive' } },
+    ],
+  };
 }
 
 /**
@@ -78,17 +96,19 @@ export class PrismaTenantRepository implements ITenantRepository, IPlatformTenan
   /* Platform console (Fase 4)                                            */
   /* ==================================================================== */
 
-  async list(page: PageRequest): Promise<Paginated<TenantRecord>> {
-    const currentPage = clampInt(page.page, 1, 100_000, DEFAULT_PAGE);
-    const pageSize = clampInt(page.pageSize, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+  async list(query: PlatformTenantListQuery): Promise<Paginated<TenantRecord>> {
+    const currentPage = clampInt(query.page, 1, 100_000, DEFAULT_PAGE);
+    const pageSize = clampInt(query.pageSize, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+    const where = tenantSearchWhere(normalizeTenantSearch(query.search));
 
     const [records, total] = await Promise.all([
       this.prisma.tenant.findMany({
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (currentPage - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.tenant.count(),
+      this.prisma.tenant.count({ where }),
     ]);
 
     return {

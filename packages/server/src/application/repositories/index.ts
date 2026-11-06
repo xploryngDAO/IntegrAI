@@ -20,6 +20,10 @@ import { createSessionRepository, PrismaSessionRepository } from './sessions';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
 import { createTenantDataRepository, PrismaTenantDataRepository } from './tenant-data';
 import {
+  createTenantPurgeRepository,
+  PrismaTenantPurgeRepository,
+} from './tenant-purge';
+import {
   createPlatformTenantRepository,
   createTenantRepository,
   PrismaTenantRepository,
@@ -65,6 +69,7 @@ export { createPlatformRepository, PrismaPlatformRepository };
 export { createSessionRepository, PrismaSessionRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
 export { createTenantDataRepository, PrismaTenantDataRepository };
+export { createTenantPurgeRepository, PrismaTenantPurgeRepository };
 export {
   createPlatformTenantRepository,
   createTenantRepository,

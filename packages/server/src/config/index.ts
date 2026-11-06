@@ -31,7 +31,11 @@ export interface AppConfig extends ChannelRuntimeConfig {
     slaScan: string;
     piiPurge: string;
     shopeeLostPush: string;
+    /** Daily physical purge of soft-deleted workspaces (default `0 3 * * *`). */
+    tenantPurge: string;
   };
+  /** Grace period (days) between LGPD soft delete and physical purge. */
+  tenantPurgeRetentionDays: number;
   s3: {
     endpoint?: string;
     region: string;
@@ -126,10 +130,12 @@ function buildConfig(env: Env): AppConfig {
     smtpFrom: env.SMTP_FROM,
     logLevel,
     piiRetentionDays: env.PII_RETENTION_DAYS,
+    tenantPurgeRetentionDays: env.TENANT_PURGE_RETENTION_DAYS,
     cron: {
       slaScan: env.SLA_SCAN_CRON,
       piiPurge: env.PII_PURGE_CRON,
       shopeeLostPush: env.SHOPEE_LOST_PUSH_CRON,
+      tenantPurge: env.TENANT_PURGE_CRON,
     },
     smtp: {
       host: env.SMTP_HOST,
