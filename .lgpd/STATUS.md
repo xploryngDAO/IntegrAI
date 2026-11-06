@@ -50,3 +50,12 @@
 - **Checkpoints legais pendentes** (exigem encarregado/advogado): DPO (Art. 41),
   política de privacidade (Art. 9), ROPA final (Art. 37), base legal aprovada
   (Art. 7/11), DPAs/transferências (Arts. 33–39) e RIPD se aplicável (Art. 38).
+
+## Tabletop 2026-11-06
+
+Exercício TT-20251106-01 executado contra a produção: contenção por
+`revoke-others` (refresh morto em 68 ms; 208 sessões) e por logout-all
+(access JWT 401 em <1 s); evento de auditoria `auth.sessions.revoked_others`
+criado. Achado P1 documentado (JWT sobrevive ≤1 h no revoke-others) e runbook
+atualizado. Detalhes: `docs/TABLETOP_2026-11.md` e `.lgpd/incidents/log.md`.
+Atende ao LG-12 (drill técnico); tabletop formal com o encarregado segue recomendado.

@@ -57,7 +57,7 @@
 |---|---|---|
 | LG-09 | **Mitigado tecnicamente** | `PII_RETENTION_DAYS` + `PII_PURGE_CRON`; retenção por backup/auditoria e purga do tenant |
 | LG-11 | **Parcial** | registro 5 anos inicializado em `.lgpd/incidents/log.md` (sem incidentes até a data) |
-| LG-12 | **Pendente** | tabletop de incidente ainda não executado (agendar com o encarregado) |
+| LG-12 | **Concluído por drill técnico** | tabletop `docs/TABLETOP_2026-11.md` executado em 2026-11-06; repetir a cada release maior |
 | LG-13 | **Confirmado não aplicável** | produto não usa marketing/analytics de terceiros; base legal operacional é execução de contrato/legítimo interesse |
 
 Controles técnicos de DSAR, isolamento, cifra, retenção e detecção foram validados

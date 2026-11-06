@@ -23,7 +23,19 @@
 
 ## Incidentes registrados
 
-_Nenhum incidente de segurança registrado até 2026-11-06._
+_Nenhum incidente de segurança real registrado até 2026-11-06._
+
+## Exercícios (tabletop)
+
+### TT-20251106-01 — Token de operador exposto em captura de tela
+- **Tipo**: exercício tabletop (não é incidente real)
+- **Data**: 2026-11-06
+- **Cenário e medições**: `docs/TABLETOP_2026-11.md`
+- **Resultado**: contenção total por logout-all < 1 s; refresh do atacante morto
+  em 68 ms via `revoke-others`; achado P1 documentado (access JWT sobrevive ≤1 h
+  até o logout-all).
+- **Follow-up**: runbook atualizado (§7), evento de auditoria
+  `auth.sessions.revoked_others` implementado; repetir a cada release maior.
 
 Controles de detecção ativos: monitor de uptime (issue automática), auditoria de
 ações administrativas, alertas de novo dispositivo, `security-probe`/ZAP/semgrep/

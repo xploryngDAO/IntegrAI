@@ -84,8 +84,13 @@ Defina MAINTENANCE_MODE=true no ambiente da API e reinicie: todas as rotas /api/
 
 ## 7. Incidentes (LGPD + segurança)
 
-1. Contenha: revogar sessões/2FA dos afetados (`/admin/users/:id/revoke-sessions`, reset-2FA),
-   rotacionar segredos se houver suspeita de vazamento.
+1. Contenha (ver `docs/TABLETOP_2026-11.md` para medições):
+   - **suspeita de access token vazado** → `POST /auth/logout` sem `refreshToken`
+     (watermark; derruba o JWT na hora) e troque a senha do operador;
+   - **dispositivo perdido** → `POST /auth/sessions/revoke-others` (mata o refresh;
+     o access JWT sobrevive até expirar, ≤1 h) ou, como ADMIN,
+     `/admin/users/:id/revoke-sessions` (watermark do alvo).
+   - rotacionar segredos se houver suspeita de vazamento de credencial de app.
 2. Avalie notificabilidade (LGPD Art. 48; Res. CD/ANPD nº 15/2024 — até 3 dias úteis).
 3. Registre em `.lgpd/incidents/log.md` (retenção 5 anos) e siga [SECURITY.md](SECURITY.md).
 4. Comunique ANPD/titulares quando aplicável (checkpoint humano/jurídico).

@@ -252,6 +252,21 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
     async revokeOtherSessions(request) {
       const agent = requireAgent(request);
       const revoked = await services.sessions.revokeOthers(agent.id, agent.sessionId);
+
+      // Incident containment must be auditable: a leaked device session being
+      // killed from another device is a forensic event, not just a log line.
+      services.audit?.record({
+        action: AUDIT_ACTIONS.userSessionsRevokedOthers,
+        tenantId: agent.tenantId,
+        actorId: agent.id,
+        actorEmail: agent.email,
+        ip: request.ip,
+        userAgent: userAgentOf(request),
+        resourceType: 'session',
+        resourceId: agent.sessionId ?? 'unknown',
+        metadata: { scope: 'others', revoked },
+      });
+
       return ok({ revoked });
     },
 

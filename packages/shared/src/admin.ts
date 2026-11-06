@@ -45,6 +45,11 @@ export const AUDIT_ACTIONS = {
    */
   loginNewDevice: 'auth.login.new_device',
   logout: 'auth.logout',
+  /**
+   * Operator revoked every OTHER device through `/auth/sessions/revoke-others`
+   * (self-service incident containment). The current session is kept.
+   */
+  userSessionsRevokedOthers: 'auth.sessions.revoked_others',
   passwordResetCompleted: 'auth.password.reset_completed',
   twoFactorEnabled: 'auth.2fa.enabled',
   twoFactorDisabled: 'auth.2fa.disabled',
