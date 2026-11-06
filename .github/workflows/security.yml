@@ -71,6 +71,11 @@ jobs:
           docker run --rm -v "$PWD:/repo"
           zricethezav/gitleaks:latest detect --source /repo
           --gitleaks-ignore-path /repo --exit-code 1 --redact
+      - name: Static analysis (semgrep security-audit)
+        run: >-
+          docker run --rm -v "$PWD:/src" -w /src
+          returntocorp/semgrep semgrep scan
+          --config=p/security-audit --severity=ERROR --error --quiet
       - uses: actions/setup-node@v4
         with:
           node-version: 22
