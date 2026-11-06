@@ -555,7 +555,7 @@ osv-scanner (lockfile, 581 pacotes) -> No issues found
 O histórico abaixo é a baseline de **2026-11-05**, mantido para rastreabilidade;
 os itens listados foram resolvidos pelos upgrades acima.
 
-**Gate no CI:** o workflow `security.yml` roda, após o `npm ci`,
+**Gate no CI:** o workflow `security.yml` roda `gitleaks` (histórico completo), `semgrep` (`p/security-audit`, severidade ERROR), e após o `npm ci`,
 `npm audit --omit=dev --audit-level=high` e o `osv-scanner` sobre o lockfile;
 qualquer advisory novo quebra o pipeline antes do probe de segurança.
 
