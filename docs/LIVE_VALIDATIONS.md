@@ -630,3 +630,11 @@ a11y-audit agora cobre tambem: /signup, /forgot-password, /reset-password (inval
 Resultado local (build hermetico): light 17/17 sem violacoes; dark 17/17 sem violacoes
 CI roda o mesmo script nos dois temas a cada push.
 ```
+
+### 64. Lighthouse 100/100/100 em todas as paginas publicas (local)
+```
+/, /login, /signup, /forgot-password, /reset-password, /invite, /billing/success,
+/billing/cancel, /auth/sso/callback, /status -> A11Y 100 · BP 100 · SEO 100
+Correcoes: <main> no AuthLayout, canonical por rota, h2 no /status,
+alvos de toque >=24px nos links das paginas de billing (target-size).
+```

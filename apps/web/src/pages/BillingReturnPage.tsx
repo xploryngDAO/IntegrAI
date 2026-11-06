@@ -61,11 +61,11 @@ function BillingReturnView({ variant }: { variant: BillingReturnVariant }): JSX.
 
       <p className="m-0 text-center text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
         {signedIn ? (
-          <Link to="/" className="cv-link underline">
+          <Link to="/" className="cv-link inline-flex min-h-6 items-center underline">
             Voltar ao workspace
           </Link>
         ) : (
-          <Link to="/login" className="cv-link underline">
+          <Link to="/login" className="cv-link inline-flex min-h-6 items-center underline">
             Voltar ao login
           </Link>
         )}
