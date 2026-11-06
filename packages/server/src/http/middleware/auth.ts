@@ -88,9 +88,14 @@ export function isPublicRoute(method: string, url: string): boolean {
 export function extractBearerToken(header: string | string[] | undefined): string | null {
   const raw = Array.isArray(header) ? header[0] : header;
   if (typeof raw !== 'string') return null;
-  const match = /^Bearer\s+(.+)$/i.exec(raw.trim());
-  const token = match?.[1]?.trim();
-  return token !== undefined && token.length > 0 ? token : null;
+  // Parse without a regex on attacker-sized input (`^Bearer\s+(.+)$` was the
+  // ReDoS surface flagged by CodeQL); only the scheme + one space is checked.
+  const trimmed = raw.trim();
+  if (trimmed.slice(0, 6).toLowerCase() !== 'bearer') return null;
+  const rest = trimmed.slice(6);
+  if (rest.length === 0 || !/^\s/.test(rest)) return null;
+  const token = rest.trim();
+  return token.length > 0 ? token : null;
 }
 
 export interface AuthGuardOptions {

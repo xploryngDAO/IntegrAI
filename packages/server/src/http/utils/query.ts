@@ -19,20 +19,25 @@ export function stripQuery(url: string): string {
 const BLOCKED_QUERY_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 export function queryToStringRecord(query: unknown): Record<string, string> {
-  const result: Record<string, string> = Object.create(null) as Record<string, string>;
-  if (!isRecord(query)) return result;
+  const entries: Array<[string, string]> = [];
+  if (!isRecord(query)) return Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(query)) {
     if (BLOCKED_QUERY_KEYS.has(key)) continue;
     if (typeof value === 'string') {
-      result[key] = value;
+      entries.push([key, value]);
     } else if (typeof value === 'number' || typeof value === 'boolean') {
-      result[key] = String(value);
+      entries.push([key, String(value)]);
     } else if (Array.isArray(value)) {
       const first = value.find((entry) => typeof entry === 'string');
-      if (typeof first === 'string') result[key] = first;
+      if (typeof first === 'string') entries.push([key, first]);
     }
   }
-  return result;
+  // `Object.fromEntries` uses CreateDataProperty (no prototype mutation), and the
+  // null-prototype target keeps the returned record free of inherited members.
+  return Object.assign(
+    Object.create(null) as Record<string, string>,
+    Object.fromEntries(entries),
+  ) as Record<string, string>;
 }
 
 /** Read a single-valued request header regardless of Node's array union. */
