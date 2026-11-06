@@ -491,3 +491,10 @@ Focus visivel: itens de menu (usuario/quiet link) e "Conectar loja" com outline/
 viewport-fit=cover + theme-color claro (#f3f5fc) e escuro (#182039) por prefers-color-scheme
 a11y 10/10 telas com 0 violacoes; tsc/build 0
 ```
+
+### 48. Dark mode auditado (cores e a11y)
+```
+Tema escuro (data-theme=dark) em landing/login/status: body rgb(24,32,57) e texto rgb(227,230,244)
+(antes o body ficava no token claro; DS escopa dark em .cv-root)
+axe WCAG AA no dark: 0 violacoes; screenshot screenshots/dark-landing-1440.png
+```

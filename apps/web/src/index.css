@@ -17,6 +17,14 @@ body,
   height: 100%;
 }
 
+/* The DS scopes dark tokens to `.cv-root[data-theme]`; `body` lives outside it,
+ * so the page canvas needs the two tokens it uses to match the active theme
+ * (otherwise dark mode shows a light strip under/around the shell). */
+html[data-theme='dark'] {
+  --cv-color-background: rgb(24 32 57 / 1);
+  --cv-color-text: rgb(227 230 244 / 1);
+}
+
 body {
   margin: 0;
   background: var(--cv-color-background);
