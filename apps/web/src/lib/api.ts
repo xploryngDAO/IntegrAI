@@ -263,6 +263,88 @@ function apiErrorFrom(status: number, payload: unknown): ApiClientError {
   return new ApiClientError(status, envelope?.code ?? topLevelCode ?? 'HTTP_ERROR', message, details);
 }
 
+/* ==========================================================================
+ * Controlled maintenance window (`503 MAINTENANCE`)
+ *
+ * The machine code and the back-off default mirror
+ * `packages/shared/src/maintenance.ts` (the canonical contract). They are
+ * duplicated here because `@sac/shared` is consumed by this SPA as types only:
+ * the package build is CommonJS, so Vite cannot tree-shake a runtime re-export
+ * through `dist/index.js`. Keeping the literals in the client also means the
+ * banner works against a deployment that predates the shared constant.
+ * ========================================================================== */
+
+/** Stable code in `error.code` for a request refused by the maintenance guard. */
+export const MAINTENANCE_ERROR_CODE = 'MAINTENANCE';
+
+/** `Retry-After` used when the header is absent or unparsable (seconds). */
+export const MAINTENANCE_RETRY_AFTER_SECONDS = 60;
+
+/** Defensive fallback when the 503 body carries no usable message. */
+export const DEFAULT_MAINTENANCE_MESSAGE =
+  'Sistema em manutenção programada. Tente novamente em instantes.';
+
+/**
+ * Browser event emitted for every API response refused by the maintenance
+ * guard (`503 { error: { code: 'MAINTENANCE', message } }` + `Retry-After`).
+ *
+ * It exists because the window is global state, not a page failure: the banner
+ * must be the same on the public landing, the credential gate and the
+ * workspace, including when the failure happens during the boot probe. The
+ * event is dispatched before the `ApiClientError` is thrown so the app hears
+ * about the window even when the caller re-renders a generic error state.
+ */
+export const MAINTENANCE_EVENT = 'sac:maintenance';
+
+/** `detail` payload of `MAINTENANCE_EVENT`. */
+export interface MaintenanceEventDetail {
+  /** Operator-facing text answered by the API (`error.message`). */
+  message: string;
+  /** `Retry-After` header in seconds (default 60 when absent/invalid). */
+  retryAfterSeconds: number;
+}
+
+/**
+ * `Retry-After` is delta-seconds on this contract (the server always writes an
+ * integer). An unparsable/absent header falls back to the shared default, and a
+ * positive value is rounded up so the countdown never promises less than the
+ * API asked for.
+ */
+function maintenanceRetryAfter(header: string | null): number {
+  if (header !== null) {
+    const seconds = Number(header.trim());
+    if (Number.isFinite(seconds) && seconds > 0) return Math.max(1, Math.ceil(seconds));
+  }
+  return MAINTENANCE_RETRY_AFTER_SECONDS;
+}
+
+function announceMaintenance(message: string, retryAfterSeconds: number): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent<MaintenanceEventDetail>(MAINTENANCE_EVENT, {
+        detail: { message, retryAfterSeconds },
+      }),
+    );
+  } catch {
+    // No window (SSR/tests): the ApiClientError still reaches the caller.
+  }
+}
+
+/**
+ * Builds the typed client error from a failed response and announces a
+ * maintenance window before throwing it.
+ *
+ * Every other status keeps exactly the previous behaviour: only a `503` whose
+ * machine code is `MAINTENANCE` reaches the app-wide banner.
+ */
+function apiErrorFromResponse(response: Response, payload: unknown): ApiClientError {
+  const error = apiErrorFrom(response.status, payload);
+  if (error.status === 503 && error.code === MAINTENANCE_ERROR_CODE) {
+    announceMaintenance(error.message, maintenanceRetryAfter(response.headers.get('retry-after')));
+  }
+  return error;
+}
+
 export function setAuthToken(token: string | null): void {
   authToken = token;
   // Clearing the access token also drops the paired refresh token: leaving a
@@ -604,7 +686,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      throw apiErrorFrom(response.status, payload);
+      throw apiErrorFromResponse(response, payload);
     }
     if (payload === null) {
       if (options.allowEmpty) return undefined as T;
@@ -699,9 +781,10 @@ async function downloadFile(
 
     if (!response.ok) {
       // Error bodies are still the JSON envelope on the CSV route, so the real
-      // `code`/`message` (403/409/…) reaches the screen.
+      // `code`/`message` (403/409/…) reaches the screen. A maintenance 503 is
+      // also announced on the global event (same banner as the JSON routes).
       const payload: unknown = await response.json().catch(() => null);
-      throw apiErrorFrom(response.status, payload);
+      throw apiErrorFromResponse(response, payload);
     }
 
     const contentType = response.headers.get('content-type');

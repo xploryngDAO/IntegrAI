@@ -1,7 +1,15 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from './lib/store';
-import { ApiClientError, hasAuthToken } from './lib/api';
+import {
+  ApiClientError,
+  DEFAULT_MAINTENANCE_MESSAGE,
+  MAINTENANCE_ERROR_CODE,
+  MAINTENANCE_EVENT,
+  MAINTENANCE_RETRY_AFTER_SECONDS,
+  hasAuthToken,
+  type MaintenanceEventDetail,
+} from './lib/api';
 import { onSessionEnded, probeSession } from './lib/session';
 import {
   claimOnboardingRedirect,
@@ -12,6 +20,7 @@ import {
 } from './lib/onboarding';
 import { isPlatformAdmin } from './lib/platform';
 import { AppShell } from './components/layout/AppShell';
+import { MaintenanceBanner } from './components/layout/MaintenanceBanner';
 import { RouteFallback } from './components/layout/RouteFallback';
 import { ToastViewport } from './components/layout/ToastViewport';
 import { LoginPage } from './pages/LoginPage';
@@ -24,6 +33,12 @@ import { StatusPage } from './pages/StatusPage';
 import { LandingPage } from './pages/LandingPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
+
+/** Current maintenance window announced by the API client (`503 MAINTENANCE`). */
+interface MaintenanceNotice {
+  message: string;
+  retryAfterSeconds: number;
+}
 
 /**
  * Session-free routes: the credential gate, the Fase 1 self-service screens
@@ -171,10 +186,42 @@ export default function App(): JSX.Element {
   const currentAgent = useWorkspace((state) => state.currentAgent);
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [maintenance, setMaintenance] = useState<MaintenanceNotice | null>(null);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const path = normalizePath(pathname);
   const publicRoute = PUBLIC_PATHS.has(path);
+
+  // The maintenance window is global state announced by `lib/api` when any
+  // request receives `503 MAINTENANCE`. Registered before the probe effect
+  // below so the very first `/auth/me` 503 is already captured; the listener is
+  // removed on unmount and never traps the event for a later mount.
+  useEffect(() => {
+    function handleMaintenance(event: Event): void {
+      const detail = (event as CustomEvent<MaintenanceEventDetail | undefined>).detail;
+      if (detail === undefined || detail === null || typeof detail !== 'object') return;
+
+      const message =
+        typeof detail.message === 'string' && detail.message.trim().length > 0
+          ? detail.message.trim()
+          : DEFAULT_MAINTENANCE_MESSAGE;
+      const seconds =
+        typeof detail.retryAfterSeconds === 'number' &&
+        Number.isFinite(detail.retryAfterSeconds) &&
+        detail.retryAfterSeconds > 0
+          ? Math.ceil(detail.retryAfterSeconds)
+          : MAINTENANCE_RETRY_AFTER_SECONDS;
+
+      setMaintenance({ message, retryAfterSeconds: seconds });
+    }
+
+    window.addEventListener(MAINTENANCE_EVENT, handleMaintenance);
+    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenance);
+  }, []);
+
+  const dismissMaintenance = useCallback((): void => {
+    setMaintenance(null);
+  }, []);
 
   useEffect(() => {
     if (NO_PROBE_PATHS.has(path)) return;
@@ -191,6 +238,13 @@ export default function App(): JSX.Element {
         // Never demote a session that was just established (login, refresh).
         setAuthState((current) => (current === 'authenticated' ? current : 'anonymous'));
         if (error instanceof ApiClientError && error.status === 401) {
+          setSessionError(null);
+          return;
+        }
+        // A maintenance window is global state, not a session failure: the
+        // banner already explains it, so the credential gate must not also
+        // render the generic "API indisponível" message underneath it.
+        if (error instanceof ApiClientError && error.code === MAINTENANCE_ERROR_CODE) {
           setSessionError(null);
           return;
         }
@@ -264,12 +318,37 @@ export default function App(): JSX.Element {
     };
   }, [authState, currentAgent, navigate, path]);
 
+  const maintenanceBanner =
+    maintenance === null ? null : (
+      <MaintenanceBanner
+        message={maintenance.message}
+        retryAfterSeconds={maintenance.retryAfterSeconds}
+        onDismiss={dismissMaintenance}
+      />
+    );
+
+  /**
+   * Puts the maintenance strip above whatever the current gate renders.
+   *
+   * Every branch returns through here, so the banner survives the transitions
+   * landing → login → workspace: it is owned by `App` (never by a page) and a
+   * dismissal only hides it until the API announces the window again.
+   */
+  function withMaintenance(content: JSX.Element): JSX.Element {
+    return (
+      <>
+        {maintenanceBanner}
+        {content}
+      </>
+    );
+  }
+
   if (publicRoute) {
     if (authState === 'authenticated' && (path === '/login' || path === '/signup')) {
       return <Navigate to="/" replace />;
     }
 
-    return (
+    return withMaintenance(
       <>
         <Routes>
           {/* Suspense lives inside the route tree so the toast surface above
@@ -301,7 +380,7 @@ export default function App(): JSX.Element {
         </Routes>
 
         <ToastViewport />
-      </>
+      </>,
     );
   }
 
@@ -310,13 +389,13 @@ export default function App(): JSX.Element {
     // landing immediately; the probe still runs in the background and would
     // promote the tab if a session came back. Every other path keeps the
     // existing spinner (the credential gate must not flash).
-    if (path === '/' && !hasAuthToken()) return <LandingPage />;
+    if (path === '/' && !hasAuthToken()) return withMaintenance(<LandingPage />);
 
-    return (
+    return withMaintenance(
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 text-[var(--cv-color-text-muted)]">
         <span className="cv-spinner" />
         <p className="m-0 text-[var(--cv-font-meta)]">Carregando workspace…</p>
-      </div>
+      </div>,
     );
   }
 
@@ -324,9 +403,9 @@ export default function App(): JSX.Element {
     // Public landing page for visitors at `/`; every other unauthenticated path
     // keeps the credential gate (deep links to /profile, /admin, … land on
     // /login after authentication).
-    if (path === '/') return <LandingPage />;
+    if (path === '/') return withMaintenance(<LandingPage />);
 
-    return (
+    return withMaintenance(
       <>
         <Routes>
           <Route
@@ -337,11 +416,11 @@ export default function App(): JSX.Element {
           />
         </Routes>
         <ToastViewport />
-      </>
+      </>,
     );
   }
 
-  return (
+  return withMaintenance(
     <>
       <Routes>
         <Route element={<AppShell />}>
@@ -366,6 +445,6 @@ export default function App(): JSX.Element {
 
       {/* Single global toast surface — features only call pushToast(). */}
       <ToastViewport />
-    </>
+    </>,
   );
 }

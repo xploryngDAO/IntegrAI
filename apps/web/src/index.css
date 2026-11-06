@@ -139,6 +139,58 @@ body {
   flex-direction: column;
 }
 
+/* --------------------------------------------------------- maintenance ---- */
+/* Global 503 status strip. It lives in the normal flow at the top of the app
+ * column (`flex: none`), so the topbar/landing header below is pushed down
+ * instead of covered and the `#sac-main` skip target keeps its position. */
+.sac-maintenance {
+  position: relative;
+  z-index: 50;
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--cv-color-background);
+  border-bottom: 1px solid var(--cv-color-border);
+}
+
+.sac-maintenance .cv-alert {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+}
+
+.sac-maintenance__message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.sac-maintenance__retry {
+  margin: 2px 0 0;
+  font-size: var(--cv-font-meta);
+}
+
+.sac-maintenance__dismiss {
+  flex: none;
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .sac-maintenance {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 12px;
+  }
+
+  /* 44px touch target on the phone breakpoint, right-aligned so the banner
+   * keeps the message as the first thing read. */
+  .sac-maintenance__dismiss {
+    align-self: flex-end;
+    min-height: 44px;
+  }
+}
+
 /* -------------------------------------------------------------- topbar ---- */
 .sac-topbar {
   display: flex;
