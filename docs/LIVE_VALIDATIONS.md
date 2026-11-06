@@ -396,3 +396,11 @@ https://integrai-dev.vercel.app/platform -> detalhe do tenant IntegrAI
 https://integrai-dev.vercel.app/settings -> Autenticacao corporativa, politica 2FA, Privacidade e LGPD
 0 erros de runtime no console
 ```
+
+### 37. Banner de manutencao na producao (Vercel)
+```
+API reiniciada com MAINTENANCE_MODE=true; login pela UI publicada (390px)
+-> banner role=alert "Manutencao em 57s" + mensagem da API + dismiss (44px)
+-> erro inline mostra HTTP 503 com a mensagem de manutencao (sem tela branca)
+Screenshot: screenshots/production-maintenance.png; API restaurada normal depois (login 200)
+```
