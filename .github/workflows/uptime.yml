@@ -1,0 +1,93 @@
+name: Uptime
+
+# Monitor de produção sem serviço externo: a cada 10 min verifica a API
+# (endereço publicado em runtime-config.json) e o SPA, e usa issues como canal
+# de alerta. Recuperação fecha a issue de incidente automaticamente.
+#
+# Não substitui Prometheus/Grafana do self-hosted; cobre o período em que a API
+# pública roda em túnel e ninguém está olhando o painel.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SPA_URL: https://integrai-dev.vercel.app
+      PAGES_URL: https://xploryngdao.github.io/IntegrAI/
+      CONFIG_URL: https://raw.githubusercontent.com/xploryngDAO/IntegrAI/main/apps/web/runtime-config.json
+      INCIDENT_TITLE: '[ops] Produção indisponível'
+    steps:
+      - name: Probe API and SPA
+        id: probe
+        run: |
+          set -uo pipefail
+          api_base="$(curl -fsS --max-time 15 "$CONFIG_URL?ts=$(date +%s)" \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log(new URL(j.apiBaseUrl).origin)}catch(e){console.error('config-invalid');process.exit(1)}})" )"
+          api_status="$(curl -s -o /tmp/ready.json -w '%{http_code}' --max-time 20 "$api_base/api/v1/health/ready" || echo 000)"
+          spa_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SPA_URL/" || echo 000)"
+          pages_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$PAGES_URL" || echo 000)"
+          echo "api_base=$api_base api=$api_status spa=$spa_status pages=$pages_status"
+          {
+            echo "### Resultado do probe $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo '| Alvo | HTTP |'
+            echo '|---|---|'
+            echo "| API \`/health/ready\` ($api_base) | $api_status |"
+            echo "| SPA Vercel | $spa_status |"
+            echo "| SPA Pages | $pages_status |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$api_status" != "200" ] || [ "$spa_status" != "200" ]; then
+            {
+              echo "O monitor de uptime detectou indisponibilidade."
+              echo
+              echo "- API: \`$api_base/api/v1/health/ready\` → HTTP **$api_status**"
+              echo "- SPA Vercel: $SPA_URL → HTTP **$spa_status**"
+              echo "- SPA Pages: $PAGES_URL → HTTP **$pages_status**"
+              echo
+              echo 'Payload do readiness:'
+              echo '```json'
+              head -c 2000 /tmp/ready.json 2>/dev/null || true
+              echo '```'
+              echo
+              echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            } > /tmp/incident.md
+            echo "down=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "down=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update incident issue
+        if: steps.probe.outputs.down == '1'
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --state open --search 'in:title "[ops] Produção indisponível"' --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/incident.md
+          else
+            gh issue create --title "$INCIDENT_TITLE" --body-file /tmp/incident.md
+          fi
+
+      - name: Close incident on recovery
+        if: steps.probe.outputs.down == '0'
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --state open --search 'in:title "[ops] Produção indisponível"' --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Produção voltou a responder **200** no probe automático de $(date -u +%Y-%m-%dT%H:%M:%SZ). Fechando o incidente."
+            gh issue close "$existing"
+          fi
