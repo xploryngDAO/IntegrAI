@@ -24,6 +24,11 @@ export interface AccessTokenSubject {
   name: string;
   role: string;
   tenantId: string | null;
+  /**
+   * Fase 4: platform console flag. The guard re-reads it from the database on
+   * `/platform/*`, so this claim is informational only (UI/menu rendering).
+   */
+  isPlatformAdmin: boolean;
 }
 
 /** SHA-256 (hex) - the only representation of an opaque token we persist. */
@@ -54,6 +59,7 @@ export function signAccessToken(input: {
       name: input.subject.name,
       role: input.subject.role,
       tenantId: input.subject.tenantId,
+      isPlatformAdmin: input.subject.isPlatformAdmin === true,
     },
     input.secret,
     options,

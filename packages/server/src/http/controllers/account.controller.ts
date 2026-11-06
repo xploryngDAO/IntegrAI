@@ -164,6 +164,7 @@ export function createAccountControllers(ctx: HttpRouteContext): AccountControll
     /** `POST /accounts/connect` - Amazon LWA refresh token / manual token flows. */
     async connect(request) {
       const body = parseInput(connectAccountBodySchema, request.body, 'body');
+      const agent = requireAgent(request);
 
       const input: ConnectAccountRequest = {
         marketplace: body.marketplace,
@@ -176,7 +177,9 @@ export function createAccountControllers(ctx: HttpRouteContext): AccountControll
         channelConfig: body.channelConfig,
       };
 
-      const result = await services.accounts.connectWithCredentials(input);
+      // Fase 4: the new store belongs to the caller workspace, which lets
+      // `AccountService` enforce the `max_accounts` quota of that tenant.
+      const result = await services.accounts.connectWithCredentials(input, agent.tenantId);
       return ok(result);
     },
 

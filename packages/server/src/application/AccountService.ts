@@ -12,6 +12,7 @@ import type {
   IClock,
   IHttpClient,
   ILogger,
+  IPlanLimitService,
   IRealtimePublisher,
   ISecretCipher,
   IAccountService,
@@ -58,6 +59,11 @@ export interface AccountServiceDependencies {
   config: ChannelRuntimeConfig;
   adapters: IAdapterRegistry;
   realtime?: IRealtimePublisher;
+  /**
+   * Fase 4 quota gate (`max_accounts`). Optional only for legacy unit harnesses;
+   * the container always wires it, and without it new stores bypass the plan.
+   */
+  planLimits?: IPlanLimitService;
   repos: {
     accounts: IAccountRepository;
   };
@@ -115,6 +121,7 @@ export class AccountService implements IAccountService {
   private readonly adapters: IAdapterRegistry;
   private readonly realtime: IRealtimePublisher | null;
   private readonly accounts: IAccountRepository;
+  private readonly planLimits: IPlanLimitService | undefined;
 
   constructor(deps: AccountServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AccountService' });
@@ -126,6 +133,7 @@ export class AccountService implements IAccountService {
     this.adapters = deps.adapters;
     this.realtime = deps.realtime ?? null;
     this.accounts = deps.repos.accounts;
+    this.planLimits = deps.planLimits;
   }
 
   /* ==================================================================== */
@@ -1062,6 +1070,12 @@ export class AccountService implements IAccountService {
       return { accountId: existing.id, displayName: existing.displayName };
     }
 
+    // Fase 4: only a NEW store consumes the `max_accounts` quota; reconnecting
+    // an existing one (matched above by marketplace + seller + site) is free.
+    if (input.tenantId !== null && input.tenantId !== undefined) {
+      await this.planLimits?.assertCanAddAccount(input.tenantId);
+    }
+
     const created = await this.accounts.create({
       tenantId: input.tenantId ?? null,
       marketplace: input.marketplace,
@@ -1075,7 +1089,6 @@ export class AccountService implements IAccountService {
       channelConfig: input.channelConfig,
       status: 'ACTIVE' as AccountStatus,
     });
-
     this.realtime?.channelHealth({
       marketplace: input.marketplace,
       accountId: created.id,

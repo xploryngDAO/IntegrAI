@@ -94,7 +94,11 @@ class InMemoryTenantRepository implements ITenantRepository {
       slug: input.slug,
       name: input.name ?? input.slug,
       status: input.status ?? 'ACTIVE',
+      plan: 'FREE',
+      maxAccounts: 1,
+      maxAgents: 3,
       onboardingCompletedAt: null,
+      deletedAt: null,
       createdAt: at,
       updatedAt: at,
     };
@@ -165,6 +169,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       emailVerifiedAt: input.emailVerifiedAt ?? null,
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
+      isPlatformAdmin: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -194,6 +199,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       emailVerifiedAt: input.emailVerifiedAt ?? null,
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
+      isPlatformAdmin: false,
       createdAt: at,
       updatedAt: at,
     };

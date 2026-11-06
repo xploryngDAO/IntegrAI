@@ -14,10 +14,18 @@ import type {
   AvailableActionView,
   ChannelHealthView,
   ConnectorDescriptor,
+  DeleteTenantCommand,
+  DeleteTenantResult,
   InvitationStatus,
   PageRequest,
   Paginated,
+  PlanUsageView,
+  PlatformMetrics,
+  PlatformTenantListResult,
+  PlatformTenantUpdateCommand,
+  PlatformTenantView,
   QueueSnapshot,
+  TenantExportPayload,
   TenantProfile,
   TicketDetail,
   TicketListItem,
@@ -215,6 +223,67 @@ export interface ITenantService {
 }
 
 /* ==========================================================================
+ * Plan quotas (Fase 4: max_agents / max_accounts)
+ * ========================================================================== */
+
+/**
+ * Single gate for every "add a seat / add a store" path.
+ *
+ * The effective quota comes from the tenant row (`max_accounts`/`max_agents`),
+ * so an ENTERPRISE workspace is unlimited in practice without a second code
+ * path. Every violation raises `PLAN_LIMIT_REACHED` (409) with
+ * `details = { limit, current, plan, resource }`.
+ */
+export interface IPlanLimitService {
+  /** Plan + effective limits + current usage (console/UI upgrade prompt). */
+  usage(tenantId: string): Promise<PlanUsageView>;
+  /** Accepting an invitation / creating an operator: agents < maxAgents. */
+  assertCanAddAgent(tenantId: string): Promise<void>;
+  /**
+   * Sending an invitation: agents + pending invitations < maxAgents.
+   * `excludeEmail` lets a resend for an already-pending address through (it does
+   * not reserve a second seat).
+   */
+  assertCanInviteAgent(tenantId: string, options?: { excludeEmail?: string }): Promise<void>;
+  /** Connecting a NEW store: accounts < maxAccounts. */
+  assertCanAddAccount(tenantId: string): Promise<void>;
+}
+
+/* ==========================================================================
+ * Platform console (Fase 4) - cross-tenant, requires `is_platform_admin`
+ * ========================================================================== */
+
+export interface IPlatformService {
+  /**
+   * Fails with 403 `AUTHORIZATION_ERROR` unless the operator is an active
+   * platform administrator. Re-read from the database (never the JWT claim) so
+   * revoking the flag takes effect immediately.
+   */
+  requirePlatformAdmin(actorId: string): Promise<void>;
+  listTenants(page: PageRequest): Promise<PlatformTenantListResult>;
+  updateTenant(tenantId: string, command: PlatformTenantUpdateCommand): Promise<PlatformTenantView>;
+  metrics(): Promise<PlatformMetrics>;
+}
+
+/* ==========================================================================
+ * LGPD tenant privacy (Fase 4): export + soft delete
+ * ========================================================================== */
+
+export interface ITenantPrivacyService {
+  /** JSON export scoped to the tenant (no password hashes, tokens or raw PII). */
+  exportData(tenantId: string, actorId: string): Promise<TenantExportPayload>;
+  /**
+   * Soft delete after re-authentication (ADMIN password + slug). Keeps every
+   * business row for audit; the physical purge is a future platform job.
+   */
+  deleteTenant(
+    tenantId: string,
+    command: DeleteTenantCommand,
+    actorId: string,
+  ): Promise<DeleteTenantResult>;
+}
+
+/* ==========================================================================
  * Agents / auth
  * ========================================================================== */
 
@@ -252,7 +321,14 @@ export interface IAgentService {
    * both paths share the exact same claim/session shape.
    */
   issueSession(agentId: string, device?: SessionDeviceInfo): Promise<LoginSuccess>;
-  verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }>;
+  verifyToken(token: string): Promise<{
+    agentId: string;
+    email: string;
+    name: string;
+    role: string;
+    tenantId: string | null;
+    isPlatformAdmin: boolean;
+  }>;
   setPresence(agentId: string, presence: AgentPresenceStatus): Promise<IAgentSummary>;
   heartbeat(agentId: string): Promise<void>;
   list(tenantId?: string | null): Promise<IAgentSummary[]>;
@@ -498,6 +574,9 @@ export interface IAppServices {
   readonly adapters: IAdapterRegistry;
   readonly accounts: IAccountService;
   readonly tenants: ITenantService;
+  readonly tenantPrivacy: ITenantPrivacyService;
+  readonly planLimits: IPlanLimitService;
+  readonly platform: IPlatformService;
   readonly tickets: ITicketQueryService;
   readonly ticketCommands: IUnifiedTicketService;
   readonly outbound: IOutboundRouterService;

@@ -11,6 +11,7 @@ import type {
   TicketStatus,
   TicketType,
 } from '../enums';
+import type { TenantPlan } from '../plans';
 import type {
   AgentRecord,
   BuyerPiiRecord,
@@ -26,7 +27,9 @@ import type {
   SessionRecord,
   SlaPolicyRecord,
   SupportTicketRecord,
+  TenantPolicyPatch,
   TenantRecord,
+  TenantUsageCounts,
   TicketEventRecord,
   TicketListFilter,
   TicketMessageRecord,
@@ -389,6 +392,8 @@ export interface CreateTenantInput {
   slug: string;
   name: string;
   status?: string;
+  /** Fase 4: plan applied at signup (defaults to FREE when omitted). */
+  plan?: TenantPlan;
 }
 
 /** Fields an operator may change on its own workspace (Fase 2 onboarding). */
@@ -522,4 +527,70 @@ export interface ISessionRepository {
   revoke(id: string, at: Date): Promise<boolean>;
   /** Password reset / "logout everywhere" path. Returns the revoked count. */
   revokeAllForUser(userId: string, at: Date): Promise<number>;
+}
+
+/* ==========================================================================
+ * FASE 4 - PLATFORM CONSOLE, PLAN QUOTAS AND LGPD TENANT PRIVACY
+ * ========================================================================== */
+
+/** Global, cross-tenant operational snapshot rendered by `/platform/metrics`. */
+export interface PlatformMetricsRecord {
+  totalTenants: number;
+  activeTenants: number;
+  accountsByMarketplace: Record<Marketplace, number>;
+  openTickets: number;
+  messagesLast24h: number;
+  slaAtRisk: number;
+}
+
+/**
+ * Cross-tenant aggregates.
+ *
+ * Kept apart from the per-entity repositories (accounts/tickets/agents) on
+ * purpose: the console and the plan-limit gate need COUNTS across tables and
+ * none of the domain repositories should grow an admin-only read shape.
+ */
+export interface IPlatformRepository {
+  /** Usage counts per tenant; unknown ids resolve to `{ 0, 0, 0 }`. */
+  usageFor(tenantIds: string[]): Promise<Record<string, TenantUsageCounts>>;
+  metrics(input: { messagesSince: Date; slaHorizon: Date }): Promise<PlatformMetricsRecord>;
+}
+
+/** Admin-only tenant writes (plan, quota, status, soft delete). */
+export interface IPlatformTenantRepository {
+  /** Newest first, tenant-level pagination (the console list). */
+  list(page: PageRequest): Promise<Paginated<TenantRecord>>;
+  /** Applies plan/quota/status; unknown id throws (Prisma P2025). */
+  applyPolicies(id: string, patch: TenantPolicyPatch): Promise<TenantRecord>;
+  /** Soft delete: `status='DELETED'`, `deleted_at=at`; data is preserved. */
+  softDelete(id: string, at: Date): Promise<TenantRecord>;
+}
+
+export interface TenantDataSnapshotOptions {
+  /** Max tickets exported (newest first). Default 1_000. */
+  ticketLimit?: number;
+  /** Max messages exported in total. Default 5_000. */
+  messageLimit?: number;
+  /** Max ticket events exported in total. Default 5_000. */
+  eventLimit?: number;
+}
+
+/** Raw rows backing the LGPD tenant export (mapped by the service). */
+export interface TenantDataSnapshot {
+  agents: AgentRecord[];
+  accounts: MarketplaceAccountRecord[];
+  tickets: SupportTicketRecord[];
+  messages: TicketMessageRecord[];
+  events: TicketEventRecord[];
+  truncated: { tickets: boolean; messages: boolean };
+}
+
+/**
+ * LGPD read/erase side of a tenant. The service decides the projection (no
+ * secrets, no raw buyer PII) and this port only guarantees tenant-scoped rows.
+ */
+export interface ITenantDataRepository {
+  snapshot(tenantId: string, options?: TenantDataSnapshotOptions): Promise<TenantDataSnapshot>;
+  /** Revokes every live refresh session of the tenant; returns the count. */
+  revokeSessions(tenantId: string, at: Date): Promise<number>;
 }

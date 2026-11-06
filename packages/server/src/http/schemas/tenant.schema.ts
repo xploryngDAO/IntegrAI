@@ -18,3 +18,19 @@ export const updateTenantBodySchema = z
   });
 
 export type UpdateTenantBody = z.infer<typeof updateTenantBodySchema>;
+
+/**
+ * `DELETE /tenants/me` (Fase 4 LGPD soft delete).
+ *
+ * Double confirmation: the caller re-types the workspace slug and the password
+ * of the authenticated ADMIN. Both are checked server-side (`bcrypt.compare`
+ * plus exact slug match); `.strict()` rejects any smuggled field.
+ */
+export const deleteTenantBodySchema = z
+  .object({
+    password: z.string().min(1).max(200),
+    confirmSlug: z.string().trim().min(1).max(80),
+  })
+  .strict();
+
+export type DeleteTenantBody = z.infer<typeof deleteTenantBodySchema>;

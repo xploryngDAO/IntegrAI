@@ -273,6 +273,7 @@ export function mapAgent(record: Agent): AgentRecord {
     emailVerifiedAt: record.emailVerifiedAt,
     twoFactorSecretEnc: record.twoFactorSecretEnc,
     twoFactorEnabled: record.twoFactorEnabled,
+    isPlatformAdmin: record.isPlatformAdmin,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -285,7 +286,11 @@ export function mapTenant(record: Tenant): TenantRecord {
     slug: record.slug,
     name: record.name,
     status: record.status,
+    plan: record.plan,
+    maxAccounts: record.maxAccounts,
+    maxAgents: record.maxAgents,
     onboardingCompletedAt: record.onboardingCompletedAt,
+    deletedAt: record.deletedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };

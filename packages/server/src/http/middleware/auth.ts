@@ -6,6 +6,7 @@ import {
   type AgentRole,
   type IAgentService,
   type ILogger,
+  type IPlatformService,
   type ITicketQueryService,
   NotFoundError,
 } from '@sac/shared';
@@ -89,6 +90,7 @@ export function registerAuthGuard(app: FastifyInstance, options: AuthGuardOption
         name: claims.name,
         role: claims.role,
         tenantId: claims.tenantId,
+        isPlatformAdmin: claims.isPlatformAdmin === true,
       };
 
       // Mutations on a ticket must belong to the caller's tenant (404 otherwise).
@@ -155,5 +157,25 @@ export function requireRole(...roles: readonly AgentRole[]): preHandlerHookHandl
     if (!roles.some((role) => role === agent.role)) {
       throw new AuthorizationError(`This route requires role: ${roles.join(' | ')}`);
     }
+  };
+}
+
+/**
+ * Fase 4 platform console gate.
+ *
+ * Runs after the global JWT guard. The service re-reads `agents.is_platform_admin`
+ * from the database on every call instead of trusting the JWT claim, so
+ * revoking the privilege takes effect on the very next request; a non-admin
+ * (even a tenant ADMIN) gets 403.
+ *
+ * ```ts
+ * const platformOnly = requirePlatformAdmin(services.platform);
+ * app.get('/tenants', { preHandler: platformOnly }, controllers.listTenants);
+ * ```
+ */
+export function requirePlatformAdmin(platform: IPlatformService): preHandlerHookHandler {
+  return async (request) => {
+    const agent = requireAgent(request);
+    await platform.requirePlatformAdmin(agent.id);
   };
 }

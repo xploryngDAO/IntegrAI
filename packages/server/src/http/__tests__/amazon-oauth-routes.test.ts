@@ -68,6 +68,7 @@ describe('Amazon OAuth route surface', () => {
           name: 'Ana',
           role: 'ADMIN',
           tenantId,
+          isPlatformAdmin: false,
         };
       }
     });
@@ -268,6 +269,7 @@ describe('Amazon OAuth end-to-end (route + AccountService + LWA stub)', () => {
           name: 'Ana',
           role: 'ADMIN',
           tenantId,
+          isPlatformAdmin: false,
         };
       }
     });

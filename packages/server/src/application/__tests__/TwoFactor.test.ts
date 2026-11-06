@@ -152,6 +152,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       emailVerifiedAt: at,
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
+      isPlatformAdmin: false,
       createdAt: at,
       updatedAt: at,
     };
@@ -176,6 +177,7 @@ class InMemoryAgentRepository implements IAgentRepository {
       emailVerifiedAt: input.emailVerifiedAt ?? null,
       twoFactorSecretEnc: null,
       twoFactorEnabled: false,
+      isPlatformAdmin: false,
       createdAt: at,
       updatedAt: at,
     };

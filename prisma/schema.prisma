@@ -119,6 +119,15 @@ enum SlaState {
   MET
 }
 
+/// Fase 4 - commercial plan of a workspace. The numeric limits live on the
+/// tenant row (`max_accounts`/`max_agents`) so the platform console can grant a
+/// one-off quota without inventing a new plan; the plan is the label/billing key.
+enum TenantPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -191,12 +200,22 @@ model Tenant {
   id        String   @id @default(uuid()) @db.Uuid
   slug      String   @unique @db.VarChar(80)
   name      String   @db.VarChar(160)
+  /// ACTIVE | SUSPENDED | DELETED (platform console / LGPD soft delete).
   status    String   @default("ACTIVE") @db.VarChar(24)
+  /// Fase 4: commercial plan (label/billing key) and effective numeric quotas.
+  plan        TenantPlan @default(FREE)
+  maxAccounts Int        @default(1) @map("max_accounts")
+  maxAgents   Int        @default(3) @map("max_agents")
   /// Fase 2: first completion of the guided onboarding wizard (null = pending).
   onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(6)
+  /// Fase 4/LGPD: soft delete marker. Data is preserved for audit; the physical
+  /// purge is a future platform job (see docs/PHASE4_PLATFORM.md).
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@index([status])
+  @@index([deletedAt])
   @@map("tenants")
 }
 
@@ -220,6 +239,9 @@ model Agent {
   /// (`ISecretCipher`). Present while a setup is pending and while 2FA is on.
   twoFactorSecretEnc String?             @map("two_factor_secret_enc") @db.Text
   twoFactorEnabled   Boolean             @default(false) @map("two_factor_enabled")
+  /// Fase 4: internal platform console operator (cross-tenant access). Granted
+  /// only by the bootstrap/seed (`ADMIN_EMAIL` / `PLATFORM_ADMIN_EMAILS`).
+  isPlatformAdmin     Boolean             @default(false) @map("is_platform_admin")
   createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -229,6 +251,7 @@ model Agent {
   twoFactorRecoveryCodes TwoFactorRecoveryCode[]
 
   @@index([tenantId])
+  @@index([isPlatformAdmin])
   @@map("agents")
 }
 

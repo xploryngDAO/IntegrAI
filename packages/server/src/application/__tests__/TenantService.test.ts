@@ -25,7 +25,11 @@ class InMemoryTenantRepository implements ITenantRepository {
       slug: input.slug,
       name: input.name ?? input.slug,
       status: 'ACTIVE',
+      plan: 'FREE',
+      maxAccounts: 1,
+      maxAgents: 3,
       onboardingCompletedAt: input.onboardingCompletedAt ?? null,
+      deletedAt: null,
       createdAt: at,
       updatedAt: at,
     };

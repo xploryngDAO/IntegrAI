@@ -171,6 +171,90 @@ export interface TenantProfile {
 }
 
 /* ==========================================================================
+ * Fase 4 — console interno da plataforma + LGPD
+ *
+ * These are the client-side contracts of the platform API (admin-only):
+ *
+ *   GET   /platform/metrics          -> PlatformMetrics
+ *   GET   /platform/tenants?page…    -> Paginated<PlatformTenant>
+ *   PATCH /platform/tenants/:id      -> PlatformTenant
+ *   GET   /tenants/me/export         -> JSON payload (raw artifact, no envelope)
+ *   DELETE /tenants/me               -> 202 + DeleteTenantResult
+ *
+ * The shapes mirror `@sac/shared` (PlatformTenantView, PlatformMetrics,
+ * PlatformTenantUpdateCommand) without importing runtime values — the bundle
+ * never pulls the shared package.
+ * ========================================================================== */
+
+/** Commercial plans of a tenant (`PLAN_LIMITS` in `@sac/shared`). */
+export type TenantPlan = 'FREE' | 'PRO' | 'ENTERPRISE';
+
+/** Effective quotas of one tenant (custom values may override plan defaults). */
+export interface PlatformTenantLimits {
+  maxAccounts: number;
+  maxAgents: number;
+}
+
+/** Usage counters rendered by the console for a single tenant. */
+export interface PlatformTenantCounts {
+  accounts: number;
+  agents: number;
+  tickets: number;
+}
+
+/** Global counters rendered on the platform dashboard. */
+export interface PlatformMetrics {
+  generatedAt?: string;
+  totalTenants?: number;
+  activeTenants: number;
+  accountsByMarketplace: Record<Marketplace, number>;
+  totalAccounts?: number;
+  openTickets: number;
+  messagesLast24h?: number;
+  slaAtRisk: number;
+  slaRiskHorizonMinutes?: number;
+}
+
+/** One tenant row of the platform console. */
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  slug: string;
+  plan: TenantPlan;
+  status: string;
+  limits: PlatformTenantLimits;
+  counts: PlatformTenantCounts;
+  onboardingCompletedAt: string | null;
+  /** Soft-delete marker (null = live workspace). */
+  deletedAt: string | null;
+  createdAt: string;
+}
+
+/** Body of `PATCH /platform/tenants/:id`. */
+export interface PlatformTenantUpdate {
+  plan?: TenantPlan;
+  maxAccounts?: number;
+  maxAgents?: number;
+  /** ACTIVE or SUSPENDED; DELETED is reserved for the LGPD delete flow. */
+  status?: 'ACTIVE' | 'SUSPENDED';
+}
+
+/** Query of `GET /platform/tenants`. */
+export interface PlatformTenantQuery {
+  page: number;
+  pageSize?: number;
+  /** Sent for forward compatibility; the current API filters client-side. */
+  search?: string;
+}
+
+/** Body of `DELETE /tenants/me` (double confirmation: password + slug). */
+export interface DeleteTenantBody {
+  password: string;
+  /** API field name of the workspace slug confirmation. */
+  confirmSlug: string;
+}
+
+/* ==========================================================================
  * Store shape (single zustand hook — see docs/UI_KIT.md §3)
  * ========================================================================== */
 

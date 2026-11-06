@@ -86,11 +86,18 @@ Checklist e artefatos de submissão: [PHASE3_APP_SUBMISSION](PHASE3_APP_SUBMISSI
 Critérios: N clientes reais conectados com apps aprovados e webhooks estáveis.
 
 ### Fase 4 — Plataforma e operação
+Design detalhado: [PHASE4_PLATFORM](PHASE4_PLATFORM.md).
 
-- Console interno: tenants, planos, limites, uso, suspensão.
-- Billing (assinatura) e quotas por plano.
-- Métricas por tenant (SLA, volume, erros), alertas e status page.
-- Backup/restore por tenant e LGPD (exportação/eliminação de dados).
+- Console interno: tenants, planos, limites, uso, suspensão. ✅ (sem UI ainda)
+- Billing (assinatura) e quotas por plano. ✅ quotas; ⏳ billing
+- Métricas por tenant (SLA, volume, erros), alertas e status page. ✅ métricas globais; ⏳ alertas/status page
+- Backup/restore por tenant e LGPD (exportação/eliminação de dados). ✅ export + soft delete; ⏳ purge físico e restore
+
+> **Fase 4 (parcial) concluída:** `plan`/quotas por tenant, gate de
+> `max_agents`/`max_accounts`, console `/platform/*` (JWT + `is_platform_admin`),
+> métricas globais, exportação LGPD e soft delete com `403 TENANT_INACTIVE`.
+> Pendências: purga física (job futuro), billing, UI do console, cache do check
+> de tenant por request.
 
 ## CI
 
@@ -117,4 +124,5 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 1 — signup + verificação de e-mail (endpoints, gate de login, EmailService, testes 19+9)`n- [x] Fase 1 — reset de senha + sessões/refresh rotativo/logout`n- [x] Fase 1 — UI de signup/verificação/reset/forgot (SPA)`n- [x] Fase 1 — convites de operadores (criar/listar/revogar/aceite + RBAC)`n- [x] Fase 1 — 2FA TOTP (setup/verify/disable/status, gate de login, challenge com TOTP/recovery code, testes RFC 6238)
 - [ ] Fase 2 — onboarding guiado
 - [ ] Fase 3 — apps aprovados
-- [ ] Fase 4 — console/billing
+- [x] Fase 4 — planos/quotas, console `/platform`, métricas e LGPD (export + soft delete)
+- [ ] Fase 4 — billing, purga física, UI do console, alertas/status page

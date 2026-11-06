@@ -12,6 +12,8 @@ export interface AuthenticatedAgent {
   name: string;
   role: string;
   tenantId: string | null;
+  /** Fase 4: JWT claim for UI gating; `/platform/*` re-checks the database. */
+  isPlatformAdmin: boolean;
 }
 
 declare module 'fastify' {

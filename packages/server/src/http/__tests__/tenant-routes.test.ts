@@ -58,6 +58,7 @@ describe('tenant self-service routes', () => {
           name: 'Ana',
           role: String(request.headers['x-test-role'] ?? 'ADMIN'),
           tenantId,
+          isPlatformAdmin: false,
         };
       }
     });

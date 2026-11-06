@@ -152,6 +152,31 @@ export function shouldOfferOnboarding(agent: OnboardingAgent): boolean {
 }
 
 /**
+ * Re-opens the wizard for a tenant that had already skipped/finished it.
+ *
+ * Called by `/settings` when the ADMIN explicitly chooses "Reexecutar
+ * onboarding". Only the local dismissal and the one-shot redirect claim are
+ * cleared — the completion timestamp stays authoritative for the automatic
+ * landing decision.
+ */
+export function clearOnboardingDismissal(agent: OnboardingAgent): void {
+  const key = onboardingKeyFor(agent);
+  dismissedInMemory.delete(key);
+  writeDismissed(readDismissed().filter((entry) => entry !== key));
+
+  const storage = safeStorage('session');
+  if (storage) {
+    try {
+      if (storage.getItem(ONBOARDING_REDIRECTED_KEY) === key) {
+        storage.removeItem(ONBOARDING_REDIRECTED_KEY);
+      }
+    } catch {
+      // Storage can be blocked; the explicit navigation still opens the wizard.
+    }
+  }
+}
+
+/**
  * Claims the single automatic redirect of this browser tab.
  *
  * StrictMode mounts effects twice, and a reload of the SPA would otherwise

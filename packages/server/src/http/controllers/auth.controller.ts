@@ -133,6 +133,9 @@ export function createAuthControllers(ctx: HttpRouteContext): AuthControllers {
         presence: summary.presence,
         activeTickets: summary.activeTickets,
         tenantId: agent.tenantId,
+        // Fase 4: drives the platform console entry in the SPA. The `/platform/*`
+        // routes re-check the flag in the database on every request.
+        isPlatformAdmin: agent.isPlatformAdmin === true,
       });
     },
 

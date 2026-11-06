@@ -424,6 +424,7 @@ describe('invitation route wiring (RBAC enforced by the plugin)', () => {
           name: 'Ana',
           role,
           tenantId: 'tenant-1',
+          isPlatformAdmin: false,
         };
       }
     });

@@ -14,6 +14,7 @@ import type {
   IInvitationRepository,
   IInvitationService,
   ILogger,
+  IPlanLimitService,
   InvitationRecord,
   InvitationStatus,
   InvitationSummary,
@@ -91,6 +92,11 @@ export interface InvitationServiceDependencies {
   config: InvitationServiceConfig;
   /** Optional: without it `accept` still returns the access JWT. */
   sessions?: IAuthSessionService;
+  /**
+   * Fase 4 quota gate (`max_agents`). Optional only for legacy unit harnesses;
+   * the container always wires it, and without it invitations bypass the plan.
+   */
+  planLimits?: IPlanLimitService;
   repos: {
     invitations: IInvitationRepository;
     agents: IAgentRepository;
@@ -109,6 +115,7 @@ export class InvitationService implements IInvitationService {
   private readonly agents: IAgentRepository;
   private readonly tenants: ITenantRepository;
   private readonly sessions: IAuthSessionService | undefined;
+  private readonly planLimits: IPlanLimitService | undefined;
 
   constructor(deps: InvitationServiceDependencies) {
     this.logger = deps.logger.child({ component: 'InvitationService' });
@@ -121,6 +128,7 @@ export class InvitationService implements IInvitationService {
     this.agents = deps.repos.agents;
     this.tenants = deps.repos.tenants;
     this.sessions = deps.sessions;
+    this.planLimits = deps.planLimits;
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('InvitationService requires a configured JWT_SECRET (min 16 chars)');
@@ -148,6 +156,11 @@ export class InvitationService implements IInvitationService {
     if (existingOperator !== null) {
       throw new ConflictError('An operator with this e-mail already exists');
     }
+
+    // Fase 4: a pending invitation reserves a seat. Without this check an ADMIN
+    // at the limit could mail links that all fail on acceptance. A resend for an
+    // address that is already pending is exempt (no second seat).
+    await this.planLimits?.assertCanInviteAgent(command.actor.tenantId, { excludeEmail: email });
 
     const token = randomToken(INVITATION_TOKEN_BYTES);
     const now = this.clock.now();
@@ -267,6 +280,10 @@ export class InvitationService implements IInvitationService {
     if (tenant === null || tenant.status !== 'ACTIVE') {
       throw new ConflictError('Workspace is not available for new operators');
     }
+
+    // Fase 4: the workspace may have downgraded/shrunk since the invite was
+    // sent, so acceptance re-checks the `max_agents` quota.
+    await this.planLimits?.assertCanAddAgent(invitation.tenantId);
 
     // The password is hashed before the insert; the plaintext never reaches the
     // repository, the logs or the e-mail service.

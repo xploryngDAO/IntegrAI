@@ -13,12 +13,21 @@ import type {
   IClock,
   ILogger,
   IRealtimePublisher,
+  ITenantRepository,
   ITicketRepository,
   LoginResult,
   LoginSuccess,
   SessionDeviceInfo,
+  TenantRecord,
 } from '@sac/shared';
-import { AppError, AuthenticationError, NotFoundError, ValidationError } from '@sac/shared';
+import {
+  AppError,
+  AuthenticationError,
+  NotFoundError,
+  TenantInactiveError,
+  ValidationError,
+  isTenantActive,
+} from '@sac/shared';
 
 import { signAccessToken } from './auth/access-token';
 import { signTwoFactorChallengeToken } from './auth/two-factor-token';
@@ -50,6 +59,12 @@ export interface AgentServiceDependencies {
   presenceTtlSeconds: number;
   /** Optional: without it login still works, it just returns no refresh token. */
   sessions?: IAuthSessionService;
+  /**
+   * Fase 4: tenant lifecycle gate. Optional only so legacy unit harnesses keep
+   * compiling; the container ALWAYS wires it, and without it a deleted tenant
+   * would still be able to authenticate.
+   */
+  tenants?: ITenantRepository;
   repos: {
     agents: IAgentRepository;
     tickets: ITicketRepository;
@@ -62,6 +77,8 @@ interface AgentJwtClaims {
   name: string;
   role: string;
   tenantId?: string | null;
+  /** Fase 4: informational claim; `/platform/*` re-checks the database. */
+  isPlatformAdmin?: boolean;
   /**
    * Scoped tokens (2FA challenge) are signed with the same secret but MUST NOT
    * be accepted as a session: `verifyToken` rejects any `scope` claim.
@@ -82,6 +99,7 @@ export class AgentService implements IAgentService {
   private readonly agents: IAgentRepository;
   private readonly tickets: ITicketRepository;
   private readonly sessions: IAuthSessionService | undefined;
+  private readonly tenants: ITenantRepository | undefined;
 
   constructor(deps: AgentServiceDependencies) {
     this.logger = deps.logger.child({ component: 'AgentService' });
@@ -94,6 +112,7 @@ export class AgentService implements IAgentService {
     this.agents = deps.repos.agents;
     this.tickets = deps.repos.tickets;
     this.sessions = deps.sessions;
+    this.tenants = deps.tenants;
 
     if (!this.jwtSecret || this.jwtSecret.length < 16) {
       throw new Error('AgentService requires a configured JWT_SECRET (min 16 chars)');
@@ -141,6 +160,11 @@ export class AgentService implements IAgentService {
       );
     }
 
+    // Fase 4: a suspended/soft-deleted workspace can never open a session. The
+    // check runs AFTER the password so a wrong password still answers 401 and
+    // the workspace status is not leaked to an unauthenticated caller.
+    await this.assertTenantActive(agent.tenantId, agent.id);
+
     // Fase 1: 2FA-enabled operators get NOTHING but a 5 min challenge JWT.
     // No access token, no refresh session and no presence change until the
     // second factor is redeemed on `/auth/2fa/challenge`.
@@ -172,6 +196,9 @@ export class AgentService implements IAgentService {
     if (agent === null || !agent.isActive) {
       throw new AuthenticationError('Invalid credentials');
     }
+    // Fase 4: the 2FA challenge completion path must not mint a session for a
+    // workspace that was deleted/suspended after the challenge token was issued.
+    await this.assertTenantActive(agent.tenantId, agent.id);
     return this.issueSessionFor(agent, device);
   }
 
@@ -197,7 +224,14 @@ export class AgentService implements IAgentService {
     };
   }
 
-  async verifyToken(token: string): Promise<{ agentId: string; email: string; name: string; role: string; tenantId: string | null }> {
+  async verifyToken(token: string): Promise<{
+    agentId: string;
+    email: string;
+    name: string;
+    role: string;
+    tenantId: string | null;
+    isPlatformAdmin: boolean;
+  }> {
     if (!token) throw new AuthenticationError('Missing bearer token');
     try {
       const decoded = jwt.verify(token, this.jwtSecret, {
@@ -213,16 +247,49 @@ export class AgentService implements IAgentService {
       if (decoded.scope !== undefined) {
         throw new AuthenticationError('Token is not an access token');
       }
+      const tenantId = typeof decoded.tenantId === 'string' ? decoded.tenantId : null;
+
+      // Fase 4: every request re-checks the workspace lifecycle. A soft-deleted
+      // or suspended tenant answers 403 TENANT_INACTIVE instead of continuing to
+      // use the API with a still-valid access token.
+      await this.assertTenantActive(tenantId, decoded.sub);
+
       return {
         agentId: decoded.sub,
         email: typeof decoded.email === 'string' ? decoded.email : '',
         name: typeof decoded.name === 'string' ? decoded.name : '',
         role: typeof decoded.role === 'string' ? decoded.role : 'AGENT',
-        tenantId: typeof decoded.tenantId === 'string' ? decoded.tenantId : null,
+        tenantId,
+        isPlatformAdmin: decoded.isPlatformAdmin === true,
       };
     } catch (error) {
-      if (error instanceof AuthenticationError) throw error;
+      // Domain errors (TENANT_INACTIVE, AUTHENTICATION_ERROR) keep their status;
+      // jsonwebtoken failures (signature/expiry/malformed) become a 401.
+      if (error instanceof AppError) throw error;
       throw new AuthenticationError('Invalid or expired token');
+    }
+  }
+
+  /**
+   * Rejects a tenant that is not ACTIVE (suspended or soft-deleted). A token
+   * that references an unknown tenant is treated the same way: the workspace
+   * no longer exists, so the session must not be usable.
+   */
+  private async assertTenantActive(tenantId: string | null, agentId: string): Promise<void> {
+    if (tenantId === null || this.tenants === undefined) return;
+
+    const tenant: TenantRecord | null = await this.tenants.findById(tenantId);
+    if (tenant === null) {
+      this.logger.warn('agent.session.tenant_missing', { agentId, tenantId });
+      throw new TenantInactiveError('DELETED', tenantId);
+    }
+    if (!isTenantActive(tenant)) {
+      this.logger.warn('agent.session.tenant_inactive', {
+        agentId,
+        tenantId,
+        status: tenant.status,
+      });
+      throw new TenantInactiveError(tenant.status, tenantId);
     }
   }
 

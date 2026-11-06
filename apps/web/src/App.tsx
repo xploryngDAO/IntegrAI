@@ -9,6 +9,7 @@ import {
   loadTenantProfile,
   shouldOfferOnboarding,
 } from './lib/onboarding';
+import { isPlatformAdmin } from './lib/platform';
 import { AppShell } from './components/layout/AppShell';
 import { ToastViewport } from './components/layout/ToastViewport';
 import { LoginPage } from './pages/LoginPage';
@@ -20,6 +21,8 @@ import { InvitePage } from './pages/InvitePage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AccountsPage } from './pages/AccountsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { PlatformPage } from './pages/PlatformPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
@@ -58,12 +61,18 @@ function normalizePath(pathname: string): string {
 /**
  * Session probe shared by StrictMode's double mount: one `/auth/me` per boot
  * instead of two. A failure clears the cache so a later navigation retries.
+ *
+ * The summary is mirrored into the store before `boot()` runs: role-gated
+ * navigation (Fase 4) and the topbar identity must not depend on every tenant
+ * endpoint succeeding — a platform operator may not have tenant data at all.
  */
 let sessionProbe: Promise<void> | null = null;
 
 function probeSession(): Promise<void> {
   if (sessionProbe === null) {
-    sessionProbe = api.me().then(() => undefined);
+    sessionProbe = api.me().then((agent) => {
+      useWorkspace.setState({ currentAgent: agent });
+    });
     sessionProbe.catch(() => {
       sessionProbe = null;
     });
@@ -152,6 +161,9 @@ export default function App(): JSX.Element {
     if (authState !== 'authenticated') return;
     if (path !== '/') return;
     if (currentAgent === null) return;
+    // Platform staff operate the console, not a tenant workspace: the guided
+    // channel onboarding does not apply to them.
+    if (isPlatformAdmin(currentAgent)) return;
     if (!shouldOfferOnboarding(currentAgent)) return;
 
     let cancelled = false;
@@ -231,6 +243,9 @@ export default function App(): JSX.Element {
           <Route path="/" element={<WorkspacePage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          {/* Fase 4: both screens are guarded again by the API (403). */}
+          <Route path="/platform" element={<PlatformPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

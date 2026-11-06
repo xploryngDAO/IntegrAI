@@ -1,8 +1,10 @@
 import { Moon, Sun } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Icon, type IconName } from '@xploryng/convergencia';
 import type { AgentPresenceStatus, Marketplace } from '@sac/shared';
 import { useWorkspace } from '../../lib/store';
 import { useTheme } from '../../lib/theme';
+import { isPlatformAdmin, isTenantAdmin } from '../../lib/platform';
 import { Avatar, IconButton, SegmentedControl } from '../ui';
 
 const MARKET_ORDER: Marketplace[] = ['AMAZON', 'MERCADO_LIVRE', 'SHOPEE'];
@@ -44,18 +46,39 @@ export function Topbar(): JSX.Element {
   const { pathname } = useLocation();
   const onAccounts = pathname.startsWith('/accounts');
   const onOnboarding = pathname.startsWith('/onboarding');
+  const onPlatform = pathname.startsWith('/platform');
+  const onSettings = pathname.startsWith('/settings');
   // Onboarding is a focused flow: channel health, SLA and the queue badge are
-  // hidden so the wizard keeps a single primary action per step.
-  const focusMode = onAccounts || onOnboarding;
+  // hidden so the wizard keeps a single primary action per step. The Fase 4
+  // admin screens are also focused surfaces (no queue telemetry).
+  const focusMode = onAccounts || onOnboarding || onPlatform || onSettings;
 
-  const title = onOnboarding ? 'Primeiros passos' : onAccounts ? 'Canais' : 'Atendimento';
+  const title = onOnboarding
+    ? 'Primeiros passos'
+    : onAccounts
+      ? 'Canais'
+      : onPlatform
+        ? 'Plataforma'
+        : onSettings
+          ? 'Configurações'
+          : 'Atendimento';
   const subtitle = onOnboarding
     ? 'Conecte os canais e faça o primeiro atendimento'
     : onAccounts
       ? `${accounts.length} loja(s) · tokens, webhooks e autorizações`
-      : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
-          totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
-        }`;
+      : onPlatform
+        ? 'Console interno · tenants e planos'
+        : onSettings
+          ? 'Workspace, privacidade e zona de perigo'
+          : `${accounts.length > 0 ? `${accounts.length} lojas conectadas` : 'Nenhuma loja conectada'}${
+              totalTickets > 0 ? ` · ${totalTickets} na fila` : ''
+            }`;
+
+  const platformAdmin = isPlatformAdmin(currentAgent);
+  const tenantAdmin = isTenantAdmin(currentAgent);
+  const adminLinks: { to: string; label: string; icon: IconName }[] = [];
+  if (platformAdmin) adminLinks.push({ to: '/platform', label: 'Plataforma', icon: 'grid' });
+  if (tenantAdmin) adminLinks.push({ to: '/settings', label: 'Ajustes', icon: 'sliders' });
 
   const selected = filters.marketplaces;
   const allSelected = selected.length === 0 || selected.length === MARKET_ORDER.length;
@@ -116,6 +139,19 @@ export function Topbar(): JSX.Element {
       )}
 
       <div className="sac-topbar__spacer" />
+
+      {adminLinks.map((link) => (
+        <NavLink
+          key={link.to}
+          to={link.to}
+          className="sac-topbar__link"
+          title={link.label}
+          aria-label={link.label}
+        >
+          <Icon name={link.icon} size={17} />
+          <span>{link.label}</span>
+        </NavLink>
+      ))}
 
       {focusMode ? null : (
         <div className="sac-topbar__metric" title="Tempo médio até a primeira resposta">

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Icon } from '@xploryng/convergencia';
+import { Icon, type IconName } from '@xploryng/convergencia';
 import { useWorkspace } from '../../lib/store';
+import { isPlatformAdmin, isTenantAdmin } from '../../lib/platform';
 import { Topbar } from './Topbar';
 
 export interface AppShellProps {
@@ -9,18 +10,39 @@ export interface AppShellProps {
   children?: ReactNode;
 }
 
-const NAV = [
-  { to: '/', label: 'Fila', icon: 'chat' as const, end: true },
-  { to: '/accounts', label: 'Canais', icon: 'network' as const, end: false },
+interface NavEntry {
+  to: string;
+  label: string;
+  icon: IconName;
+  end: boolean;
+}
+
+const BASE_NAV: NavEntry[] = [
+  { to: '/', label: 'Fila', icon: 'chat', end: true },
+  { to: '/accounts', label: 'Canais', icon: 'network', end: false },
 ];
 
 /**
  * Application chrome: Convergência rail + topbar + routed content.
+ *
  * The rail keeps navigation, the topbar keeps telemetry and identity; content
  * pages own their own columns (docs/UI_SPEC.md, docs/CONVERGENCIA_ADOPTION.md).
+ *
+ * Fase 4 adds two role-gated entries. They are only *shortcuts*: the API is the
+ * real guard, so a direct URL still lands on the page (which renders the 403 /
+ * access-restricted state instead of breaking).
  */
 export function AppShell({ children }: AppShellProps): JSX.Element {
   const totalTickets = useWorkspace((state) => state.totalTickets);
+  const currentAgent = useWorkspace((state) => state.currentAgent);
+
+  const nav: NavEntry[] = [...BASE_NAV];
+  if (isPlatformAdmin(currentAgent)) {
+    nav.push({ to: '/platform', label: 'Plataforma', icon: 'grid', end: false });
+  }
+  if (isTenantAdmin(currentAgent)) {
+    nav.push({ to: '/settings', label: 'Ajustes', icon: 'sliders', end: false });
+  }
 
   return (
     <div className="sac-shell">
@@ -30,7 +52,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
         </NavLink>
 
         <nav className="sac-rail__nav">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

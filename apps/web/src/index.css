@@ -209,6 +209,52 @@ body {
   flex: 1;
 }
 
+/* Fase 4: role-gated shortcuts to /platform and /settings. The rail is hidden
+ * on phones, so the topbar keeps an icon-only entry point at 390px. */
+.sac-topbar__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--cv-color-border);
+  border-radius: var(--cv-radius-pill);
+  background: var(--cv-color-surface);
+  color: var(--cv-color-text-muted);
+  font-size: var(--cv-font-meta);
+  font-weight: var(--cv-font-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  flex: none;
+  transition:
+    background var(--cv-motion-fast) var(--cv-motion-ease),
+    color var(--cv-motion-fast) var(--cv-motion-ease),
+    border-color var(--cv-motion-fast) var(--cv-motion-ease);
+}
+
+.sac-topbar__link:hover {
+  background: var(--cv-color-surface-subtle);
+  color: var(--cv-color-text);
+}
+
+.sac-topbar__link[aria-current='page'] {
+  background: var(--cv-color-accent-soft);
+  border-color: color-mix(in srgb, var(--cv-color-accent) 28%, transparent);
+  color: var(--cv-color-accent-text);
+}
+
+@media (max-width: 900px) {
+  .sac-topbar__link {
+    width: 40px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sac-topbar__link span {
+    display: none;
+  }
+}
+
 .sac-topbar__metric {
   display: flex;
   flex-direction: column;
@@ -759,6 +805,16 @@ body {
   margin: 4px 0;
 }
 
+/* Fase 4: destructive settings surface. Only the border/heading change; the
+ * card stays a Convergência surface in both themes. */
+.sac-card--danger {
+  border-color: color-mix(in srgb, var(--cv-color-danger) 36%, var(--cv-color-border));
+}
+
+.sac-card--danger h3 {
+  color: var(--cv-color-danger);
+}
+
 .sac-market {
   display: inline-flex;
   align-items: center;
@@ -938,6 +994,14 @@ body {
     padding: 10px 12px;
   }
 
+  /* With the Fase 4 admin shortcuts the icons must stay compact so they fit the
+   * first row at 390px; presence/identity wrap below. */
+  .sac-topbar__link {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
   .sac-topbar__channels {
     order: 3;
     width: 100%;
@@ -1067,5 +1131,13 @@ body {
 @media (forced-colors: active) {
   .sac-ticket[aria-current='true'] {
     outline: 2px solid CanvasText;
+  }
+}
+
+/* Fase 4: keep the title compact on phones so the two role shortcuts, the theme
+ * toggle and the title share the first topbar row (presence/identity wrap). */
+@media (max-width: 900px) {
+  .sac-topbar__title {
+    flex: 1 1 120px;
   }
 }

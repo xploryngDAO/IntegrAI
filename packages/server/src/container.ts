@@ -26,7 +26,10 @@ import {
   type IOutboundAttemptRecorder,
   type OutboundAttemptRecordInput,
 } from './application/OutboundRouterService';
+import { PlanLimitService } from './application/PlanLimitService';
+import { PlatformService } from './application/PlatformService';
 import { SlaEngine } from './application/sla/SlaEngine';
+import { TenantPrivacyService } from './application/TenantPrivacyService';
 import { TenantService } from './application/TenantService';
 import { TicketQueryService } from './application/TicketQueryService';
 import { TwoFactorService } from './application/TwoFactorService';
@@ -174,6 +177,17 @@ export function createContainer(args: ContainerArgs): IAppServices {
   });
 
   // --- 5. Onboarding + auth + ingress + ops -------------------------------
+  // Fase 4: single quota gate shared by accounts and invitations.
+  const planLimits = new PlanLimitService({
+    logger: infra.logger,
+    clock: infra.clock,
+    repos: {
+      tenants: infra.tenants,
+      platform: infra.platform,
+      invitations: infra.invitations,
+    },
+  });
+
   const accounts = new AccountService({
     logger: infra.logger,
     clock: infra.clock,
@@ -183,6 +197,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     config: channelConfig,
     adapters,
     realtime,
+    planLimits,
     repos: { accounts: infra.repos.accounts },
   });
 
@@ -190,6 +205,28 @@ export function createContainer(args: ContainerArgs): IAppServices {
     logger: infra.logger,
     clock: infra.clock,
     repos: { tenants: infra.tenants },
+  });
+
+  const tenantPrivacy = new TenantPrivacyService({
+    logger: infra.logger,
+    clock: infra.clock,
+    repos: {
+      tenants: infra.tenants,
+      tenantAdmin: infra.platformTenants,
+      agents: infra.agents,
+      tenantData: infra.tenantData,
+    },
+  });
+
+  const platform = new PlatformService({
+    logger: infra.logger,
+    clock: infra.clock,
+    repos: {
+      agents: infra.agents,
+      tenants: infra.tenants,
+      platformTenants: infra.platformTenants,
+      platform: infra.platform,
+    },
   });
 
   const sessions = new AuthSessionService({
@@ -212,6 +249,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
     jwtExpiresIn: config.jwtExpiresIn,
     presenceTtlSeconds: config.agentPresenceTtlSeconds,
     sessions,
+    tenants: infra.tenants,
     repos: {
       agents: infra.agents,
       tickets: infra.repos.tickets,
@@ -260,6 +298,7 @@ export function createContainer(args: ContainerArgs): IAppServices {
       appBaseUrl: config.appBaseUrl,
     },
     sessions,
+    planLimits,
     repos: {
       invitations: infra.invitations,
       agents: infra.agents,
@@ -339,6 +378,9 @@ export function createContainer(args: ContainerArgs): IAppServices {
     adapters,
     accounts,
     tenants,
+    tenantPrivacy,
+    planLimits,
+    platform,
     tickets,
     ticketCommands,
     outbound,

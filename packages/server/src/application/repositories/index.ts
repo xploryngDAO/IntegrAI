@@ -15,9 +15,15 @@ import {
   PrismaPasswordResetRepository,
 } from './password-resets';
 import { createPiiVaultRepository, PrismaPiiVaultRepository } from './pii-vault';
+import { createPlatformRepository, PrismaPlatformRepository } from './platform';
 import { createSessionRepository, PrismaSessionRepository } from './sessions';
 import { createSlaPolicyRepository, PrismaSlaPolicyRepository } from './sla-policies';
-import { createTenantRepository, PrismaTenantRepository } from './tenants';
+import { createTenantDataRepository, PrismaTenantDataRepository } from './tenant-data';
+import {
+  createPlatformTenantRepository,
+  createTenantRepository,
+  PrismaTenantRepository,
+} from './tenants';
 import { createTicketEventRepository, PrismaTicketEventRepository } from './ticket-events';
 import { createTicketRepository, PrismaTicketRepository } from './tickets';
 import { createTwoFactorRepository, PrismaTwoFactorRepository } from './two-factor';
@@ -55,9 +61,15 @@ export {
   PrismaPasswordResetRepository,
 };
 export { createPiiVaultRepository, PrismaPiiVaultRepository };
+export { createPlatformRepository, PrismaPlatformRepository };
 export { createSessionRepository, PrismaSessionRepository };
 export { createSlaPolicyRepository, PrismaSlaPolicyRepository };
-export { createTenantRepository, PrismaTenantRepository };
+export { createTenantDataRepository, PrismaTenantDataRepository };
+export {
+  createPlatformTenantRepository,
+  createTenantRepository,
+  PrismaTenantRepository,
+};
 export { createTicketEventRepository, PrismaTicketEventRepository };
 export { createTicketRepository, PrismaTicketRepository };
 export { createTwoFactorRepository, PrismaTwoFactorRepository };

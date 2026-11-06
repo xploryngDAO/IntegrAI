@@ -13,11 +13,14 @@ import type {
   ILogger,
   IObjectStorage,
   IPasswordResetRepository,
+  IPlatformRepository,
+  IPlatformTenantRepository,
   IQueuePublisher,
   IRateLimiter,
   ISessionRepository,
   ISlaPolicyRepository,
   ISecretCipher,
+  ITenantDataRepository,
   ITenantRepository,
   ITwoFactorRepository,
 } from '@sac/shared';
@@ -28,8 +31,11 @@ import {
   createEmailVerificationRepository,
   createInvitationRepository,
   createPasswordResetRepository,
+  createPlatformRepository,
+  createPlatformTenantRepository,
   createSessionRepository,
   createSlaPolicyRepository,
+  createTenantDataRepository,
   createTenantRepository,
   createTwoFactorRepository,
 } from '../application/repositories';
@@ -65,6 +71,9 @@ export interface InfrastructureBundle {
   repos: AdapterRepositories;
   agents: IAgentRepository;
   tenants: ITenantRepository;
+  platformTenants: IPlatformTenantRepository;
+  platform: IPlatformRepository;
+  tenantData: ITenantDataRepository;
   emailVerifications: IEmailVerificationRepository;
   invitations: IInvitationRepository;
   passwordResets: IPasswordResetRepository;
@@ -134,6 +143,9 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
   const repos = createRepositories(prisma);
   const agents = createAgentRepository(prisma);
   const tenants = createTenantRepository(prisma);
+  const platformTenants = createPlatformTenantRepository(prisma);
+  const platform = createPlatformRepository(prisma);
+  const tenantData = createTenantDataRepository(prisma);
   const emailVerifications = createEmailVerificationRepository(prisma);
   const invitations = createInvitationRepository(prisma);
   const passwordResets = createPasswordResetRepository(prisma);
@@ -168,6 +180,9 @@ export function createInfrastructure(config: AppConfig): InfrastructureBundle {
     repos,
     agents,
     tenants,
+    platformTenants,
+    platform,
+    tenantData,
     emailVerifications,
     invitations,
     passwordResets,

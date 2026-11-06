@@ -11,6 +11,7 @@ import type {
   TicketStatus,
   TicketType,
 } from './enums';
+import type { PlanLimits, TenantPlan } from './plans';
 
 /* ==========================================================================
  * Persistence records (Date-based, consumed by repositories + services)
@@ -184,6 +185,12 @@ export interface AgentRecord {
   twoFactorSecretEnc: string | null;
   /** True only after `/auth/2fa/verify` accepted a valid TOTP code. */
   twoFactorEnabled: boolean;
+  /**
+   * Fase 4: internal platform console operator. Grants cross-tenant access to
+   * `/platform/*`; granted only by the seed (`ADMIN_EMAIL` /
+   * `PLATFORM_ADMIN_EMAILS`), never through a self-service flow.
+   */
+  isPlatformAdmin: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -204,9 +211,16 @@ export interface TenantRecord {
   id: string;
   slug: string;
   name: string;
+  /** ACTIVE | SUSPENDED | DELETED (see `TENANT_STATUSES`). */
   status: string;
+  /** Fase 4: commercial plan + effective quotas (may differ from plan defaults). */
+  plan: TenantPlan;
+  maxAccounts: number;
+  maxAgents: number;
   /** Fase 2: first time the guided onboarding wizard was completed. */
   onboardingCompletedAt: Date | null;
+  /** Fase 4/LGPD: soft-delete marker (physical purge is a future job). */
+  deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -217,6 +231,218 @@ export interface TenantProfile {
   slug: string;
   name: string;
   onboardingCompletedAt: Date | null;
+}
+
+/* ==========================================================================
+ * FASE 4 - platform console, plan quotas and LGPD tenant privacy
+ * ========================================================================== */
+
+/**
+ * Fields the platform console may change on a workspace. Kept apart from
+ * `UpdateTenantInput` on purpose: an operator can rename its tenant and toggle
+ * the onboarding marker, never the plan/quota/status.
+ */
+export interface TenantPolicyPatch {
+  plan?: TenantPlan;
+  maxAccounts?: number;
+  maxAgents?: number;
+  status?: string;
+  deletedAt?: Date | null;
+}
+
+/** Counts rendered by the console for a single tenant. */
+export interface TenantUsageCounts {
+  accounts: number;
+  agents: number;
+  tickets: number;
+}
+
+/** One row of `GET /platform/tenants` (JSON-safe: ISO strings). */
+export interface PlatformTenantView {
+  id: string;
+  slug: string;
+  name: string;
+  plan: TenantPlan;
+  status: string;
+  limits: PlanLimits;
+  counts: TenantUsageCounts;
+  onboardingCompletedAt: string | null;
+  /** Soft-delete marker (null = live workspace). */
+  deletedAt: string | null;
+  createdAt: string;
+}
+
+export interface PlatformTenantListResult {
+  items: PlatformTenantView[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/** Body of `PATCH /platform/tenants/:id`. */
+export interface PlatformTenantUpdateCommand {
+  plan?: TenantPlan;
+  maxAccounts?: number;
+  maxAgents?: number;
+  /** ACTIVE or SUSPENDED; DELETED is reserved for the LGPD delete flow. */
+  status?: 'ACTIVE' | 'SUSPENDED';
+}
+
+/** `GET /platform/metrics` - global, cross-tenant operational totals. */
+export interface PlatformMetrics {
+  generatedAt: string;
+  totalTenants: number;
+  /** Tenants with `status = ACTIVE` and no soft delete. */
+  activeTenants: number;
+  accountsByMarketplace: Record<Marketplace, number>;
+  totalAccounts: number;
+  openTickets: number;
+  /** Messages of every tenant inserted in the last 24h. */
+  messagesLast24h: number;
+  /** Open, not-yet-breached tickets whose SLA deadline is inside the horizon. */
+  slaAtRisk: number;
+  slaRiskHorizonMinutes: number;
+}
+
+/** Output of `IPlanLimitService.usage` (upgrade prompt / console detail). */
+export interface PlanUsageView {
+  plan: TenantPlan;
+  limits: PlanLimits;
+  usage: { agents: number; accounts: number };
+}
+
+/** `DELETE /tenants/me` body: explicit, double confirmation of the LGPD delete. */
+export interface DeleteTenantCommand {
+  /** Current password of the authenticated ADMIN (bcrypt-checked). */
+  password: string;
+  /** Must match `tenants.slug` exactly (case-insensitive, trimmed). */
+  confirmSlug: string;
+}
+
+export interface DeleteTenantResult {
+  tenantId: string;
+  slug: string;
+  status: 'DELETED';
+  deletedAt: string;
+  /** Physical purge is NOT scheduled yet: it is a future platform job. */
+  purge: {
+    scheduled: false;
+    note: string;
+  };
+}
+
+export interface TenantExportMeta {
+  formatVersion: string;
+  exportedAt: string;
+  exportedBy: string;
+  tenantId: string;
+  limits: PlanLimits;
+  ticketLimit: number;
+  messageLimit: number;
+  truncated: { tickets: boolean; messages: boolean };
+  notes: string[];
+}
+
+/** LGPD export: operator projection WITHOUT `passwordHash`/`twoFactorSecretEnc`. */
+export interface TenantExportAgent {
+  id: string;
+  email: string;
+  name: string;
+  role: AgentRole;
+  presence: AgentPresenceStatus;
+  isActive: boolean;
+  isPlatformAdmin: boolean;
+  emailVerifiedAt: string | null;
+  twoFactorEnabled: boolean;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+/** LGPD export: account projection WITHOUT access/refresh tokens. */
+export interface TenantExportAccount {
+  id: string;
+  marketplace: Marketplace;
+  displayName: string;
+  externalSellerId: string;
+  marketplaceSiteId: string;
+  status: AccountStatus;
+  channelConfig: Record<string, unknown>;
+  tokenExpiresAt: string | null;
+  authExpiresAt: string | null;
+  createdAt: string;
+}
+
+/** LGPD export: ticket projection WITHOUT raw buyer PII. */
+export interface TenantExportTicket {
+  id: string;
+  marketplace: Marketplace;
+  accountId: string;
+  ticketType: TicketType;
+  status: TicketStatus;
+  priority: TicketPriority;
+  externalReferenceId: string;
+  externalOrderId: string | null;
+  subject: string | null;
+  hasActiveClaim: boolean;
+  slaDeadlineAt: string;
+  slaState: SlaState;
+  slaBreached: boolean;
+  firstResponseAt: string | null;
+  resolvedAt: string | null;
+  lastMessageAt: string | null;
+  unreadCount: number;
+  assignedAgentId: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** LGPD export: message projection WITHOUT HTML/raw artifacts/content payloads. */
+export interface TenantExportMessage {
+  id: string;
+  ticketId: string;
+  direction: MessageDirection;
+  channelRouteUsed: ChannelRoute;
+  messageType: string;
+  bodyCleanText: string;
+  deliveryStatus: DeliveryStatus;
+  isInternalNote: boolean;
+  authorAgentId: string | null;
+  marketplaceCreatedAt: string;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface TenantExportEvent {
+  id: string;
+  ticketId: string;
+  eventType: string;
+  actorLabel: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Body of `GET /tenants/me/export` (`Content-Disposition: attachment`). */
+export interface TenantExportPayload {
+  meta: TenantExportMeta;
+  tenant: {
+    id: string;
+    slug: string;
+    name: string;
+    status: string;
+    plan: TenantPlan;
+    limits: PlanLimits;
+    onboardingCompletedAt: string | null;
+    deletedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  agents: TenantExportAgent[];
+  accounts: TenantExportAccount[];
+  tickets: TenantExportTicket[];
+  messages: TenantExportMessage[];
+  events: TenantExportEvent[];
 }
 
 export interface EmailVerificationRecord {

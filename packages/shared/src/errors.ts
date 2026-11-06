@@ -3,6 +3,8 @@
  * `code` is a stable machine string used by the UI and by DLQ triage.
  */
 
+import type { TenantPlan } from './plans';
+
 export type AppErrorDetails = Record<string, unknown> | undefined;
 
 export class AppError extends Error {
@@ -55,6 +57,48 @@ export class AuthorizationError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string, details?: AppErrorDetails) {
     super('CONFLICT', message, 409, details);
+  }
+}
+
+/**
+ * Plan quota exhausted (Fase 4).
+ *
+ * `409` (the request is valid, the workspace just has no room left) with the
+ * exact numbers the UI needs to render an upgrade prompt:
+ * `details = { limit, current, plan, resource }`.
+ */
+export class PlanLimitReachedError extends AppError {
+  constructor(input: {
+    plan: TenantPlan;
+    limit: number;
+    current: number;
+    resource: 'agents' | 'accounts';
+  }) {
+    super(
+      'PLAN_LIMIT_REACHED',
+      `Plan ${input.plan} allows ${input.limit} ${input.resource} but the workspace already uses ${input.current}`,
+      409,
+      {
+        plan: input.plan,
+        limit: input.limit,
+        current: input.current,
+        resource: input.resource,
+      },
+    );
+  }
+}
+
+/**
+ * The authenticated operator belongs to a suspended/soft-deleted workspace.
+ * `403` (the identity is valid, the workspace is not) with a stable code so the
+ * SPA can show the "workspace unavailable" screen instead of a login loop.
+ */
+export class TenantInactiveError extends AppError {
+  constructor(status: string, tenantId?: string | null) {
+    super('TENANT_INACTIVE', `Workspace is ${status.toLowerCase()} and cannot be used`, 403, {
+      status,
+      tenantId: tenantId ?? null,
+    });
   }
 }
 

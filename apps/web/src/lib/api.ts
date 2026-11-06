@@ -30,6 +30,11 @@ import type {
   AccountRow,
   ActionBody,
   ConnectAccountPayload,
+  DeleteTenantBody,
+  PlatformMetrics,
+  PlatformTenant,
+  PlatformTenantQuery,
+  PlatformTenantUpdate,
   PolicyCheckBody,
   SendMessageBody,
   SignupBody,
@@ -100,6 +105,11 @@ interface RequestOptions {
   formData?: FormData;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /**
+   * Accepts a successful response without a JSON body (204/205/empty 2xx).
+   * Logout answers 204 and a 204 must never surface as an invalid response.
+   */
+  allowEmpty?: boolean;
 }
 
 function unwrap<T>(payload: unknown): T {
@@ -168,6 +178,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       );
     }
 
+    // 204 has no body by definition; parsing it would surface a false
+    // INVALID_RESPONSE on a successful delete/logout.
+    if (response.status === 204) return undefined as T;
+
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const errorBody = payload as
@@ -181,6 +195,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       );
     }
     if (payload === null) {
+      if (options.allowEmpty) return undefined as T;
       throw new ApiClientError(
         0,
         'INVALID_RESPONSE',
@@ -265,6 +280,21 @@ export interface ApiClient {
   completeOnboarding(): Promise<unknown>;
   /** Workspace profile of the authenticated tenant (`GET /tenants/me`). */
   tenantProfile(): Promise<TenantProfile>;
+  /** Full LGPD export of the tenant (`GET /tenants/me/export`, ADMIN). */
+  exportTenantData(): Promise<unknown>;
+  /** LGPD workspace deletion (`DELETE /tenants/me`, ADMIN + password/slug). */
+  deleteTenant(body: DeleteTenantBody): Promise<void>;
+  /** Global platform counters (`GET /platform/metrics`, platform admin). */
+  platformMetrics(): Promise<PlatformMetrics>;
+  /** Paginated tenants of the platform console (`GET /platform/tenants`). */
+  platformTenants(query: PlatformTenantQuery): Promise<Paginated<PlatformTenant>>;
+  /** Plan/limits update of one tenant (`PATCH /platform/tenants/:id`). */
+  updatePlatformTenant(
+    id: string,
+    body: PlatformTenantUpdate,
+  ): Promise<PlatformTenant | null>;
+  /** Revokes the current session server-side (`POST /auth/logout`). */
+  logout(): Promise<void>;
   /** Live infrastructure + every connected account (ADMIN). */
   diagnostics(): Promise<SystemDiagnosis>;
   /** Real marketplace token/profile checks for a single account (ADMIN). */
@@ -520,6 +550,55 @@ export const api: ApiClient = {
     return request<TenantProfile>('/tenants/me', { timeoutMs: 8_000 });
   },
 
+  exportTenantData() {
+    // Export includes tickets/messages/accounts, so it needs more headroom
+    // than a plain read.
+    return request<unknown>('/tenants/me/export', { timeoutMs: 60_000 });
+  },
+
+  async deleteTenant(body) {
+    await request<unknown>('/tenants/me', {
+      method: 'DELETE',
+      body,
+      allowEmpty: true,
+      timeoutMs: 30_000,
+    });
+  },
+
+  platformMetrics() {
+    return request<PlatformMetrics>('/platform/metrics', { timeoutMs: 12_000 });
+  },
+
+  platformTenants(query) {
+    const search = encodeQuery({
+      page: query.page,
+      pageSize: query.pageSize ?? 10,
+      search: query.search,
+    });
+    return request<Paginated<PlatformTenant>>(`/platform/tenants${search}`, {
+      timeoutMs: 12_000,
+    });
+  },
+
+  updatePlatformTenant(id, body) {
+    return request<PlatformTenant | null>(`/platform/tenants/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body,
+      allowEmpty: true,
+      timeoutMs: 15_000,
+    });
+  },
+
+  async logout() {
+    // No refresh token body: the API revokes every session of this operator.
+    await request<unknown>('/auth/logout', {
+      method: 'POST',
+      body: {},
+      allowEmpty: true,
+      timeoutMs: 8_000,
+    });
+  },
+
   diagnostics() {
     return request<SystemDiagnosis>('/diagnostics', { timeoutMs: 60_000 });
   },
@@ -546,6 +625,10 @@ export type {
   DiagnosisCheck,
   DiagnosisStatus,
   IAgentSummary,
+  PlatformMetrics,
+  PlatformTenant,
+  PlatformTenantQuery,
+  PlatformTenantUpdate,
   PolicyCheckBody,
   PolicyEvaluation,
   QueueSnapshot,
