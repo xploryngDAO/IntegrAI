@@ -129,3 +129,7 @@ Checklist completo (infra, SSO Entra, marketplaces, segurança/LGPD, operação 
 ## Operação
 
 [RUNBOOK.md](RUNBOOK.md) cobre o dia a dia do stack self-hosted: comandos, segredos/rotação, saúde/monitoramento, backup/restore, upgrade/rollback, incidentes LGPD e falhas comuns.
+
+## Demo alternativa (GitHub Pages)
+
+Enquanto a cota free da Vercel estiver esgotada, o workflow Pages demo publica o SPA em https://xploryngdao.github.io/IntegrAI/ (base /IntegrAI/, API via envs). Requer habilitar uma vez em **Settings -> Pages -> Source: GitHub Actions** e rodar o workflow manualmente (o token do Actions nao consegue habilitar Pages sozinho). O caminho principal de producao continua sendo o stack self-hosted.

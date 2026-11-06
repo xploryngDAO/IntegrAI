@@ -4,15 +4,8 @@ name: Pages demo
 # limitada por cota. O backend continua no túnel/API configurado nas envs.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'packages/shared/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'vendor/**'
-      - '.github/workflows/pages.yml'
+  # Manual only: GitHub Pages must be enabled once in Settings → Pages →
+  # Source "GitHub Actions" (the workflow token cannot enable it reliably).
   workflow_dispatch:
 
 permissions:
