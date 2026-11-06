@@ -132,11 +132,11 @@ pm ci, build do shared, 	sc (server + web), itest, build do servidor e do SPA. 
 - [x] Fase 1 — schema (invitations, password_resets, email_verifications, sessions, email_verified_at)
 - [x] Fase 1 — signup + verificação de e-mail (endpoints, gate de login, EmailService, testes 19+9)`n- [x] Fase 1 — reset de senha + sessões/refresh rotativo/logout`n- [x] Fase 1 — UI de signup/verificação/reset/forgot (SPA)`n- [x] Fase 1 — convites de operadores (criar/listar/revogar/aceite + RBAC)`n- [x] Fase 1 — 2FA TOTP (setup/verify/disable/status, gate de login, challenge com TOTP/recovery code, testes RFC 6238)
 - [x] Fase 1 — rate limit real de auth sensível (login 10/15min por e-mail+IP; 2FA 5/15min por jti+IP; reset/reenvio 3/15min) com fallback em memória
-- [ ] Fase 2 — onboarding guiado
-- [ ] Fase 3 — apps aprovados
+- [x] Fase 2 — onboarding guiado (wizard + Amazon OAuth; produção depende de app público aprovado)
+- [ ] Fase 3 — apps aprovados (aprovação externa Meli/Shopee/Amazon; artefatos em PHASE3_APP_SUBMISSION.md)
 - [x] Fase 4 — planos/quotas, console `/platform` (busca + purge manual), métricas (global e por tenant) e LGPD (export + soft delete + purga física)
 - [x] Fase 4 — alertas operacionais derivados (contas/quotas/SLA/lifecycle) e base de billing (status/trial/contato + summary MRR)
 - [x] Fase 4 — prefill de billing na listagem do console, limpeza dos artefatos S3 na purga e status page pública
 - [x] Fase 4 — contrato de gateway provider-agnóstico (webhook HMAC/idempotente + máquina de estados + checkout por template + auditoria de eventos)
 - [x] Fase 4 — backup/restore por tenant (`tenant_backups`, `must_reset_password`, S3 `backups/<slug>/<timestamp>.json`, restore transacional)
-- [ ] Fase 4 — adapter de gateway real e UI do console
+- [x] Fase 4 — UI do console (checkout, eventos, métricas, backup/LGPD)`n- [ ] Fase 4 — adapter de gateway real (Stripe/Pagar.me: conta + credenciais externas)
