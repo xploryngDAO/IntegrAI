@@ -79,7 +79,7 @@ jobs:
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body-file /tmp/incident.md
           else
-            gh issue create --title "$INCIDENT_TITLE" --body-file /tmp/incident.md
+            gh issue create --title "$INCIDENT_TITLE" --body-file /tmp/incident.md --label incident
           fi
 
       - name: Close incident on recovery
