@@ -91,7 +91,7 @@ backup/restore do Postgres (marker restaurado).
 3. **Pentest externo** — obrigatório antes de exposição comercial.
 4. SMTP de produção (SES/SMTP) para e-mails de convite/2FA/alerta.
 
-## 7. Rollback
+> Acompanhamento no GitHub: #1 Entra ID · #2 Host da API · #3 Pentest · #4 SMTP · #5 Redeploy Vercel.`n`n## 7. Rollback
 
 - Imagens: rebuild a partir do commit anterior (`git checkout <sha>` + `docker build` + `up -d`).
 - Banco: `npm run db:restore backups/db-<ts>.sql` (backup antes do upgrade).
