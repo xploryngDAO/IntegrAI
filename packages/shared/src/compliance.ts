@@ -60,11 +60,23 @@ const WHATSAPP_PATTERNS = [
   /\binstagram\b/i,
 ];
 
-const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const EMAIL_REGEX =
+  /[A-Z0-9._%+-]{1,64}@(?:[A-Z0-9-]{1,63}\.)+[A-Z]{2,24}/gi;
 const URL_REGEX = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
 const BARE_DOMAIN_REGEX = /\b(?:www\.)?[a-z0-9][a-z0-9-]{1,60}\.(?:com|com\.br|net|org|io|me|shop|store|link|app)(?:\/[^\s<>"')]*)?/gi;
 const TRACKING_PIXEL_REGEX = /<img[^>]+(?:width\s*=\s*["']?1["']?|height\s*=\s*["']?1["']?)[^>]*>/gi;
 const TRACKING_PIXEL_ALT_REGEX = /<img[^>]*(?:tracking|pixel|beacon|open\.gif)[^>]*>/gi;
+
+/**
+ * Hard cap for regex scans. Marketplace messages are limited to 1 MiB by the
+ * HTTP layer; this keeps the pure policy functions linear even if a caller
+ * passes a much larger string (ReDoS surface flagged by CodeQL).
+ */
+const MAX_SCAN_CHARS = 200_000;
+
+function bounded(text: string): string {
+  return text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text;
+}
 
 const AUTO_RESPONDER_PATTERNS = [
   /resposta\s+autom[áa]tica/i,
@@ -109,16 +121,17 @@ export const MARKETPLACE_POLICY: Record<Marketplace, MarketplacePolicyRules> = {
 };
 
 export function extractUrls(text: string): string[] {
+  const source = bounded(text);
   const matches = new Set<string>();
-  for (const m of text.matchAll(URL_REGEX)) matches.add(m[0]);
-  for (const m of text.matchAll(BARE_DOMAIN_REGEX)) {
+  for (const m of source.matchAll(URL_REGEX)) matches.add(m[0]);
+  for (const m of source.matchAll(BARE_DOMAIN_REGEX)) {
     if (!/^https?:\/\//i.test(m[0])) matches.add(m[0]);
   }
   return [...matches];
 }
 
 export function extractEmailAddresses(text: string): string[] {
-  return [...new Set([...text.matchAll(EMAIL_REGEX)].map((m) => m[0]))];
+  return [...new Set([...bounded(text).matchAll(EMAIL_REGEX)].map((m) => m[0]))];
 }
 
 export function hostnameOf(candidate: string): string {
@@ -141,11 +154,11 @@ export function isDomainAllowed(candidate: string, allowedDomains: readonly stri
 }
 
 export function stripTrackingPixels(html: string): string {
-  return html.replace(TRACKING_PIXEL_REGEX, '').replace(TRACKING_PIXEL_ALT_REGEX, '');
+  return bounded(html).replace(TRACKING_PIXEL_REGEX, '').replace(TRACKING_PIXEL_ALT_REGEX, '');
 }
 
 export function htmlToText(html: string): string {
-  return html
+  return bounded(html)
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -226,7 +239,7 @@ export function maskEmail(email: string): string {
 
 /** Redacts e-mail addresses / phone numbers before anything reaches the logs. */
 export function redactPiiForLogs(input: string): string {
-  return input
+  return bounded(input)
     .replace(EMAIL_REGEX, (email) => maskEmail(email))
     .replace(/\b(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}\b/g, '[phone]');
 }

@@ -10,11 +10,19 @@ export function stripQuery(url: string): string {
 /**
  * Flatten Fastify's parsed query object into the `Record<string, string>` shape
  * the raw webhook contract expects. Arrays keep their first string value.
+ *
+ * The query keys are attacker-controlled, so the accumulator has a null
+ * prototype and the prototype-pollution keys are dropped (CodeQL
+ * `js/remote-property-injection`): writing `__proto__`/`constructor` into a
+ * plain object can mutate the object graph.
  */
+const BLOCKED_QUERY_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function queryToStringRecord(query: unknown): Record<string, string> {
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null) as Record<string, string>;
   if (!isRecord(query)) return result;
   for (const [key, value] of Object.entries(query)) {
+    if (BLOCKED_QUERY_KEYS.has(key)) continue;
     if (typeof value === 'string') {
       result[key] = value;
     } else if (typeof value === 'number' || typeof value === 'boolean') {
