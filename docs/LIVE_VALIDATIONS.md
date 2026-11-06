@@ -289,3 +289,11 @@ DELETE /platform/tenants/:id (platform admin, sem senha) -> 200 soft delete do r
 POST /platform/tenants/:id/purge (restaurado) -> 200; 0 residuos no banco
 26/26 verificacoes passaram (npm run test:live-signup)
 ```
+
+### 25. TRUST_PROXY atras do tunel (anti-spoof de IP)
+```
+API: HOST=127.0.0.1 · TRUST_PROXY=127.0.0.1 (confia so no salto do cloudflared)
+Buckets de login limpos; POST /auth/login via tunel com X-Forwarded-For: 203.0.113.9 (forjado)
+Chave criada: sac:auth:login:attempts:admin@integr-ai.local:<IPv6 publico real do cliente>
+=> XFF do cliente NAO foi usado; o IP real do edge chegou ao rate limit/auditoria
+```
