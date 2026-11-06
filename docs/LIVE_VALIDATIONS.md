@@ -189,3 +189,13 @@ login repetido com o MESMO ip+user-agent -> nenhuma nova mensagem (fingerprint c
 audit auth.login.new_device gravado (e-mail redigido)
 validate:live -> 11/11
 ```
+
+### 16. Notificacao ao operador em mudanca de papel/status
+```
+convite aceito (AGENT) -> PATCH role SUPERVISOR
+Mailpit: "Seu papel no workspace mudou - IntegrAI"
+PATCH isActive=false
+Mailpit: "Sua conta foi desativada - IntegrAI"
+auditoria admin.user.role_changed/deactivated mantida; e-mails best-effort
+validate:live -> 11/11
+```
