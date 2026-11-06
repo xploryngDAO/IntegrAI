@@ -85,6 +85,18 @@ export function sortIntegrationChannels<T extends { marketplace: string }>(
   });
 }
 
+/**
+ * A channel is ready only when the API says it is AND it lists no missing env
+ * variable. Shared by the status pill and by the generated `.env`/checklist so
+ * the three never disagree about what "pendente" means.
+ */
+export function isIntegrationChannelComplete(channel: {
+  configured: boolean;
+  missing: readonly string[];
+}): boolean {
+  return channel.configured && channel.missing.length === 0;
+}
+
 /** Absolute http(s) URL guard for the portal/docs links returned by the API. */
 export function isHttpUrl(value: string | null | undefined): value is string {
   if (!value) return false;

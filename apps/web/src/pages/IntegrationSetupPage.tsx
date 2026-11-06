@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type {
   AccountDiagnosis,
@@ -7,7 +7,7 @@ import type {
   Marketplace,
 } from '@sac/shared';
 import { Grid, Icon, PageHeader } from '@xploryng/convergencia';
-import { Check, Copy } from 'lucide-react';
+import { Check, ClipboardList, Copy, Download } from 'lucide-react';
 import { api } from '../lib/api';
 import { useWorkspace } from '../lib/store';
 import type { AccountRow, IntegrationSetup, IntegrationSetupChannel } from '../lib/types';
@@ -17,9 +17,16 @@ import {
   integrationChannelLabel,
   integrationSetupErrorMessage,
   isHttpUrl,
+  isIntegrationChannelComplete,
   sortIntegrationChannels,
   toMarketplace,
 } from '../lib/integrations';
+import {
+  INTEGRATION_ENV_FILENAME,
+  buildIntegrationChecklist,
+  buildIntegrationEnvFile,
+  pendingIntegrationChannels,
+} from '../lib/integrationArtifacts';
 import { isForbiddenError } from '../lib/platform';
 import {
   Alert,
@@ -79,8 +86,28 @@ function primaryAccountFor(accounts: AccountRow[], marketplace: Marketplace): Ac
  * variables is not ready: the pill never claims "Configurado" in that case.
  */
 function channelStatus(channel: IntegrationSetupChannel): { label: string; tone: PillTone } {
-  const complete = channel.configured && channel.missing.length === 0;
-  return complete ? { label: 'Configurado', tone: 'ok' } : { label: 'Pendente', tone: 'warn' };
+  return isIntegrationChannelComplete(channel)
+    ? { label: 'Configurado', tone: 'ok' }
+    : { label: 'Pendente', tone: 'warn' };
+}
+
+type ArtifactFeedback = 'env' | 'checklist';
+
+/**
+ * Browser-only artifact download: the content never touches the API. The
+ * object URL is revoked after the click so the blob can be collected.
+ */
+function downloadTextArtifact(fileName: string, content: string): void {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function CopyButton({
@@ -276,7 +303,16 @@ export function IntegrationSetupPage(): JSX.Element {
   const [testing, setTesting] = useState<string | null>(null);
   const [testErrors, setTestErrors] = useState<Record<string, string>>({});
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [artifactFeedback, setArtifactFeedback] = useState<ArtifactFeedback | null>(null);
+  const artifactTimer = useRef<number | null>(null);
   const [diagnosticsTarget, setDiagnosticsTarget] = useState<DiagnosticsTarget | null>(null);
+
+  useEffect(
+    () => () => {
+      if (artifactTimer.current !== null) window.clearTimeout(artifactTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -330,6 +366,85 @@ export function IntegrationSetupPage(): JSX.Element {
       pushToast({ tone: 'ok', title: 'Copiado', description: label });
     } catch {
       pushToast({ tone: 'warn', title: 'Não foi possível copiar', description: label });
+    }
+  }
+
+  /** Short-lived visual confirmation on the header buttons (toast is global). */
+  function flashArtifact(kind: ArtifactFeedback): void {
+    setArtifactFeedback(kind);
+    if (artifactTimer.current !== null) window.clearTimeout(artifactTimer.current);
+    artifactTimer.current = window.setTimeout(() => {
+      artifactTimer.current = null;
+      setArtifactFeedback(null);
+    }, 2_000);
+  }
+
+  /**
+   * The artifact actions can be clicked before the first read succeeds (or
+   * after it failed). They never throw: the operator gets an actionable toast.
+   */
+  function loadedSetup(): IntegrationSetup | null {
+    if (setup !== null) return setup;
+    pushToast({
+      tone: 'warn',
+      title: 'Configuração ainda não carregada',
+      description: 'Use "Atualizar" e tente novamente depois que a leitura da API concluir.',
+    });
+    return null;
+  }
+
+  function downloadEnvFile(): void {
+    const current = loadedSetup();
+    if (current === null) return;
+
+    const pending = pendingIntegrationChannels(channels);
+    try {
+      downloadTextArtifact(
+        INTEGRATION_ENV_FILENAME,
+        buildIntegrationEnvFile({ ...current, channels }),
+      );
+      flashArtifact('env');
+      pushToast({
+        tone: 'ok',
+        title: 'Download iniciado',
+        description:
+          pending.length > 0
+            ? `${INTEGRATION_ENV_FILENAME} com ${pending.length} canal(is) pendente(s) e chaves sem valor.`
+            : `${INTEGRATION_ENV_FILENAME}: nenhum canal pendente para preencher.`,
+      });
+    } catch {
+      pushToast({
+        tone: 'danger',
+        title: 'Não foi possível gerar o .env',
+        description: 'O navegador bloqueou a criação do arquivo. Tente novamente.',
+      });
+    }
+  }
+
+  async function copyChecklist(): Promise<void> {
+    const current = loadedSetup();
+    if (current === null) return;
+
+    const pending = pendingIntegrationChannels(channels);
+    const markdown = buildIntegrationChecklist({ ...current, channels });
+    try {
+      await navigator.clipboard.writeText(markdown);
+      flashArtifact('checklist');
+      pushToast({
+        tone: 'ok',
+        title: 'Checklist copiado',
+        description:
+          pending.length > 0
+            ? `${pending.length} canal(is) pendente(s), com URLs e passos, no markdown.`
+            : 'Nenhum canal pendente: o checklist confirma que está tudo configurado.',
+      });
+    } catch {
+      pushToast({
+        tone: 'warn',
+        title: 'Não foi possível copiar',
+        description:
+          'O navegador bloqueou a área de transferência. Use os botões de copiar dos cards ou baixe o .env.',
+      });
     }
   }
 
@@ -431,9 +546,38 @@ export function IntegrationSetupPage(): JSX.Element {
         title="Criar apps de integração"
         description={pageDescription}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <Button
               variant="secondary"
+              size="sm"
+              icon={artifactFeedback === 'env' ? <Check size={16} /> : <Download size={16} />}
+              className="whitespace-nowrap"
+              onClick={downloadEnvFile}
+              disabled={loading}
+              title="Gera integrai-integrations.env com as chaves vazias e as URLs exatas de cada canal pendente."
+            >
+              Baixar .env de integração
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={
+                artifactFeedback === 'checklist' ? (
+                  <Check size={16} />
+                ) : (
+                  <ClipboardList size={16} />
+                )
+              }
+              className="whitespace-nowrap"
+              onClick={() => void copyChecklist()}
+              disabled={loading}
+              title="Copia um checklist markdown com canais pendentes, envs faltantes, URLs, links e passos."
+            >
+              Copiar checklist
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               icon="orbit"
               className="whitespace-nowrap"
               onClick={retry}
@@ -443,6 +587,7 @@ export function IntegrationSetupPage(): JSX.Element {
             </Button>
             <Button
               variant="secondary"
+              size="sm"
               icon="pulse"
               className="whitespace-nowrap"
               loading={diagnosticsLoading}
@@ -620,7 +765,9 @@ export function IntegrationSetupPage(): JSX.Element {
                       {channel.steps.length > 0 ? (
                         <ol className="m-0 mt-1.5 flex list-decimal flex-col gap-1 pl-4 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
                           {channel.steps.map((step, index) => (
-                            <li key={`${index}-${step}`}>{step}</li>
+                            <li key={`${index}-${step}`} className="break-words">
+                              {step}
+                            </li>
                           ))}
                         </ol>
                       ) : (
