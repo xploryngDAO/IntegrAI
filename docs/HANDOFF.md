@@ -18,22 +18,37 @@ Credenciais do ambiente de teste estão em `.env` (não versionado) e na documen
 
 ## 2. Evidências já coletadas
 
-- `1069` testes; `validate:live` 11/11; isolamento 14/14; sonda 18/18; suítes 2FA 13/13,
-  SSO 10/10, socket 5/5, signup 26/26, signup UI 8/8, convite UI 11/11.
-- a11y: 10 telas (8 desktop + 2 mobile) com 0 violações; Lighthouse mobile a11y 100 (build atual).
-- Segurança: 0 vulns de produção; imagens 0 HIGH/CRITICAL (trivy); gitleaks 0; SAST semgrep 0 em produção.
+- **1073 testes**; `test:live:all` → **14/14 etapas** na produção (verify-live, validate 11,
+  isolamento 14, probe 18, 2FA policy/API/UI, SSO API/UI, socket, signup+convite 26,
+  signup/convite/reset UI, a11y).
+- a11y: **21 telas** (públicas + autenticadas, desktop + formulários no mobile) nos temas
+  claro e escuro, 0 violações; Lighthouse 100/100/100/100 nas páginas públicas.
+- Segurança: `npm audit`/OSV **0** (inclusive dev), gitleaks limpo, semgrep gate no CI,
+  imagens 0 HIGH/CRITICAL, ZAP baseline **0 FAIL** (riscos aceitos documentados).
+- Performance: health 222 RPS / status 233 RPS p99 ~95 ms no host público (10 conexões);
+  Web Vitals LCP 72–488 ms, CLS ≤ 0,001 no workspace autenticado.
 - Detalhes: [LIVE_VALIDATIONS.md](LIVE_VALIDATIONS.md), [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md),
-  [SECURITY.md](SECURITY.md).
+  [SECURITY.md](SECURITY.md), [PERFORMANCE.md](PERFORMANCE.md).
+
+### Rodar a bateria inteira (um comando)
+
+```bash
+npm run test:live:all          # 14 etapas; --skip-ui/--skip-a11y/--only=...
+npm run perf:vitals            # Web Vitals no workspace
+npm run a11y:...              # scripts/a11y-audit.mjs <url> [--dark]
+```
 
 ## 3. O que falta (issues no GitHub)
 
 | Issue | Tarefa | Precisa de você |
 |---|---|---|
-| [#1](https://github.com/xploryngDAO/IntegrAI/issues/1) | App registration no Entra ID + SSO real | **sim** (login no tenant) |
-| [#2](https://github.com/xploryngDAO/IntegrAI/issues/2) | VM/domínio definitivo da API com TLS | **sim** (host/DNS) |
-| [#3](https://github.com/xploryngDAO/IntegrAI/issues/3) | Pentest externo | **sim** (contratação) |
-| [#4](https://github.com/xploryngDAO/IntegrAI/issues/4) | SMTP de produção | **sim** (provedor/credenciais) |
-| [#5](https://github.com/xploryngDAO/IntegrAI/issues/5) | Redeploy Vercel (fixes a11y mobile) | cota/upgrade |
+| [#1](https://github.com/xploryngDAO/IntegrAI/issues/1) | App registration no Entra ID + SSO real | **sim** (login no tenant; `entra-provision` + `sso:apply` prontos) |
+| [#2](https://github.com/xploryngDAO/IntegrAI/issues/2) | VM/domínio definitivo da API com TLS | **sim** (host/DNS; `host:check` pronto) |
+| [#3](https://github.com/xploryngDAO/IntegrAI/issues/3) | Pentest externo (briefing + ZAP prontos) | **sim** (contratação) |
+| [#4](https://github.com/xploryngDAO/IntegrAI/issues/4) | SMTP de produção | **sim** (provedor/credenciais; `email:check`/`smtp:doctor`) |
+
+Issues #5, #6 e #7 (redeploys/a11y/Lighthouse) estão **fechadas** — produção em
+`assets/index-B3PF2iot.js`.
 
 ## 4. Entra ID (issue #1) — caminho rápido
 
