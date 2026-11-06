@@ -79,4 +79,24 @@ export const healthRoutes: FastifyPluginAsync<HttpRouteContext> = async (app, ct
     reply.code(report.status === 'ready' ? 200 : 503);
     return { ...report, requestId: request.id };
   });
+
+  /**
+   * `GET /version` (bare + `/api/v1/version`) - which build is answering.
+   *
+   * Ops/deploy verification: the commit comes from GIT_SHA/VERCEL_GIT_COMMIT_SHA
+   * (set by the image/CI); `uptimeSeconds` matches the health report. Public and
+   * PII-free (no environment values beyond NODE_ENV).
+   */
+  app.get('/version', async () => {
+    const uptimeSeconds = Math.round(process.uptime());
+    return ok({
+      version: process.env.npm_package_version ?? '1.0.0',
+      commit:
+        process.env.GIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+      node: process.version,
+      env: process.env.NODE_ENV ?? 'development',
+      uptimeSeconds,
+      startedAt: new Date(Date.now() - uptimeSeconds * 1000).toISOString(),
+    });
+  });
 };

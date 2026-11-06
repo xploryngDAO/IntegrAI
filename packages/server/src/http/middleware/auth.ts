@@ -27,6 +27,9 @@ const PUBLIC_EXACT_PATHS: readonly string[] = [
   // Public status page: anonymous by design, PII-free, infra probes only.
   '/status',
   '/api/v1/status',
+  // Public build identity for deploy verification (commit/uptime, no secrets).
+  '/version',
+  '/api/v1/version',
   // Prometheus scrape: authenticated by METRICS_TOKEN in the route itself, not
   // by a JWT (the scraper is not an operator). 404 when no token is configured.
   '/api/v1/metrics',

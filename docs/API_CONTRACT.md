@@ -311,6 +311,7 @@ npm run doctor -- --account=<uuid>
 ### Observabilidade
 
 - `GET /health` → liveness (`{status, services}`).
+- `GET /version` (e `/api/v1/version`, público) → `{version, commit, node, env, uptimeSeconds, startedAt}`; `commit` vem de `GIT_SHA`/`VERCEL_GIT_COMMIT_SHA` (imagem/CI) e serve para verificar qual build está no ar.
 - `GET /health/ready` (e `/api/v1/health/ready`) → `{status:'ready'|'degraded', checks:{database,redis,storage}, errors?, requestId}`; 503 quando degradado.
 - `GET /api/v1/metrics` → Prometheus `text/plain; version=0.0.4`; exige `METRICS_TOKEN`
   (`Authorization: Bearer` ou `x-metrics-token`); 404 quando o token não está configurado, 401 caso contrário.

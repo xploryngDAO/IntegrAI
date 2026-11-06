@@ -25,6 +25,9 @@ RUN npm run build:shared \
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+# Build identity for GET /version (deploy verification); CI passes the SHA.
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
 ENV NODE_ENV=production
 RUN apk add --no-cache openssl tini \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx

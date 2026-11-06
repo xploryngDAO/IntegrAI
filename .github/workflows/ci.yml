@@ -31,7 +31,7 @@ jobs:
       - run: npm run build:server
       - run: npm run build --workspace @sac/web
       - name: Build production API image
-        run: docker build -f packages/server/Dockerfile -t sac-hub-api:ci .
+        run: docker build -f packages/server/Dockerfile --build-arg GIT_SHA=${{ github.sha }} -t sac-hub-api:ci .
       - name: Build production web image
         run: docker build -f apps/web/Dockerfile -t sac-hub-web:ci .
       - name: Scan images for HIGH/CRITICAL CVEs

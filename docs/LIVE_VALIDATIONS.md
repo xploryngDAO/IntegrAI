@@ -451,3 +451,11 @@ Higiene: POST /auth/sessions/revoke-others -> 87 sessoes de teste revogadas; 1 s
        (inventario de sessoes voltou ao normal; captura atualizada com 1 dispositivo)
 Sem overflow em 1440/390; pluralizacao ok (sem "(s)")
 ```
+
+### 43. Identidade de build publica (GET /version)
+```
+GET /api/v1/version -> 200 {version:1.0.0, commit:<GIT_SHA>, node:v24.14.0,
+   env:development, uptimeSeconds, startedAt}
+GET /version (bare) -> 200 com o mesmo payload
+publico (sem token) e isento de manutencao; imagem Docker recebe GIT_SHA no build (CI)
+```

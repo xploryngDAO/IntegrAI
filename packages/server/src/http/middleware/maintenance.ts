@@ -48,10 +48,12 @@ export const MAINTENANCE_EXEMPT_PATHS: readonly string[] = [
   '/health/ready',
   '/status',
   '/metrics',
+  '/version',
   '/api/v1/health',
   '/api/v1/health/ready',
   '/api/v1/status',
   '/api/v1/metrics',
+  '/api/v1/version',
 ];
 
 /** True when the path is one of the monitoring surfaces kept alive. */
