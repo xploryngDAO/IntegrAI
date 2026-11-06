@@ -49,3 +49,4 @@ artifacts/
 .env.prod
 !.env.prod.example
 backups/
+gitleaks-report.json

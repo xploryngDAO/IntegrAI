@@ -988,3 +988,7 @@ npm run build:server
 
 Migrado para **Prisma 7.10.1** (prisma.config.ts, generator prisma-client, driver adapter @prisma/adapter-pg). Resultado: 
 pm audit --omit=dev = **0 vulnerabilidades de producao**; restam apenas advisories dev-only na cadeia de testes (vitest/vite/s3rver).
+
+### Secret scanning no CI
+
+gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .gitleaksignore); o repositorio esta em **no leaks found**.

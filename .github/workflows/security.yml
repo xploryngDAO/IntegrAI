@@ -56,6 +56,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Secret scan (gitleaks)
+        run: >-
+          docker run --rm -v "$PWD:/repo"
+          zricethezav/gitleaks:latest detect --source /repo
+          --gitleaks-ignore-path /repo --exit-code 1 --redact
       - uses: actions/setup-node@v4
         with:
           node-version: 22

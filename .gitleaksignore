@@ -1,0 +1,17 @@
+# gitleaks fingerprints revisados em 06/11/2026 — todos falsos positivos.
+# Test fixtures (TOTP/RFC test vectors, fake LWA/S3 values), a chave de
+# desenvolvimento pública (usada apenas fora de produção) e nomes de campos.
+# Nenhum segredo real foi encontrado no histórico (127 commits escaneados).
+6ab310fe833789e09e63891f7eb9fe2bf84e78ec:.github/workflows/security.yml:generic-api-key:40
+ef77e1bc13b3effaee155d7f26357e078c4b3e08:packages/server/src/http/__tests__/two-factor-routes.test.ts:generic-api-key:316
+ef77e1bc13b3effaee155d7f26357e078c4b3e08:packages/server/src/http/__tests__/two-factor-routes.test.ts:generic-api-key:332
+fc90b06c0544dd6dc178e9ce0888687b78f73e80:packages/server/src/config/index.ts:generic-api-key:129
+34dde17ab4b5e8502d21722f65d604e494c9c082:packages/server/src/application/__tests__/AuthRateLimit.test.ts:generic-api-key:42
+f71dc8e13011f6325a4b57df4530a690eb23bfa6:packages/server/src/application/__tests__/accountFakes.ts:generic-api-key:311
+26315f1be44e363a39b38a94aa75d8dfc9e9c18e:packages/server/src/application/__tests__/totp.test.ts:generic-api-key:24
+26315f1be44e363a39b38a94aa75d8dfc9e9c18e:packages/server/src/http/__tests__/two-factor-routes.test.ts:generic-api-key:105
+26315f1be44e363a39b38a94aa75d8dfc9e9c18e:packages/server/src/http/__tests__/two-factor-routes.test.ts:generic-api-key:118
+26315f1be44e363a39b38a94aa75d8dfc9e9c18e:packages/server/src/http/__tests__/two-factor-routes.test.ts:generic-api-key:168
+f80636b5b063087d51e7048db5cc9449359d5466:.env.example:generic-api-key:29
+f80636b5b063087d51e7048db5cc9449359d5466:packages/server/src/config/env.schema.ts:generic-api-key:13
+f80636b5b063087d51e7048db5cc9449359d5466:packages/server/src/http/controllers/message.controller.ts:generic-api-key:76
