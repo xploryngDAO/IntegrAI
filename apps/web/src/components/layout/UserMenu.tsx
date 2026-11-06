@@ -176,6 +176,14 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
   const name = agent?.name ?? 'Operador';
   const email = agent?.email ?? '';
   const role = agent?.role ?? 'AGENT';
+  // The trigger shows the initials next to the name; include them in the
+  // label so the accessible name contains the same visible text (WCAG 2.5.3).
+  const initials = name
+    .split(/\s+/)
+    .filter((part) => part.length > 0)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
   const portalTarget =
     typeof document === 'undefined'
       ? null
@@ -287,6 +295,7 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
         className={cx('sac-user__trigger', variant === 'rail' && 'sac-user__trigger--rail')}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={variant === 'topbar' ? `${initials} ${name} ${roleLabel(role)}` : undefined}
         title={variant === 'rail' ? `${name} · ${roleLabel(role)}` : undefined}
         onClick={toggle}
       >

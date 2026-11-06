@@ -78,6 +78,17 @@ await page.goto(`${URL}/status`, { waitUntil: 'networkidle2', timeout: 60_000 })
 await new Promise((r) => setTimeout(r, 3000));
 reports.push(await audit(page, 'status'));
 
+// Mobile matters: the header hides some text at narrow widths, which can strip
+// an element's accessible name (the landing brand link regressed exactly so).
+await page.setViewport({ width: 390, height: 844 });
+await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60_000 });
+await new Promise((r) => setTimeout(r, 1500));
+reports.push(await audit(page, 'landing-mobile'));
+
+await page.goto(`${URL}/login`, { waitUntil: 'networkidle2', timeout: 60_000 });
+await new Promise((r) => setTimeout(r, 1500));
+reports.push(await audit(page, 'login-mobile'));
+
 console.log(JSON.stringify(reports, null, 2));
 await browser.close();
 const total = reports.reduce((sum, report) => sum + report.violations.length, 0);
