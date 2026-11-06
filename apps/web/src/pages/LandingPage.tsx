@@ -202,10 +202,10 @@ export function LandingPage(): JSX.Element {
     <div className="sac-landing">
       <header className="sac-landing__header">
         <div className="sac-landing__header-inner">
-          {/* The wordmark/tagline are hidden on small screens, leaving only the
-              decorative `SH` mark; the label keeps the link named for AT while
-              still containing the visible text (WCAG 2.5.3 label-in-name). */}
-          <Link to="/" className="sac-landing__brand" aria-label="SAC Hub — página inicial">
+          {/* The wordmark stays visible at every width (only the tagline is
+              hidden on phones), so the link is named by its visible text — no
+              aria-label needed, which keeps WCAG 2.5.3 label-in-name green. */}
+          <Link to="/" className="sac-landing__brand">
             <span className="sac-landing__brand-mark" aria-hidden="true">
               SH
             </span>

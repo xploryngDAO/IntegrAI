@@ -2795,8 +2795,10 @@ body {
 }
 
 @media (max-width: 420px) {
-  .sac-landing__brand-text {
-    display: none;
+  /* Keep the wordmark visible: it is the link's accessible name (the tagline
+     is already hidden <=760px). Hiding it left only the decorative mark. */
+  .sac-landing__brand-name {
+    font-size: 12px;
   }
 
   .sac-landing__header-actions {
