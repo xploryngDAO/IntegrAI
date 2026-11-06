@@ -12,6 +12,7 @@ import { api } from '../lib/api';
 import { useWorkspace } from '../lib/store';
 import type { AccountRow, IntegrationSetup, IntegrationSetupChannel } from '../lib/types';
 import { formatDateTime } from '../lib/labels';
+import { plural, pluralWord } from '../lib/plural';
 import {
   connectionTestErrorMessage,
   integrationChannelLabel,
@@ -266,7 +267,7 @@ function DiagnosisSummary({
           Ver checks
         </Button>
         <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-          {diagnosis.checks.length} verificação(ões) executada(s)
+          {plural(diagnosis.checks.length, 'verificação executada', 'verificações executadas')}
         </span>
       </div>
     </div>
@@ -409,7 +410,11 @@ export function IntegrationSetupPage(): JSX.Element {
         title: 'Download iniciado',
         description:
           pending.length > 0
-            ? `${INTEGRATION_ENV_FILENAME} com ${pending.length} canal(is) pendente(s) e chaves sem valor.`
+            ? `${INTEGRATION_ENV_FILENAME} com ${plural(
+                pending.length,
+                'canal pendente',
+                'canais pendentes',
+              )} e chaves sem valor.`
             : `${INTEGRATION_ENV_FILENAME}: nenhum canal pendente para preencher.`,
       });
     } catch {
@@ -435,7 +440,7 @@ export function IntegrationSetupPage(): JSX.Element {
         title: 'Checklist copiado',
         description:
           pending.length > 0
-            ? `${pending.length} canal(is) pendente(s), com URLs e passos, no markdown.`
+            ? `${plural(pending.length, 'canal pendente', 'canais pendentes')}, com URLs e passos, no markdown.`
             : 'Nenhum canal pendente: o checklist confirma que está tudo configurado.',
       });
     } catch {
@@ -642,10 +647,15 @@ export function IntegrationSetupPage(): JSX.Element {
             <Pill tone={pendingCount === 0 ? 'ok' : 'warn'}>
               <span className="inline-flex items-center gap-1">
                 <Icon name={pendingCount === 0 ? 'check' : 'bell'} size={11} />
-                {configuredCount} de {channels.length} configurado(s)
+                {configuredCount} de {channels.length}{' '}
+                {pluralWord(channels.length, 'configurado', 'configurados')}
               </span>
             </Pill>
-            {pendingCount > 0 ? <Pill tone="warn">{pendingCount} pendente(s)</Pill> : null}
+            {pendingCount > 0 ? (
+              <Pill tone="warn">
+                {plural(pendingCount, 'canal pendente', 'canais pendentes')}
+              </Pill>
+            ) : null}
             <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
               Leitura {formatDateTime(setup.generatedAt)}
             </span>

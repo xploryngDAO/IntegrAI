@@ -12,6 +12,7 @@ import {
 import { api } from '../../lib/api';
 import { useWorkspace } from '../../lib/store';
 import { PRESENCE_LABEL, STATUS_LABEL, formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import {
   Avatar,
   Button,
@@ -307,7 +308,8 @@ export function ChatHeader({ detail }: { detail: TicketDetail }): JSX.Element {
                     <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
                       <span className="sac-clip">{agent.name}</span>
                       <span className="sac-label">
-                        {PRESENCE_LABEL[agent.presence]} · {agent.activeTickets} ativo(s)
+                        {PRESENCE_LABEL[agent.presence]} ·{' '}
+                        {plural(agent.activeTickets, 'ativo', 'ativos')}
                       </span>
                     </span>
                     <span

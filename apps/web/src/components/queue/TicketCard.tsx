@@ -1,6 +1,7 @@
 import { Gavel } from 'lucide-react';
 import type { TicketListItem } from '@sac/shared';
 import { formatSlaRemaining } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import { Avatar, MarketplaceBadge, Pill, SlaClock, TypeBadge } from '../ui';
 
 export interface TicketCardProps {
@@ -72,7 +73,10 @@ export function TicketCard({ ticket, selected, now, onSelect }: TicketCardProps)
           ) : null}
           {ticket.unreadCount > 0 ? (
             <span className="ml-auto flex-none">
-              <Pill tone="accent" title={`${ticket.unreadCount} mensagem(ns) não lida(s)`}>
+              <Pill
+                tone="accent"
+                title={plural(ticket.unreadCount, 'mensagem não lida', 'mensagens não lidas')}
+              >
                 {ticket.unreadCount}
               </Pill>
             </span>

@@ -10,6 +10,7 @@ import {
   startOfDayIso,
 } from '../../lib/admin';
 import { formatDateTimeSeconds } from '../../lib/format';
+import { plural } from '../../lib/plural';
 import type { AdminUser, AuditLogEntry } from '../../lib/types';
 import { Alert, Button, Card, EmptyState, Input, Select, Skeleton } from '../ui';
 
@@ -399,7 +400,7 @@ export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps)
           </Button>
           <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
             {hasFilters ? 'Filtros ativos · ' : ''}
-            {loading ? 'consultando…' : `${total} registro(s)`}
+            {loading ? 'consultando…' : plural(total, 'registro', 'registros')}
           </span>
         </div>
 
@@ -465,14 +466,15 @@ export function AdminLogsTab({ onForbidden, refreshKey = 0 }: AdminLogsTabProps)
         ) : (
           <>
             <DataTable
-              caption={`Trilha de auditoria — ${total} registro(s), página ${page} de ${totalPages}`}
+              caption={`Trilha de auditoria — ${plural(total, 'registro', 'registros')}, página ${page} de ${totalPages}`}
               columns={columns}
               rows={rows}
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-                {total} registro(s) · página {page} de {totalPages} · {perPage} por página
+                {plural(total, 'registro', 'registros')} · página {page} de {totalPages} ·{' '}
+                {perPage} por página
               </span>
               <Pagination
                 page={Math.min(page, totalPages)}

@@ -14,6 +14,7 @@ import {
   roleTone,
 } from '../../lib/admin';
 import { formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import type { AdminInvitation } from '../../lib/types';
 import { Alert, Button, Card, ConfirmActionDialog, EmptyState, Pill, Skeleton } from '../ui';
 import { InviteUserDialog } from './InviteUserDialog';
@@ -275,7 +276,11 @@ export function AdminInvitationsTab({
       subtitle={
         loading
           ? 'Consultando os convites do workspace…'
-          : `${pendingCount} pendente(s) de ${total} convite(s). Pendentes e expirados podem ser reenviados; a revogação vale só para pendentes.`
+          : `${plural(pendingCount, 'pendente', 'pendentes')} de ${plural(
+              total,
+              'convite',
+              'convites',
+            )}. Pendentes e expirados podem ser reenviados; a revogação vale só para pendentes.`
       }
     >
       <div className="flex flex-col gap-3">
@@ -331,7 +336,7 @@ export function AdminInvitationsTab({
               Deslize a tabela para ver papel, datas, status e as ações de reenviar e revogar.
             </p>
             <DataTable
-              caption={`Convites do workspace — ${items.length} convite(s)`}
+              caption={`Convites do workspace — ${plural(items.length, 'convite', 'convites')}`}
               columns={columns}
               rows={rows}
             />

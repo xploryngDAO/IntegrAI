@@ -7,6 +7,7 @@
  * summary (`role="img"` + `aria-label`/`<title>`) and visible min/max/total.
  */
 import { asCount } from '../../lib/platform';
+import { plural } from '../../lib/plural';
 import type { PlatformDailyTickets } from '../../lib/types';
 
 const VIEW_WIDTH = 320;
@@ -88,7 +89,8 @@ export function TicketSparkline({ points, label }: TicketSparklineProps): JSX.El
   const summary =
     data.length === 0
       ? `${label}: sem série diária de tickets.`
-      : `${label}: ${total} ticket(s) em ${data.length} dia(s); mínimo ${min}, máximo ${max}.`;
+      : `${label}: ${plural(total, 'ticket', 'tickets')} em ` +
+        `${plural(data.length, 'dia', 'dias')}; mínimo ${min}, máximo ${max}.`;
   const last = coordinates.length > 0 ? coordinates[coordinates.length - 1] : null;
   const baseline = VIEW_HEIGHT - PAD_BOTTOM;
 

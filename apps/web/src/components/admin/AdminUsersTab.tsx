@@ -13,6 +13,7 @@ import {
   roleTone,
 } from '../../lib/admin';
 import { formatDateTime } from '../../lib/labels';
+import { plural, pluralWord } from '../../lib/plural';
 import type { AdminUser, AdminUserStatus } from '../../lib/types';
 import {
   Alert,
@@ -307,7 +308,11 @@ export function AdminUsersTab({
       setRevokeTarget(null);
       setNotice({
         tone: 'success',
-        text: `${result.revoked} sessão(ões) de ${target.name} revogada(s).`,
+        text: `${plural(result.revoked, 'sessão', 'sessões')} de ${target.name} ${pluralWord(
+          result.revoked,
+          'revogada',
+          'revogadas',
+        )}.`,
       });
       reload();
       onMutated?.();
@@ -793,8 +798,8 @@ export function AdminUsersTab({
         }}
       >
         <p className="m-0 text-[var(--cv-font-meta)] leading-relaxed text-[var(--cv-color-text-muted)]">
-          A API fecha {revokeTarget?.sessionsCount ?? 0} sessão(ões) — o operador continua ativo no
-          workspace, mas perde o acesso imediato em todos os navegadores.
+          A API fecha {plural(revokeTarget?.sessionsCount ?? 0, 'sessão', 'sessões')} — o operador
+          continua ativo no workspace, mas perde o acesso imediato em todos os navegadores.
         </p>
       </ConfirmActionDialog>
 

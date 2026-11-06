@@ -10,6 +10,7 @@ import {
   tenantDisplayName,
   type OnboardingAgent,
 } from '../lib/onboarding';
+import { plural } from '../lib/plural';
 import { Alert, Button, Card, EmptyState } from '../components/ui';
 import { ChannelSetup } from '../components/onboarding/ChannelSetup';
 import { ChannelDiagnosis } from '../components/onboarding/ChannelDiagnosis';
@@ -357,8 +358,9 @@ export function OnboardingPage(): JSX.Element {
 
           {totalTickets > 0 ? (
             <Alert title="Sua fila já tem atendimentos" tone="success">
-              Existem {totalTickets} atendimento(s) na fila. Abra o workspace para responder com o
-              roteamento e a política de cada canal.
+              {totalTickets === 1 ? 'Existe' : 'Existem'}{' '}
+              {plural(totalTickets, 'atendimento', 'atendimentos')} na fila. Abra o workspace para
+              responder com o roteamento e a política de cada canal.
             </Alert>
           ) : (
             <EmptyState
@@ -421,7 +423,9 @@ export function OnboardingPage(): JSX.Element {
               <div className="sac-kv">
                 <dt>Fila</dt>
                 <dd>
-                  {totalTickets > 0 ? `${totalTickets} atendimento(s)` : 'Aguardando evento real'}
+                  {totalTickets > 0
+                    ? plural(totalTickets, 'atendimento', 'atendimentos')
+                    : 'Aguardando evento real'}
                 </dd>
               </div>
             </dl>

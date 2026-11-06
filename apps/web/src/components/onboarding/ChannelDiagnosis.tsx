@@ -4,6 +4,7 @@ import { Icon } from '@xploryng/convergencia';
 import { useWorkspace } from '../../lib/store';
 import type { AccountRow } from '../../lib/types';
 import { formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import { Alert, Button, Card, MarketplaceBadge, Pill, type PillTone } from '../ui';
 
 /**
@@ -174,7 +175,8 @@ export function ChannelDiagnosis({ accounts }: ChannelDiagnosisProps): JSX.Eleme
             </Pill>
             <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
               {infrastructureCounts.ok} ok · {infrastructureCounts.warn} atenção ·{' '}
-              {infrastructureCounts.fail} falha(s) · {infrastructureCounts.skipped} não verificado(s)
+              {plural(infrastructureCounts.fail, 'falha', 'falhas')} ·{' '}
+              {plural(infrastructureCounts.skipped, 'não verificado', 'não verificados')}
             </span>
           </div>
           {infrastructureRemediations.length > 0 ? (

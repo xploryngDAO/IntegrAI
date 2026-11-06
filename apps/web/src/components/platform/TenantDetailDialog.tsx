@@ -42,6 +42,7 @@ import {
   trialEndsAtToIso,
 } from '../../lib/platform';
 import { STATUS_LABEL, formatDate, formatDurationMinutes } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import { fieldErrorsFromIssues, isValidEmail, validationIssues } from '../../lib/validation';
 import { useWorkspace } from '../../lib/store';
 import { Alert, Button, Card, FieldRow, Input, Modal, Pill, Select, Skeleton } from '../ui';
@@ -229,7 +230,7 @@ function MetricsView({
 
       <Card
         title="Tickets por status"
-        subtitle={`${ticketsTotal} ticket(s) no tenant`}
+        subtitle={`${plural(ticketsTotal, 'ticket', 'tickets')} no tenant`}
       >
         {statuses.length === 0 ? (
           <p className="m-0 mt-3 text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
@@ -251,7 +252,7 @@ function MetricsView({
 
       <Card
         title="Tickets nos últimos 14 dias"
-        subtitle={`${dailyTotal} ticket(s) no período · série diária de ${tenantHeading(tenant)}`}
+        subtitle={`${plural(dailyTotal, 'ticket', 'tickets')} no período · série diária de ${tenantHeading(tenant)}`}
       >
         {daily.length === 0 ? (
           <p className="m-0 mt-3 text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">

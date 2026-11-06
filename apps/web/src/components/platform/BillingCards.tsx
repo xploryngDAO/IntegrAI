@@ -8,6 +8,7 @@
  */
 import { Grid, StatCard } from '@xploryng/convergencia';
 import { asCount, asNumber, planLabel } from '../../lib/platform';
+import { plural } from '../../lib/plural';
 import type { PlatformBillingSummary } from '../../lib/types';
 import { Alert, Button, Card, Skeleton } from '../ui';
 
@@ -121,7 +122,7 @@ export function BillingCards({
                 </span>
                 <span className="flex items-center gap-3 text-[var(--cv-font-meta)]">
                   <span className="text-[var(--cv-color-text-muted)]">
-                    {asCount(slice.tenants)} tenant(s)
+                    {plural(asCount(slice.tenants), 'tenant', 'tenants')}
                   </span>
                   <strong className="sac-num">{formatMrr(slice.mrr)}</strong>
                 </span>

@@ -2,6 +2,7 @@ import type { OrderView, TicketListItem } from '@sac/shared';
 import { cx } from '@xploryng/convergencia';
 import { Copy, ExternalLink, Package } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import { useWorkspace } from '../../lib/store';
 import { Button, Card, IconButton, Pill, Tooltip } from '../ui';
 
@@ -152,7 +153,7 @@ export function OrderCard({ order, ticket, className }: OrderCardProps) {
         ))}
         {order.items.length > 3 ? (
           <p className="m-0 mt-1 text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-            + {order.items.length - 3} item(ns) não exibido(s)
+            + {plural(order.items.length - 3, 'item não exibido', 'itens não exibidos')}
           </p>
         ) : null}
       </div>

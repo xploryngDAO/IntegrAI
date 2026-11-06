@@ -176,14 +176,6 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
   const name = agent?.name ?? 'Operador';
   const email = agent?.email ?? '';
   const role = agent?.role ?? 'AGENT';
-  // The trigger shows the initials next to the name; include them in the
-  // label so the accessible name contains the same visible text (WCAG 2.5.3).
-  const initials = name
-    .split(/\s+/)
-    .filter((part) => part.length > 0)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
   const portalTarget =
     typeof document === 'undefined'
       ? null
@@ -295,15 +287,13 @@ export function UserMenu({ variant = 'topbar' }: { variant?: UserMenuVariant }):
         className={cx('sac-user__trigger', variant === 'rail' && 'sac-user__trigger--rail')}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={variant === 'topbar' ? `${initials} ${name} ${roleLabel(role)}` : undefined}
         title={variant === 'rail' ? `${name} · ${roleLabel(role)}` : undefined}
         onClick={toggle}
       >
-        {/* The topbar repeats the operator name as text next to the avatar, so
-            the avatar is decorative there and must not duplicate the name in
-            the accessible name. In the rail the avatar is the only visible
-            identity, so it keeps its own label. */}
-        <span className="inline-flex" aria-hidden={variant === 'topbar' ? 'true' : undefined}>
+        {/* The avatar is part of the visible text, so it is not aria-hidden:
+            the accessible name is computed from the real content and always
+            matches `label-content-name-mismatch` (also on narrow screens). */}
+        <span className="inline-flex">
           <Avatar name={name} size="sm" />
         </span>
         {variant === 'topbar' ? (

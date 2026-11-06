@@ -11,6 +11,7 @@ import type {
   PlatformTenant,
 } from '../lib/types';
 import { MARKETPLACE_LABEL, MARKETPLACE_ORDER, formatDate } from '../lib/labels';
+import { plural, pluralWord } from '../lib/plural';
 import {
   ENTERPRISE_UNLIMITED,
   asCount,
@@ -349,7 +350,7 @@ export function PlatformPage(): JSX.Element {
         usage: (
           <span
             className="sac-num"
-            title={`${tenant.counts.accounts} conta(s) de ${formatLimit(tenant.limits.maxAccounts)} · ${tenant.counts.agents} agente(s) de ${formatLimit(tenant.limits.maxAgents)} · ${tenant.counts.tickets} ticket(s)`}
+            title={`${plural(tenant.counts.accounts, 'conta', 'contas')} de ${formatLimit(tenant.limits.maxAccounts)} · ${plural(tenant.counts.agents, 'agente', 'agentes')} de ${formatLimit(tenant.limits.maxAgents)} · ${plural(tenant.counts.tickets, 'ticket', 'tickets')}`}
           >
             {tenant.counts.accounts}/{quotaLabel(tenant.limits.maxAccounts)} contas ·{' '}
             {tenant.counts.agents}/{quotaLabel(tenant.limits.maxAgents)} agentes
@@ -579,7 +580,7 @@ export function PlatformPage(): JSX.Element {
             <>
               {visibleTenants.length > 0 ? (
                 <DataTable
-                  caption={`Tenants da plataforma — ${displayedTotal} encontrado(s)`}
+                  caption={`Tenants da plataforma — ${displayedTotal} ${pluralWord(displayedTotal, 'encontrado', 'encontrados')}`}
                   columns={columns}
                   rows={rows}
                 />
@@ -610,7 +611,8 @@ export function PlatformPage(): JSX.Element {
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-                  {displayedTotal} tenant(s) · página {safePage} de {filteredPages}
+                  {plural(displayedTotal, 'tenant', 'tenants')} · página {safePage} de{' '}
+                  {filteredPages}
                 </span>
                 <Pagination
                   page={safePage}

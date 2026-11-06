@@ -10,6 +10,7 @@ import {
   roleTone,
 } from '../../lib/admin';
 import { formatDateTime } from '../../lib/labels';
+import { plural, pluralWord } from '../../lib/plural';
 import { describeDevice } from '../../lib/session';
 import type { AdminSession } from '../../lib/types';
 import {
@@ -279,7 +280,8 @@ export function AdminSessionsTab({
       subtitle={
         loading
           ? 'Consultando as sessões do workspace…'
-          : `${total} sessão(ões) ativa(s) no workspace. Revogar encerra o refresh token de um dispositivo imediatamente.`
+          : `${plural(total, 'sessão ativa', 'sessões ativas')} no workspace. Revogar encerra o ` +
+            'refresh token de um dispositivo imediatamente.'
       }
     >
       <div className="flex flex-col gap-4">
@@ -338,15 +340,19 @@ export function AdminSessionsTab({
               Deslize a tabela para ver papel, dispositivo, IP e as datas de cada sessão.
             </p>
             <DataTable
-              caption={`Sessões ativas — ${items.length} de ${total} sessão(ões)`}
+              caption={`Sessões ativas — ${items.length} de ${total} ${pluralWord(
+                total,
+                'sessão',
+                'sessões',
+              )}`}
               columns={columns}
               rows={rows}
             />
 
             <div className="sac-admin-pagination">
               <span className="sac-admin-pagination__summary">
-                {adminUsersRangeLabel(currentPage, perPage, total, items.length)} sessão(ões) ·
-                página {currentPage} de {totalPages}
+                {adminUsersRangeLabel(currentPage, perPage, total, items.length)}{' '}
+                {pluralWord(total, 'sessão', 'sessões')} · página {currentPage} de {totalPages}
               </span>
               <div className="sac-admin-pagination__controls">
                 <div className="sac-admin-perpage">

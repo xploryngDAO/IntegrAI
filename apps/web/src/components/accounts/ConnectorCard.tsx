@@ -4,6 +4,7 @@ import type { AccountRow } from '../../lib/types';
 import { api } from '../../lib/api';
 import { useWorkspace } from '../../lib/store';
 import { MARKETPLACE_LABEL, formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import { Button, Card, MarketplaceBadge, Pill, Spinner } from '../ui';
 
 /**
@@ -127,7 +128,9 @@ export function ConnectorCard({
       footer={
         <>
           <span className="text-[var(--cv-font-micro)] text-[var(--cv-color-text-muted)]">
-            {extraAccounts > 0 ? `+${extraAccounts} loja(s) neste canal` : 'Token cifrado em repouso'}
+            {extraAccounts > 0
+              ? `+${plural(extraAccounts, 'loja', 'lojas')} neste canal`
+              : 'Token cifrado em repouso'}
           </span>
           <Button
             variant={account ? 'secondary' : 'primary'}

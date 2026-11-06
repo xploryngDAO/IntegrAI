@@ -22,6 +22,7 @@ import {
   isHttpUrl,
   isIntegrationChannelComplete,
 } from './integrations';
+import { pluralWord } from './plural';
 import type { IntegrationSetupChannel } from './types';
 
 /** Nome fixo do arquivo baixado pelo botão do cabeçalho. */
@@ -151,7 +152,8 @@ export function buildIntegrationEnvFile(
   if (oneLine(input.apiBaseUrl).length > 0) lines.push(`# API: ${oneLine(input.apiBaseUrl)}`);
   if (oneLine(input.webOrigin).length > 0) lines.push(`# Web: ${oneLine(input.webOrigin)}`);
   lines.push(
-    `# Canais pendentes: ${pending.length} de ${input.channels.length} publicado(s).`,
+    `# Canais pendentes: ${pending.length} de ${input.channels.length} ` +
+      `${pluralWord(input.channels.length, 'publicado', 'publicados')}.`,
   );
   lines.push('#');
   lines.push(...missingValuesNote());
@@ -239,7 +241,10 @@ export function buildIntegrationChecklist(
     `Leitura da API: ${timestamp(input.generatedAt) || 'não informada'} (GET /platform/integration-setup).`,
   );
   if (oneLine(input.apiBaseUrl).length > 0) lines.push(`API: ${oneLine(input.apiBaseUrl)}`);
-  lines.push(`Canais pendentes: **${pending.length}** de **${total}** publicado(s).`);
+  lines.push(
+    `Canais pendentes: **${pending.length}** de **${total}** ` +
+      `${pluralWord(total, 'publicado', 'publicados')}.`,
+  );
   lines.push('');
 
   if (total === 0) {

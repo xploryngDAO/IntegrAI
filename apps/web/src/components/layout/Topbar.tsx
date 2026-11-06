@@ -5,6 +5,7 @@ import type { AgentPresenceStatus, Marketplace } from '@sac/shared';
 import { useWorkspace } from '../../lib/store';
 import { useTheme } from '../../lib/theme';
 import { isPlatformAdmin, isTenantAdmin } from '../../lib/platform';
+import { plural } from '../../lib/plural';
 import { IconButton, SegmentedControl } from '../ui';
 import { UserMenu } from './UserMenu';
 
@@ -76,7 +77,7 @@ export function Topbar(): JSX.Element {
   const subtitle = onOnboarding
     ? 'Conecte os canais e faça o primeiro atendimento'
     : onAccounts
-      ? `${accounts.length} loja(s) · tokens, webhooks e autorizações`
+      ? `${plural(accounts.length, 'loja', 'lojas')} · tokens, webhooks e autorizações`
       : onSetup
         ? 'Crie os apps nos portais dos marketplaces'
         : onPlatform

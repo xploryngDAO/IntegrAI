@@ -3,6 +3,7 @@ import type { Marketplace, OrderItemSnapshot, RouteDecision } from '@sac/shared'
 import { CheckCheck, Package, Paperclip, Send, ShoppingBag } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useWorkspace } from '../../lib/store';
+import { pluralWord } from '../../lib/plural';
 import {
   Alert,
   Button,
@@ -558,7 +559,8 @@ export function Composer(): JSX.Element | null {
           title="Anexos: imagem ou PDF, até 10 MB"
         >
           {attachments.length > 0
-            ? `${completedAttachmentCount}/${attachments.length} anexo(s) pronto(s)`
+            ? `${completedAttachmentCount}/${attachments.length} ` +
+              `${pluralWord(attachments.length, 'anexo pronto', 'anexos prontos')}`
             : 'imagem ou PDF · máx 10 MB'}
         </span>
         {uploadsInFlight ? <span className="sac-label shrink-0">enviando anexo…</span> : null}

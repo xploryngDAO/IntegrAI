@@ -433,3 +433,13 @@ Workspace autenticado (build de producao local):
 - topbar: "1 loja conectada" (plural corrigido de "1 lojas conectadas")
 - sem overflow; a11y 10 telas com 0 violacoes
 ```
+
+### 41. URLs de webhook/canais e pluralizacao PT-BR
+```
+Bug corrigido em /accounts: URLs de webhook/redirect usavam window.location.origin (dominio do SPA na
+Vercel) e apontariam para o lugar errado. Agora usam a origem da API resolvida em runtime:
+  https://<api>/webhooks/amazon/ses | /webhooks/mercadolivre | /webhooks/shopee
+Pluralizacao: helper lib/plural.ts aplicado em 19 arquivos (1 loja/2 lojas, 1 sessao/2 sessoes etc.);
+"1 conectada" e "1 loja neste workspace" conferidos; Meli diagnostics "1 item/2 itens".
+a11y 10/10 telas com 0 violacoes apos as mudancas (inclui mobile).
+```

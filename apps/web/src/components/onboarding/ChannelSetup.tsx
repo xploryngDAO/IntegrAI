@@ -4,6 +4,7 @@ import { Grid, Icon } from '@xploryng/convergencia';
 import { api, ApiClientError } from '../../lib/api';
 import type { AccountRow } from '../../lib/types';
 import { MARKETPLACE_LABEL, formatDateTime } from '../../lib/labels';
+import { plural } from '../../lib/plural';
 import {
   Alert,
   Button,
@@ -194,13 +195,15 @@ export function ChannelSetup({ accounts, loading, error, onRetry }: ChannelSetup
       <div className="flex flex-wrap items-center gap-2">
         <Pill tone={connectedCount > 0 ? 'ok' : 'neutral'}>
           <span className="inline-flex items-center gap-1">
-            <Icon name={connectedCount > 0 ? 'check' : 'pause'} size={11} /> {connectedCount}{' '}
-            conectada(s)
+            <Icon name={connectedCount > 0 ? 'check' : 'pause'} size={11} />{' '}
+            {plural(connectedCount, 'conectada', 'conectadas')}
           </span>
         </Pill>
-        {expiredCount > 0 ? <Pill tone="warn">{expiredCount} token(s) expirado(s)</Pill> : null}
+        {expiredCount > 0 ? (
+          <Pill tone="warn">{plural(expiredCount, 'token expirado', 'tokens expirados')}</Pill>
+        ) : null}
         <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-          {accounts.length} loja(s) neste workspace
+          {plural(accounts.length, 'loja', 'lojas')} neste workspace
         </span>
       </div>
 

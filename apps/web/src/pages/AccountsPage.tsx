@@ -12,6 +12,7 @@ import { LinkedAccountsList } from '../components/accounts/LinkedAccountsList';
 import { reloadAccounts } from '../components/accounts/ConnectorCard';
 import { ConnectModal } from '../components/accounts/ConnectModal';
 import { DiagnosticsDialog } from '../components/accounts/DiagnosticsDialog';
+import { runtimeApiBase } from '../lib/runtimeConfig';
 
 type DiagnosticsTarget = { mode: 'account'; account: AccountRow } | { mode: 'system' };
 
@@ -35,8 +36,27 @@ function labelFromOAuthSlug(slug: string): string {
   return slug;
 }
 
+/**
+ * Public origin of the **API** (not the SPA). Webhooks and OAuth callbacks are
+ * served by the API; when the SPA is hosted elsewhere (Vercel) using
+ * `window.location.origin` would print URLs that never reach the API.
+ */
+function apiOrigin(): string {
+  const candidates = [runtimeApiBase(), import.meta.env.VITE_API_BASE_URL as string | undefined];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.length > 0) {
+      try {
+        return new URL(candidate, typeof window === 'undefined' ? undefined : window.location.href).origin;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return typeof window === 'undefined' ? '' : window.location.origin;
+}
+
 function absoluteUrl(path: string): string {
-  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+  return `${apiOrigin()}${path}`;
 }
 
 function CopyRow({ label, value }: { label: string; value: string }): JSX.Element {
@@ -279,11 +299,16 @@ export function AccountsPage(): JSX.Element {
 
       <div className="flex flex-wrap items-center gap-2">
         <Pill tone="ok">
-          <Icon name="check" size={12} /> {connectedCount} conectada(s)
+          <Icon name="check" size={12} /> {connectedCount}{' '}
+          {connectedCount === 1 ? 'conectada' : 'conectadas'}
         </Pill>
-        {expiredCount > 0 ? <Pill tone="warn">{expiredCount} token(s) expirado(s)</Pill> : null}
+        {expiredCount > 0 ? (
+          <Pill tone="warn">
+            {expiredCount} {expiredCount === 1 ? 'token expirado' : 'tokens expirados'}
+          </Pill>
+        ) : null}
         <span className="text-[var(--cv-font-meta)] text-[var(--cv-color-text-muted)]">
-          {accounts.length} loja(s) neste workspace
+          {accounts.length} {accounts.length === 1 ? 'loja' : 'lojas'} neste workspace
         </span>
       </div>
 

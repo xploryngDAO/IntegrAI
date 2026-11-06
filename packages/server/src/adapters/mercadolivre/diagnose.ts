@@ -367,7 +367,7 @@ export class MeliDiagnostics {
         id,
         label,
         status: 'ok',
-        detail: `Leitura de anúncios ok (${results.length} item(ns), total=${total ?? 'desconhecido'}).`,
+        detail: `Leitura de anúncios ok (${results.length} ${results.length === 1 ? 'item' : 'itens'}, total=${total ?? 'desconhecido'}).`,
         latencyMs,
       };
     } catch (error) {
