@@ -359,3 +359,13 @@ npm run test:live-socket -> 5/5 (login, socket conecta, logout 204, socket rejei
    novo login conecta)
 evento e segredo de teste removidos; env restaurado
 ```
+
+### 33. Deploy publico na Vercel validado em producao
+```
+vercel --prod -> https://integrai-j1ajthsgo-xploryngdaos-projects.vercel.app (alias integrai-dev.vercel.app)
+alias 200 · bundle assets/index-BQSU6B_C.js (contem runtime-config + manutencao)
+runtime-config.json (raw main) 200 apontando para o tunel da API
+verify-live na URL publica -> landing/login/sessao/perfil/admin/logout OK
+axe WCAG 2.1 AA na URL publica -> 0 violacoes em 8 telas (landing, login, admin, profile,
+   accounts, settings, platform, status)
+```

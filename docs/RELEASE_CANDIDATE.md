@@ -56,13 +56,13 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 Já validado: stack healthy, seed, login, perfil, admin, logout, a11y no bundle servido e
 backup/restore do Postgres (marker restaurado).
 
-## 4. Deploy público (pendências externas)
+## 4. Deploy público
 
 | Item | Situação | Ação |
 |---|---|---|
-| Vercel | cota free esgotada (100 deploys/24h) | aguardar reset/upgrade e rodar `vercel --prod` |
-| GitHub Pages | workflow manual pronto | habilitar **Settings → Pages → Source: GitHub Actions** e rodar `Pages demo` |
-| API/host | stack Docker pronta e validada | provisionar VM/domínio e apontar `WEB_ORIGIN`/DNS |
+| Vercel | **publicado em 2026-11-06** em `https://integrai-dev.vercel.app` (bundle atual com runtime-config; API via túnel) | redeploys: `vercel --prod` ou `npm run deploy:vercel` |
+| GitHub Pages | workflow manual pronto (alternativa) | habilitar Settings → Pages → GitHub Actions |
+| API/host | stack Docker pronta e validada; hoje a API roda local atrás do Cloudflare tunnel | provisionar VM/domínio e apontar `WEB_ORIGIN`/DNS + `runtime-config.json` |
 
 ## 5. Segurança e privacidade
 
@@ -73,19 +73,23 @@ backup/restore do Postgres (marker restaurado).
 - Segredos cifrados (AES-256-GCM), JWT curto + refresh rotativo/denylist, 2FA, sessões revogáveis
 - Pentest externo **ainda não realizado** (bloqueia go-live público)
 - Imagens Docker: **trivy 0 HIGH/CRITICAL** (API sem npm/npx no runtime; web em nginx:stable-alpine), varredura no CI
-- **Produção recusa segredos de dev**: JWT/criptografia default, `SHOPEE_PARTNER_KEY` ausente e credenciais S3 `minioadmin` bloqueiam o boot (`Unsafe production secrets`).`n- **Webhooks autenticados**: Shopee HMAC com chave obrigatória; Amazon SES HMAC; Mercado Livre com segredo na
+- **Produção recusa segredos de dev**: JWT/criptografia default, `SHOPEE_PARTNER_KEY` ausente,
+  credenciais S3 `minioadmin`, CORS curinga (`WEB_ORIGIN=*`) e `TRUST_PROXY=true` bloqueiam o boot
+  (`Unsafe production secrets`).
+- **Webhooks autenticados**: Shopee HMAC com chave obrigatória; Amazon SES HMAC; Mercado Livre com segredo na
   Callback URL (fail closed sem segredo); billing HMAC. Assinatura inválida → 401, sem processar evento.
 - SAST semgrep: 0 achados em código de produção (14 em fixtures de teste)
 - `TRUST_PROXY=127.0.0.1` atrás do túnel: X-Forwarded-For forjado é ignorado (IP real do edge no rate limit/auditoria)
+- **Deploy público verificado**: E2E (landing/login/sessão/perfil/admin/logout) e axe WCAG AA em 8 telas
+  diretamente em `https://integrai-dev.vercel.app`
 
 ## 6. Bloqueios para go-live público (requerem o cliente)
 
 1. **Microsoft Entra ID** — App registration (issuer, client ID, secret, redirect)
    → validar com `node scripts/sso-doctor.mjs` e “Testar conexão” em `/settings`.
-2. **Host/domínio da API** — VM + DNS + TLS (compose/ Caddy prontos).
-3. **Vercel** — cota ou upgrade (ou usar o Pages manual).
-4. **Pentest externo** — obrigatório antes de exposição pública.
-5. SMTP de produção (SES/SMTP) para e-mails de convite/2FA/alerta.
+2. **Host/domínio da API** — VM + DNS + TLS (compose/Caddy prontos); hoje a API usa o túnel local.
+3. **Pentest externo** — obrigatório antes de exposição comercial.
+4. SMTP de produção (SES/SMTP) para e-mails de convite/2FA/alerta.
 
 ## 7. Rollback
 
@@ -96,5 +100,5 @@ backup/restore do Postgres (marker restaurado).
 
 ## 8. Decisão
 
-**GO** para homologação interna/self-hosted (evidências acima).
-**NO-GO** para exposição pública até concluir os itens 1, 2, 4 e 5 da seção 6.
+**GO** para homologação interna/self-hosted e **demo pública na Vercel** (evidências acima).
+**NO-GO** para produção comercial até concluir os itens 1, 2, 3 e 4 da seção 6.
