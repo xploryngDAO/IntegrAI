@@ -15,7 +15,7 @@
     "@xploryng/convergencia": "file:../../vendor/xploryng-convergencia-0.1.0.tgz",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.469.0",
+    "lucide-react": "^0.577.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.5",
