@@ -70,6 +70,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Dependency audit (runtime deps)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency scan (OSV, lockfile)
+        run: >-
+          docker run --rm -v "$PWD:/src"
+          ghcr.io/google/osv-scanner:latest scan --lockfile=/src/package-lock.json
       - run: npm run prisma:generate
       - run: npm run build:shared
       - run: npm run build:server
