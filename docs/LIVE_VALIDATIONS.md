@@ -658,3 +658,11 @@ autocannon -c 10 -d 10 no host publico
 /health: 222 RPS · p99 94ms · 0 erros
 /status: 233 RPS · p99 92ms · 0 erros
 ```
+
+### 68. Deploy das correcoes de Lighthouse (100 nas paginas publicas)
+```
+Production: https://integrai-6wmmmpi82-xploryngdaos-projects.vercel.app
+Alias: https://integrai-dev.vercel.app (assets/index-B3PF2iot.js)
+/login /signup /status /billing/success -> A11Y 100 · BP 100 · SEO 100
+axe: 21/21 light e 21/21 dark; verify-live exit 0
+```
