@@ -7,6 +7,8 @@
 [![Design System](https://img.shields.io/badge/UI-Convergência-6367c9)](docs/CONVERGENCIA_ADOPTION.md)
 [![CI](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/ci.yml)
 [![Security](https://github.com/xploryngDAO/IntegrAI/actions/workflows/security.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/security.yml)
+[![CodeQL](https://github.com/xploryngDAO/IntegrAI/actions/workflows/codeql.yml/badge.svg)](https://github.com/xploryngDAO/IntegrAI/actions/workflows/codeql.yml)
+[![Security policy](https://img.shields.io/badge/security-report%20privately-6367c9)](https://github.com/xploryngDAO/IntegrAI/security/advisories/new)
 
 > **Status:** integrações 100% reais — **sem modo demonstração e sem dados
 > simulados**. O sistema opera apenas com credenciais reais dos marketplaces.

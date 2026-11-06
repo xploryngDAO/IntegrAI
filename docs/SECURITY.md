@@ -1045,6 +1045,7 @@ com `security-extended`. Triagem inicial (2026-11-06): **30 alertas**, sendo:
 
 Configurado no repositório `xploryngDAO/IntegrAI` (2026-11-06):
 
+- **Private vulnerability reporting**: habilitado (canal de advisories privados).
 - **Secret scanning**: habilitado.
 - **Push protection**: habilitado (bloqueia push com segredo conhecido).
 - **Vulnerability alerts** + **Dependabot automated security fixes**: habilitados.

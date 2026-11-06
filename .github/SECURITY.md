@@ -1,30 +1,33 @@
-# Security policy
+# Política de segurança
 
-## Reporting a vulnerability
+## Como reportar uma vulnerabilidade
 
-Please **do not open a public issue** for security problems.
+**Não abra issue pública para vulnerabilidades.** Use o canal privado do GitHub:
 
-- Use GitHub Security Advisories: https://github.com/xploryngDAO/IntegrAI/security/advisories/new
-- Include: affected version/commit, reproduction steps, impact, and any suggested fix.
-- We acknowledge within **3 business days** and aim to ship a fix or mitigation within **30 days**
-  (critical issues are handled faster).
+1. Acesse <https://github.com/xploryngDAO/IntegrAI/security/advisories/new> (Private vulnerability reporting está habilitado), ou
+2. Se preferir e-mail, escreva para o encarregado de segurança indicado na issue [#3](https://github.com/xploryngDAO/IntegrAI/issues/3) — nunca inclua segredos de produção na mensagem.
 
-## Scope
+Inclua: versão/commit, passo a passo de reprodução, impacto esperado, requisição/resposta relevante
+e, se possível, uma prova de conceito mínima. **Não exfiltre dados pessoais** de terceiros; use apenas
+contas de teste.
 
-In scope: authentication/SSO, session and token handling, multi-tenant isolation, file uploads,
-webhooks, admin endpoints, secrets handling, dependency vulnerabilities in production.
+## Prazos de resposta (melhor esforço)
 
-Out of scope: findings that require a compromised admin account, social engineering, or
-denial-of-service on third-party infrastructure.
+| Etapa | Prazo |
+|---|---|
+| Confirmação de recebimento | até 2 dias úteis |
+| Triagem inicial + severidade (CVSS) | até 5 dias úteis |
+| Correção para crítico/alto | priorizada no próximo ciclo de release |
+| Crédito público | combinado com quem reportou, após correção |
+
+## Escopo
+
+- Aplicação (SPA + API), autenticação/2FA/SSO, multitenancy, webhooks, uploads, console de plataforma e LGPD.
+- Documentação de referência: [`docs/SECURITY.md`](../docs/SECURITY.md), [`docs/PENTEST_BRIEF.md`](../docs/PENTEST_BRIEF.md).
+- Automações já executadas: gitleaks, semgrep, CodeQL, `npm audit`/OSV, trivy, ZAP baseline, `security-probe` e `isolation-test`.
 
 ## Safe harbor
 
-Good-faith research that respects this policy, avoids data exfiltration, and does not degrade
-service is considered authorized. Do not access, modify, or retain third-party data.
-
-## Reference
-
-The full threat model, implemented controls, LGPD checklist, and incident response runbook are
-in [docs/SECURITY.md](../docs/SECURITY.md). Operational steps are in
-[docs/RUNBOOK.md](../docs/RUNBOOK.md). A machine-readable policy is served at
-`/.well-known/security.txt`.
+Pesquisa de segurança de boa-fé, limitada às contas de teste do projeto, não será alvo de ação legal.
+Não são permitidos: engenharia social, dano a dados de terceiros, DoS volumétrico ou acesso a
+credenciais reais de produção.
