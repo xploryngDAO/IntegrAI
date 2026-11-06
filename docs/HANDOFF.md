@@ -18,7 +18,7 @@ Credenciais do ambiente de teste estão em `.env` (não versionado) e na documen
 
 ## 2. Evidências já coletadas
 
-- **1073 testes**; `test:live:all` → **14/14 etapas** na produção (verify-live, validate 11,
+- **1073 testes**; `test:live:all` → **15/15 etapas** na produção (verify-live, validate 11,
   isolamento 14, probe 18, 2FA policy/API/UI, SSO API/UI, socket, signup+convite 26,
   signup/convite/reset UI, a11y).
 - a11y: **21 telas** (públicas + autenticadas, desktop + formulários no mobile) nos temas

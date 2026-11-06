@@ -67,7 +67,8 @@ const STEPS = [
   { key: 'reset-ui', label: 'reset de senha pela UI (10)', script: 'live-reset-ui-test.mjs', args: [WEB, API], ui: true },
   { key: '2fa-ui', label: '2FA pela UI (9)', script: 'live-2fa-ui-test.mjs', args: [WEB, API], ui: true },
   { key: 'sso-ui', label: 'SSO pela UI (9)', script: 'live-sso-ui-test.mjs', args: [WEB, API], ui: true },
-  { key: 'a11y', label: 'a11y 10 telas (light)', script: 'a11y-audit.mjs', args: [WEB, EMAIL, PASSWORD] },
+  { key: 'vitals', label: 'Web Vitals (workspace)', script: 'web-vitals.mjs', args: [WEB, EMAIL, PASSWORD] },
+  { key: 'a11y', label: 'a11y 21 telas (light)', script: 'a11y-audit.mjs', args: [WEB, EMAIL, PASSWORD] },
 ];
 
 const selected = STEPS.filter((step) => {
