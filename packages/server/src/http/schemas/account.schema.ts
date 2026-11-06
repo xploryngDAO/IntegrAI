@@ -33,7 +33,7 @@ export const connectAccountBodySchema = z
     refreshToken: z.string().min(1).max(2_000).optional(),
     accessToken: z.string().min(1).max(4_000).optional(),
     tokenExpiresAt: z.coerce.date().optional(),
-    channelConfig: z.record(z.unknown()).optional(),
+    channelConfig: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.marketplace === 'AMAZON' && (value.refreshToken === undefined || value.refreshToken.length === 0)) {

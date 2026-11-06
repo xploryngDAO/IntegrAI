@@ -15,7 +15,7 @@ const DEV_MASTER_KEY = 'zJ8kQ2mWv7bT1yN5cR9pLx4hF6dA0gU3sE2iO8qK5wY=';
 const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
 const FALSY = new Set(['0', 'false', 'no', 'off']);
 
-function boolFromEnv(fallback: boolean): z.ZodType<boolean, z.ZodTypeDef, unknown> {
+function boolFromEnv(fallback: boolean): z.ZodType<boolean> {
   return z.preprocess((value) => {
     if (value === undefined || value === null || value === '') return fallback;
     if (typeof value === 'boolean') return value;
@@ -26,21 +26,21 @@ function boolFromEnv(fallback: boolean): z.ZodType<boolean, z.ZodTypeDef, unknow
   }, z.boolean());
 }
 
-function stringFromEnv(fallback: string): z.ZodType<string, z.ZodTypeDef, unknown> {
+function stringFromEnv(fallback: string): z.ZodType<string> {
   return z.preprocess((value) => {
     if (value === undefined || value === null) return fallback;
     return String(value).trim();
   }, z.string());
 }
 
-function requiredString(field: string): z.ZodType<string, z.ZodTypeDef, unknown> {
+function requiredString(field: string): z.ZodType<string> {
   return z.preprocess(
     (value) => (value === undefined || value === null ? undefined : String(value).trim()),
     z.string().min(1, `${field} must not be empty`),
   );
 }
 
-function optionalString(): z.ZodType<string | undefined, z.ZodTypeDef, unknown> {
+function optionalString(): z.ZodType<string | undefined> {
   return z.preprocess((value) => {
     if (value === undefined || value === null) return undefined;
     const text = String(value).trim();
@@ -48,7 +48,7 @@ function optionalString(): z.ZodType<string | undefined, z.ZodTypeDef, unknown> 
   }, z.string().min(1).optional());
 }
 
-function numberFromEnv(fallback: number): z.ZodType<number, z.ZodTypeDef, unknown> {
+function numberFromEnv(fallback: number): z.ZodType<number> {
   return z.preprocess((value) => {
     if (value === undefined || value === null || value === '') return fallback;
     if (typeof value === 'number') return value;
@@ -57,7 +57,7 @@ function numberFromEnv(fallback: number): z.ZodType<number, z.ZodTypeDef, unknow
   }, z.number().finite());
 }
 
-function intFromEnv(fallback: number, min?: number, max?: number): z.ZodType<number, z.ZodTypeDef, unknown> {
+function intFromEnv(fallback: number, min?: number, max?: number): z.ZodType<number> {
   let schema = z.number().int();
   if (min !== undefined) schema = schema.min(min);
   if (max !== undefined) schema = schema.max(max);
@@ -69,7 +69,7 @@ function intFromEnv(fallback: number, min?: number, max?: number): z.ZodType<num
   }, schema);
 }
 
-function csvFromEnv(fallback: string[] = []): z.ZodType<string[], z.ZodTypeDef, unknown> {
+function csvFromEnv(fallback: string[] = []): z.ZodType<string[]> {
   return z.preprocess((value) => {
     if (value === undefined || value === null || value === '') return fallback;
     if (Array.isArray(value)) return value;
@@ -96,7 +96,7 @@ export type TrustProxySetting = boolean | string[];
  * unless the API is unreachable except through the edge. See
  * `docs/SECURITY.md` §6.8.
  */
-function trustProxyFromEnv(): z.ZodType<TrustProxySetting, z.ZodTypeDef, unknown> {
+function trustProxyFromEnv(): z.ZodType<TrustProxySetting> {
   return z.preprocess((value) => {
     if (value === undefined || value === null || value === '') return false;
     if (typeof value === 'boolean') return value;
@@ -114,7 +114,7 @@ function trustProxyFromEnv(): z.ZodType<TrustProxySetting, z.ZodTypeDef, unknown
 }
 
 /** base64 key that MUST decode to exactly 32 bytes (AES-256). */
-function masterKeyFromEnv(fallback: string): z.ZodType<string, z.ZodTypeDef, unknown> {
+function masterKeyFromEnv(fallback: string): z.ZodType<string> {
   return z
     .preprocess((value) => {
       if (value === undefined || value === null || value === '') return fallback;

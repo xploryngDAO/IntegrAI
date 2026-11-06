@@ -72,7 +72,7 @@ export const executeActionBodySchema = z.object({
   bodyText: z.string().max(20_000).optional(),
   attachmentS3Keys: z.array(attachmentKeySchema).max(10).optional(),
   lastReadMessageId: z.string().min(1).max(256).nullable().optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const idempotencyKeyHeaderSchema = z.string().uuid();

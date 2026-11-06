@@ -44,7 +44,7 @@ export const updateSsoConnectionBodySchema = z
     clientSecret: z.string().min(8).max(512).optional(),
     redirectUri: optionalHttpUrlSchema,
     allowedDomains: z.array(z.string().trim().min(1).max(253)).max(50).optional(),
-    groupRoleMap: z.record(ssoRoleSchema).optional(),
+    groupRoleMap: z.record(z.string(), ssoRoleSchema).optional(),
     autoProvision: z.boolean().optional(),
     defaultRole: ssoRoleSchema.optional(),
     enforceSso: z.boolean().optional(),

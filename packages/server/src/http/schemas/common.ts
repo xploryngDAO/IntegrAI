@@ -30,7 +30,7 @@ export function invalidInput(where: InputLocation, error: { readonly issues: rea
  * Parse an untrusted HTTP input with a zod schema, throwing a 422
  * `VALIDATION_ERROR` (with field details) on failure.
  */
-export function parseInput<TSchema extends z.ZodType<unknown, z.ZodTypeDef, unknown>>(
+export function parseInput<TSchema extends z.ZodType<unknown>>(
   schema: TSchema,
   value: unknown,
   where: InputLocation,
@@ -42,8 +42,8 @@ export function parseInput<TSchema extends z.ZodType<unknown, z.ZodTypeDef, unkn
 
 /** Treat an empty query parameter (`?search=`) as "absent". */
 export function blankAsUndefined<TOutput>(
-  schema: z.ZodType<TOutput, z.ZodTypeDef, unknown>,
-): z.ZodType<TOutput, z.ZodTypeDef, unknown> {
+  schema: z.ZodType<TOutput>,
+): z.ZodType<TOutput> {
   return z.preprocess(
     (value) => (typeof value === 'string' && value.trim().length === 0 ? undefined : value),
     schema,
