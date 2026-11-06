@@ -233,3 +233,13 @@ POST /admin/users/:id/reset-2fa -> 200 twoFactorEnabled=false
 login depois -> 200 (fator removido, sessoes revogadas)
 validate:live -> 11/11
 ```
+
+### 20. Retencao de backups (purga S3 + DB)
+```
+POST /platform/tenants/:id/backup -> backups/integrai/<ts>.json
+UPDATE tenant_backups.created_at = now() - 120 days
+API reiniciada com BACKUP_PURGE_CRON='* * * * *' (retencao 90d)
+job tenant.backup.purge -> linha removida do banco
+GET S3 do objeto -> 404 (objeto apagado)
+validate:live -> 11/11
+```
