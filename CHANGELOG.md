@@ -2,6 +2,30 @@
 
 All notable changes to IntegrAI. Dates in `YYYY-MM-DD`; versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+
+- **SSO**: `POST /tenants/me/sso/test` + botão “Testar conexão” em `/settings` (10 checks: discovery,
+  issuer, endpoints, PKCE S256, RS256, JWKS com `kid`, domínios) e `scripts/sso-doctor.mjs`.
+- **Provisionamento do Entra**: `scripts/entra-provision.mjs` cria App registration/service principal/
+  secret via device code (`npm run entra:provision`), sem senha no script.
+- **Console**: operações de backup (S3), backups recentes, exclusão lógica com confirmação por slug e
+  purga explícita; backend `DELETE /platform/tenants/:id` (soft delete sem senha do workspace).
+- **Deploy resiliente**: `runtime-config.json` público resolve API/WS no boot (troca de túnel sem
+  redeploy), `npm run tunnel:sync` e `npm run deploy:vercel`; `HOST`/`TRUST_PROXY` configuráveis.
+- **Ops**: modo de manutenção (`MAINTENANCE_MODE`) com 503, banner com contagem regressiva no SPA,
+  perfil de observabilidade (Prometheus + Grafana provisionado), backup/restore do Postgres e
+  baseline de performance em `docs/PERFORMANCE.md`.
+
+### Changed
+
+- **Imagens Docker**: runtime da API sem `npm`/`npx` (migrações via Prisma CLI direto) e web em
+  `nginx:stable-alpine`; `trivy` 0 HIGH/CRITICAL, varredura obrigatória no CI.
+- **CI**: actionlint nos workflows, gitleaks, auditoria WCAG AA em 8 telas, build + scan das imagens.
+- **A11y/UX**: login com âncora de produto, jargão de endpoints removido de todas as telas.
+- **Banco**: drill de backup/restore por workspace validado (backup → restore → soft delete → purge).
+
 ## [0.1.0] — 2026-11-06
 
 ### Added
