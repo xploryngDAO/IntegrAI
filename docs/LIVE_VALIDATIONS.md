@@ -340,3 +340,12 @@ POST /files/upload (11 MB image/png)                          -> 413 (limite)
 GET  /files/signed?key=...                                    -> 200 com URL presignada
 GET  URL presignada                                           -> 200 (70 bytes)
 ```
+
+### 31. Regressao das suites live de identidade (pos-hardening)
+```
+npm run test:live-2fa-policy -> 13/13 (require2fa: bloqueio 403, enrollment 200, replay 401,
+   login passa a exigir TOTP, cleanup)
+npm run test:live-sso       -> 10/10 (stub OIDC: discover, start 302, callback one-time code,
+   exchange JIT AGENT, replay 401, tenant correto, cleanup)
+Estado final: SSO do tenant 404 (limpo) e 0 usuarios JIT residuais
+```
