@@ -1022,7 +1022,9 @@ gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .git
 - semgrep --config=p/security-audit em packages/server/src (2026-11-06): **14 achados, todos em arquivos de teste** (segredos JWT de fixture); **0 em codigo de producao**.
 - Regra relevante: jwt-hardcode — fixtures usam valores explicitos de proposito (nunca segredos reais); o gitleaks cobre vazamentos no historico.
 
-## 16. Code scanning (CodeQL)`n`nWorkflow `codeql.yml` (semanal + workflow_dispatch) analisa `javascript-typescript`
+## 16. Code scanning (CodeQL)
+
+Workflow `codeql.yml` (semanal + workflow_dispatch) analisa `javascript-typescript`
 com `security-extended`. Triagem inicial (2026-11-06): **30 alertas**, sendo:
 
 - **4 corrigidos no código**:
