@@ -542,6 +542,19 @@ Regras de decisão:
 
 ## 7. Dependências — `npm audit --omit=dev`
 
+**Atualização 2026-11-06:** após os upgrades de runtime (Prisma 7, nodemailer 10,
+zod 4, react-router 7) e de tooling (`vitest` 4.1.12 + override `vite@6.4.5`,
+remoção do `s3rver` não usado, `vitest.config.ts` excluindo `dist`):
+
+```
+npm audit            -> found 0 vulnerabilities
+npm audit --omit=dev -> found 0 vulnerabilities
+osv-scanner (lockfile, 581 pacotes) -> No issues found
+```
+
+O histórico abaixo é a baseline de **2026-11-05**, mantido para rastreabilidade;
+os itens listados foram resolvidos pelos upgrades acima.
+
 Execução: **2026-11-05**, Node 24.14.0, npm 11.1.0, lockfile commitado.
 
 ```
