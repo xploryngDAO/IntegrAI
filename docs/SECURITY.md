@@ -1021,3 +1021,20 @@ gitleaks escaneia todo o historico a cada push/PR (com baseline revisado em .git
 
 - semgrep --config=p/security-audit em packages/server/src (2026-11-06): **14 achados, todos em arquivos de teste** (segredos JWT de fixture); **0 em codigo de producao**.
 - Regra relevante: jwt-hardcode — fixtures usam valores explicitos de proposito (nunca segredos reais); o gitleaks cobre vazamentos no historico.
+
+## 16. Postura de segurança do repositório (GitHub)
+
+Configurado no repositório `xploryngDAO/IntegrAI` (2026-11-06):
+
+- **Secret scanning**: habilitado.
+- **Push protection**: habilitado (bloqueia push com segredo conhecido).
+- **Vulnerability alerts** + **Dependabot automated security fixes**: habilitados.
+- **Dependabot version updates** semanais (`.github/dependabot.yml`), agrupadas e
+  com majors de Node ignorados nas imagens Docker (mantém 22 LTS).
+- **CI**: gitleaks (histórico completo), semgrep `p/security-audit` (ERROR),
+  `npm audit --omit=dev`, OSV e trivy nos jobs de segurança.
+- **Workflows**: `permissions: contents: read` (menor privilégio), timeouts,
+  concurrency para não executar revisões obsoletas.
+
+P1 remanescente: fixar as GitHub Actions por **SHA** (hoje usam major: `checkout@v7` etc.),
+reduzindo o risco de tag móvel comprometida.
