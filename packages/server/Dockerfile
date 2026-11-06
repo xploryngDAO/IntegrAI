@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # SAC Hub API image (build context = repository root)
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
@@ -23,7 +23,7 @@ RUN npm run build:shared \
  && npm run build:server \
  && npm prune --omit=dev
 
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 WORKDIR /app
 # Build identity for GET /version (deploy verification); CI passes the SHA.
 ARG GIT_SHA=""
