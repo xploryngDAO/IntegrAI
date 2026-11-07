@@ -828,3 +828,12 @@ security-probe         -> 18/18
 live-2fa-policy-test   -> 13/13
 (API no tunel atual, apos restart com GIT_SHA)
 ```
+
+### 92. check:managed com TLS e sem TLS
+```
+Postgres local (sem TLS): OK (Postgres 16.15, migrações 14)
+Postgres TLS self-signed (ssl=on, sslmode=require): OK — sslmode removido do
+  connectionString para o pg não sobrescrever o objeto ssl
+Redis local: OK (v7.4.12)
+Credenciais inválidas/host inacessível: exit 1 com mensagem clara (sem vazar segredo)
+```

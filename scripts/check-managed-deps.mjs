@@ -44,12 +44,19 @@ try {
     }
   })();
   const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  const parsed = new URL(dbUrl);
+  const sslMode = parsed.searchParams.get('sslmode') ?? '';
+  const wantsSsl = ['require', 'verify-ca', 'verify-full'].includes(sslMode);
+  // `pg` interpreter de sslmode se sobrepõe ao objeto `ssl`; removemos o
+  // parâmetro e controlamos o TLS explicitamente.
+  parsed.searchParams.delete('sslmode');
   db = new Client({
-    connectionString: dbUrl,
+    connectionString: parsed.toString(),
     connectionTimeoutMillis: 10_000,
-    // Bancos gerenciados normalmente exigem TLS; `rejectUnauthorized:false`
-    // evita falha por CA intermediária — valide o CA em produção se exigido.
-    ssl: isLocal ? undefined : { rejectUnauthorized: false },
+    // `sslmode=require` do provedor sempre vale; hosts remotos sem sslmode
+    // assumem TLS. `rejectUnauthorized:false` evita falha por CA intermediária
+    // — valide o CA em produção se o provedor exigir.
+    ssl: wantsSsl || !isLocal ? { rejectUnauthorized: false } : undefined,
   });
   await db.connect();
   const version = await db.query('SELECT version() AS version');
