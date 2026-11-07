@@ -887,3 +887,15 @@ lighthouse https://integrai-dev.vercel.app/status -> 100/100/100/100 (1a rodada
   falhou por erro de trace do Chrome; repetida com sucesso)
 bundle index-Nw17pUz4.js
 ```
+
+### 98. Todas as paginas publicas 100/100/100/100
+```
+landing            -> 100/100/100/100
+/status            -> 100/100/100/100
+/login             -> 100/100/100/100
+/signup            -> 100/100/100/100
+/forgot-password   -> 100/100/100/100
+```
+Duas rodadas iniciais falharam por erro de trace do Chrome (NO_NAVSTART) e foram
+repetidas com sucesso. `.well-known/security.txt` valido ate 2027 com contato de
+advisory privado.
