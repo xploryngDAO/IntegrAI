@@ -4,6 +4,11 @@
   "installCommand": "npm install --no-audit --no-fund",
   "buildCommand": "npm run build:shared && npm run build --workspace @sac/web",
   "outputDirectory": "apps/web/dist",
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {

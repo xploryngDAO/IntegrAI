@@ -2,12 +2,14 @@
 /**
  * Publishes the SPA to Vercel wired to the tunnel that is alive right now.
  *
- * The project is Git-connected, so a push already triggers a production build.
- * This script is the *deliberate* path: it reads the current tunnel from
- * `apps/web/runtime-config.json`, verifies the API through it, and passes the
- * same values as build-time envs (`VITE_API_BASE_URL`/`VITE_WS_URL`) so the
- * bundle fallback is never stale. The runtime config remains the source of
- * truth at boot, so a later tunnel restart does not break the published app.
+ * Automatic Git deployments of `main` are disabled in `vercel.json`
+ * (`git.deploymentEnabled.main = false`) so ordinary pushes no longer consume
+ * the Hobby deployment quota. This script is the publishing path: it reads the
+ * current tunnel from `apps/web/runtime-config.json`, verifies the API through
+ * it, and passes the same values as build-time envs
+ * (`VITE_API_BASE_URL`/`VITE_WS_URL`) so the bundle fallback is never stale.
+ * The runtime config remains the source of truth at boot, so a later tunnel
+ * restart does not break the published app.
  *
  * Usage:
  *   node scripts/deploy-vercel.mjs

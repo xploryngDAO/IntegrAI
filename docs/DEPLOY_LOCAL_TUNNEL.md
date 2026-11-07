@@ -51,15 +51,22 @@ git push
 
 O SPA publicado passa a usar a nova URL no próximo carregamento (o fetch usa
 cache-buster para furar o cache de 5 min do GitHub raw). **Não rode
-`vercel deploy` só por causa do túnel.** O push dispara o build automático da
-Vercel porque o projeto é Git-connected; se esse build for cancelado ou falhar
-por cota, o site que já está no ar continua lendo o `runtime-config.json` novo —
-o deploy só é necessário quando o **código** da SPA muda.
+`vercel deploy` só por causa do túnel** — o site que já está no ar lê o
+`runtime-config.json` novo sozinho.
 
-> Se a Vercel responder `api-deployments-free-per-day`, a cota diária do plano
-> Hobby (100 deploys/24 h) acabou: aguarde o reset (~24 h) ou faça upgrade para
-> Pro. O site que já está no ar continua funcionando; só a publicação de código
-> novo fica bloqueada.
+> **Auto-deploy do `main` está desligado** (`git.deploymentEnabled.main = false`
+> em `vercel.json`): push **não** publica mais na Vercel. Isso impede que o
+> volume de commits consuma a cota do plano Hobby (100 deploys/24 h). Para
+> publicar código novo da SPA use, deliberadamente:
+>
+> ```bash
+> npm run deploy:vercel
+> ```
+>
+> Se a Vercel responder `api-deployments-free-per-day`, a janela móvel de 24 h
+> ainda está cheia: aguarde (cada deploy antigo que sai da janela libera uma
+> vaga), tente mais tarde ou faça upgrade para o Pro. O site que já está no ar
+> continua funcionando; só a publicação de código novo fica bloqueada.
 
 ## Como reproduzir o ambiente
 
@@ -81,7 +88,7 @@ npx cloudflared tunnel --url http://127.0.0.1:4101 --no-autoupdate
 node scripts/tunnel-sync.mjs https://xxx.trycloudflare.com
 git add apps/web/runtime-config.json && git commit -m "chore(runtime): tunnel" && git push
 
-# 5. (opcional) publicação deliberada da SPA, já com os envs do túnel atual:
+# 5. publicação da SPA (obrigatória quando o código muda; auto-deploy desligado):
 node scripts/deploy-vercel.mjs
 ```
 
