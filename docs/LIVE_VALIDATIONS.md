@@ -899,3 +899,13 @@ landing            -> 100/100/100/100
 Duas rodadas iniciais falharam por erro de trace do Chrome (NO_NAVSTART) e foram
 repetidas com sucesso. `.well-known/security.txt` valido ate 2027 com contato de
 advisory privado.
+
+### 99. Orcamento de bundle no CI
+```
+node scripts/check-bundle-size.mjs
+main index-Db_R6_wY.js: 237.4 KiB (limite 300 KiB)
+total JS 828.5 KiB · CSS 87.2 KiB
+[ok] bundle dentro do orcamento
+```
+CI 633ec56: success com o novo passo "Bundle size budget" (falha se o code
+splitting regredir). Pages republicado automaticamente.
