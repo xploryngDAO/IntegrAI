@@ -879,3 +879,11 @@ caddy validate --config deploy/Caddyfile --adapter caddyfile -> Valid configurat
 docker run --add-host api:127.0.0.1 --entrypoint nginx sac-hub-web:ci -t -> syntax is ok
 CI b8f9e21: success (novo passo "Validate edge configs")
 ```
+
+### 97. Paginas publicas 100/100/100/100 no bundle atual
+```
+lighthouse https://integrai-dev.vercel.app/login  -> 100/100/100/100
+lighthouse https://integrai-dev.vercel.app/status -> 100/100/100/100 (1a rodada
+  falhou por erro de trace do Chrome; repetida com sucesso)
+bundle index-Nw17pUz4.js
+```
