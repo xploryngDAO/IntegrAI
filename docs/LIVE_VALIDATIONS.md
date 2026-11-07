@@ -848,3 +848,13 @@ GET :4106/api/v1/health/ready -> ready · database=ok · redis=ok · storage=ok
 Achado corrigido no caminho: o compose de producao nao passava SHOPEE_PARTNER_KEY
 (validacao de producao) nem SMTP_*/MAINTENANCE_* para o container; agora passa.
 O provisionamento gera SHOPEE_PARTNER_KEY automaticamente.
+
+### 94. Stack base self-hosted validado (compose local)
+```
+docker compose -f docker-compose.prod.yml up -d postgres redis api web (portas de teste)
+postgres/redis/api/web healthy; SPA via nginx (index 200, asset 200/243KB)
+GET http://127.0.0.1:8091/api/v1/health/ready -> ready (database/redis/storage ok)
+GET /api/v1/version -> v1.0.0 · commit=base-test · node=v22.23.4
+```
+Achado corrigido: o compose passava `GIT_SHA` vazio e sobrescrevia a identidade
+gravada na imagem; removido, então `/version` reflete o build real.

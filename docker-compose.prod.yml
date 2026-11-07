@@ -73,7 +73,6 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-false}
       RATE_LIMIT_GLOBAL_PER_MINUTE: ${RATE_LIMIT_GLOBAL_PER_MINUTE:-1800}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
-      GIT_SHA: ${GIT_SHA:-}
       # Produção exige uma chave de assinatura de webhooks Shopee (não vazia).
       SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:?defina SHOPEE_PARTNER_KEY no .env.prod}
       SMTP_HOST: ${SMTP_HOST:-}
