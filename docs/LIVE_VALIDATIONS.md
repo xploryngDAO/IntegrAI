@@ -765,3 +765,12 @@ SELECT count(*) => "2:devolucao shopee|atraso meli" (conteudo intacto)
 ```
 Valida os comandos usados por `scripts/provision-vps.sh` (backup) e
 `scripts/restore-postgres.sh` (restore), sem tocar no banco de producao.
+
+### 84. Deploy da Vercel apos reset de cota (bundle atual)
+```
+script deploy-vercel.mjs -> Production: integrai-dev.vercel.app
+bundle: assets/index-Nw17pUz4.js (chunk splitting + WebP + auditoria de sessoes)
+Lighthouse (2 rodadas): 100/100/100/100 (1a rodada 92 por variancia; 2a 100)
+axe 21 telas: exit 0, violacoes []
+verify-live (login/sessao/logout): exit 0
+```
