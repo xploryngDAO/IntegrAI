@@ -795,3 +795,13 @@ landing: LCP 688ms CLS 0.000 TTFB 72ms; workspace: LCP 88ms; /accounts: LCP 436m
 node scripts/a11y-audit.mjs https://integrai-dev.vercel.app --dark -> exit 0, violations []
 bundle index-Nw17pUz4.js (mesmo codigo do rc.2)
 ```
+
+### 88. Verificacao final de builds e testes
+```
+vitest run                    -> 1080 passed
+npm run build:shared          -> 0
+npm run build:server          -> 0
+npm run build --workspace web -> 0 (base /)
+actionlint                    -> 0
+docker compose config         -> 0
+```
