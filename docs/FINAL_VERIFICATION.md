@@ -35,9 +35,10 @@ npm run build --workspace @sac/web
 ## Fora desta baseline (issues abertas)
 
 - **#1** Entra ID real (script `entra:provision` pronto) · **#2** host/domínio da API ·
-  **#3** pentest externo · **#4** SMTP de produção (validador `email:check` pronto) ·
-  **#5** redeploy Vercel (cota `100/24h`) — o SPA publicado ainda é o bundle anterior.
-- O branch **`gh-pages`** já contém o build atual (base `/IntegrAI/`) como alternativa.
+  **#3** pentest externo · **#4** SMTP de produção (validador `email:check` pronto).
+- **#5 resolvido**: Vercel republicada em 2026-11-06 (`assets/index-Nw17pUz4.js`),
+  Lighthouse 100/100/100/100 e bateria 15/15 pós-deploy.
+- O branch **`gh-pages`** republica automaticamente a cada push na main (base `/IntegrAI/`).
 
 Detalhes por tela/arquivo: [LIVE_VALIDATIONS.md](LIVE_VALIDATIONS.md) ·
 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md) · [HANDOFF.md](HANDOFF.md) ·

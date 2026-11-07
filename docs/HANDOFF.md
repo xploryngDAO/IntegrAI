@@ -48,7 +48,7 @@ npm run a11y:...              # scripts/a11y-audit.mjs <url> [--dark]
 | [#4](https://github.com/xploryngDAO/IntegrAI/issues/4) | SMTP de produção | **sim** (provedor/credenciais; `email:check`/`smtp:doctor`) |
 
 Issues #5, #6 e #7 (redeploys/a11y/Lighthouse) estão **fechadas** — produção em
-`assets/index-CyPnOyWY.js`.
+`assets/index-Nw17pUz4.js`.
 
 ## 4. Entra ID (issue #1) — caminho rápido
 
