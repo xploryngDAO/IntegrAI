@@ -172,3 +172,6 @@ também passam a usar as URLs externas (`pg_dump "$DATABASE_URL"`).
 
 > Nota: mesmo no modo gerenciado o `.env.prod` precisa manter uma linha `POSTGRES_PASSWORD`
 > (placeholder; o serviço local não sobe). O `provision-vps.sh` gera automaticamente.
+
+Em reruns, o script **detecta as URLs do próprio .env.prod** (não precisa exportá-las de novo);
+basta editá-las no arquivo e rodar `bash scripts/provision-vps.sh`.

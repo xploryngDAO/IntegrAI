@@ -91,15 +91,23 @@ else
 fi
 cd "$INSTALL_DIR"
 
+ENV_FILE="$INSTALL_DIR/.env.prod"
+# Em reruns, aceita as URLs já gravadas no .env.prod (sem precisar exportá-las).
+if [ -f "$ENV_FILE" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    DATABASE_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d "'\"" || true)"
+  fi
+  if [ -z "${REDIS_URL:-}" ]; then
+    REDIS_URL="$(grep -E '^REDIS_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d "'\"" || true)"
+  fi
+fi
+
 MANAGED_DB=0
 if [ -n "${DATABASE_URL:-}" ] && [ -n "${REDIS_URL:-}" ]; then
   MANAGED_DB=1
-fi
-if [ "$MANAGED_DB" = "1" ]; then
   log "Usando PostgreSQL/Redis gerenciados (containers locais não sobem)"
 fi
 
-ENV_FILE="$INSTALL_DIR/.env.prod"
 if [ ! -f "$ENV_FILE" ]; then
   log "Gerando $ENV_FILE (segredos aleatórios, permissão 600)"
   umask 077
