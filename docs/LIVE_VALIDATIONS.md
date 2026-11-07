@@ -813,3 +813,10 @@ footer: "API v1.0.0 · 08e6c02" (version + commit do main atual)
 console errors = 0
 ```
 Confirma que o SPA publicado consome `/api/v1/version` e mostra o build real.
+
+### 90. Responsivo mobile (390x844) e sessao limpa no landing
+```
+Playwright MCP, viewport 390x844: scrollWidth=390 (sem overflow horizontal),
+h1 correto, CTAs visiveis; localStorage limpo -> console errors = 0
+(com tokens antigos no storage, /auth/me 401 e /auth/refresh 422 sao esperados)
+```
