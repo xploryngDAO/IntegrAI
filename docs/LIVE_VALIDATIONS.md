@@ -789,3 +789,9 @@ node scripts/web-vitals.mjs https://integrai-dev.vercel.app
 landing: LCP 688ms CLS 0.000 TTFB 72ms; workspace: LCP 88ms; /accounts: LCP 436ms
 3/3 dentro do alvo; 0 long tasks
 ```
+
+### 87. Dark mode no bundle novo da Vercel
+```
+node scripts/a11y-audit.mjs https://integrai-dev.vercel.app --dark -> exit 0, violations []
+bundle index-Nw17pUz4.js (mesmo codigo do rc.2)
+```
