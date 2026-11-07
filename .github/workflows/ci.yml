@@ -45,6 +45,13 @@ jobs:
         run: docker build -f packages/server/Dockerfile --build-arg GIT_SHA=${{ github.sha }} -t sac-hub-api:ci .
       - name: Build production web image
         run: docker build -f apps/web/Dockerfile -t sac-hub-web:ci .
+      - name: Validate compose overlays
+        run: |
+          docker compose --env-file .env.prod.example -f docker-compose.prod.yml config --quiet
+          DATABASE_URL='postgresql://u:p@db.example.com:5432/sac?schema=public' \
+          REDIS_URL='rediss://default:p@redis.example.com:6379' \
+          docker compose --env-file .env.prod.example -f docker-compose.prod.yml \
+            -f docker-compose.managed.yml --profile tls config --quiet
       - name: Scan images for HIGH/CRITICAL CVEs
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
