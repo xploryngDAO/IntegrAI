@@ -1080,3 +1080,9 @@ Consulta à API do GitHub (estado `open`):
 
 Combinado com `npm audit`/OSV/trivy (0 HIGH/CRITICAL), gitleaks e semgrep no CI,
 o repositório está sem achados abertos nas quatro fontes nativas.
+
+### Re-scan de segredos e dependencias (2026-11-06)
+
+- `gitleaks detect` no histórico completo: **312 commits**, ~7,5 MB, **nenhum segredo**.
+- `npm audit --omit=dev --audit-level=high`: **0 vulnerabilidades**.
+- GitHub: 0 alertas abertos (Dependabot/secret scanning/CodeQL).
