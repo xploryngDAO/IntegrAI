@@ -805,3 +805,11 @@ npm run build --workspace web -> 0 (base /)
 actionlint                    -> 0
 docker compose config         -> 0
 ```
+
+### 89. Identidade do build na pagina /status (Playwright MCP)
+```
+https://integrai-dev.vercel.app/status via Chromium/Playwright MCP
+footer: "API v1.0.0 · 08e6c02" (version + commit do main atual)
+console errors = 0
+```
+Confirma que o SPA publicado consome `/api/v1/version` e mostra o build real.
