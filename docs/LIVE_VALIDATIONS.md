@@ -774,3 +774,11 @@ Lighthouse (2 rodadas): 100/100/100/100 (1a rodada 92 por variancia; 2a 100)
 axe 21 telas: exit 0, violacoes []
 verify-live (login/sessao/logout): exit 0
 ```
+
+### 85. Bateria 15/15 no bundle novo da Vercel
+```
+live-all --reset-login-limit -> 15/15 etapas OK em 266s
+bundle: assets/index-Nw17pUz4.js (Vercel) / index-CEInSfKG.js (Pages)
+inclui signup/convite/reset/2FA/SSO pela UI, isolamento 14/14, probe 18/18,
+Web Vitals e a11y 21 telas
+```
