@@ -161,6 +161,7 @@ S3_ENDPOINT=... S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
 bash scripts/provision-vps.sh
 ```
 
-O script detecta as duas URLs, escreve no `.env.prod`, usa o overlay (sem Postgres/
-Redis locais), aplica migrações no boot e valida `/health/ready`. Backup/restore
+Antes de provisionar, valide as URLs com `npm run check:managed` (TLS, versão, latência e
+migrações Prisma). O script detecta as duas URLs, escreve no `.env.prod`, usa o overlay
+(sem Postgres/Redis locais), aplica migrações no boot e valida `/health/ready`. Backup/restore
 também passam a usar as URLs externas (`pg_dump "$DATABASE_URL"`).
