@@ -53,6 +53,7 @@
         "email:check": "node --env-file=.env scripts/email-check.mjs",
         "host:check": "node scripts/host-check.mjs",
         "check:managed": "node scripts/check-managed-deps.mjs",
+        "check:bundle": "node scripts/check-bundle-size.mjs",
         "perf:vitals": "node scripts/web-vitals.mjs",
         "entra:provision": "node scripts/entra-provision.mjs",
         "test:isolation": "node scripts/isolation-test.mjs",
