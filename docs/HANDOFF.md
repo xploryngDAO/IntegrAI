@@ -145,3 +145,22 @@ node scripts/a11y-audit.mjs https://integrai-dev.vercel.app   # 10 telas, 0 viol
 | KVM 4 | 4 vCPU · 16 GB · 200 GB | R$ 839,88 | folga para growth |
 
 Sem compra feita; decisão registrada na issue #2.
+
+## Banco/Redis gerenciados (alternativa ao VPS com containers)
+
+Se você já tem Postgres/Redis gerenciados, o overlay `docker-compose.managed.yml`
+sobe só API + web + Caddy, apontando para as URLs externas:
+
+```bash
+DATABASE_URL='postgresql://user:pass@host:5432/db?schema=public' \
+REDIS_URL='rediss://default:pass@host:6379' \
+DOMAIN=api.suaempresa.com APP_BASE_URL=https://api.suaempresa.com \
+WEB_ORIGIN=https://integrai-dev.vercel.app \
+JWT_SECRET=... ENCRYPTION_MASTER_KEY=... \
+S3_ENDPOINT=... S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
+bash scripts/provision-vps.sh
+```
+
+O script detecta as duas URLs, escreve no `.env.prod`, usa o overlay (sem Postgres/
+Redis locais), aplica migrações no boot e valida `/health/ready`. Backup/restore
+também passam a usar as URLs externas (`pg_dump "$DATABASE_URL"`).

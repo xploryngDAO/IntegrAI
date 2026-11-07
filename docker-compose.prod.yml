@@ -55,8 +55,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sac}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sac_hub}?schema=public
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-sac}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sac_hub}?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       S3_ENDPOINT: ${S3_ENDPOINT:?defina S3_ENDPOINT no .env.prod}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-sac-hub-raw}

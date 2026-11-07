@@ -91,6 +91,14 @@ else
 fi
 cd "$INSTALL_DIR"
 
+MANAGED_DB=0
+if [ -n "${DATABASE_URL:-}" ] && [ -n "${REDIS_URL:-}" ]; then
+  MANAGED_DB=1
+fi
+if [ "$MANAGED_DB" = "1" ]; then
+  log "Usando PostgreSQL/Redis gerenciados (containers locais não sobem)"
+fi
+
 ENV_FILE="$INSTALL_DIR/.env.prod"
 if [ ! -f "$ENV_FILE" ]; then
   log "Gerando $ENV_FILE (segredos aleatórios, permissão 600)"
@@ -98,7 +106,8 @@ if [ ! -f "$ENV_FILE" ]; then
   POSTGRES_PASSWORD="$(openssl rand -hex 16)"
   JWT_SECRET="$(openssl rand -hex 32)"
   ENCRYPTION_MASTER_KEY="$(openssl rand -base64 32 | tr -d '\n')"
-  cat > "$ENV_FILE" <<EOF
+  {
+    cat <<EOF
 # Gerado por scripts/provision-vps.sh em $(date -u +%Y-%m-%dT%H:%M:%SZ)
 NODE_ENV=production
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
@@ -124,6 +133,10 @@ S3_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
 S3_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
 S3_FORCE_PATH_STYLE=${S3_FORCE_PATH_STYLE:-false}
 EOF
+    if [ "$MANAGED_DB" = "1" ]; then
+      printf "DATABASE_URL='%s'\nREDIS_URL='%s'\n" "$DATABASE_URL" "$REDIS_URL"
+    fi
+  } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   echo "[ok] Segredos gerados (não exibidos). Revise SMTP/S3 quando necessário."
 else
@@ -136,8 +149,13 @@ docker build -q -f packages/server/Dockerfile --build-arg GIT_SHA="$GIT_SHA" -t 
 VITE_API_BASE_URL="https://$DOMAIN/api/v1" VITE_WS_URL="https://$DOMAIN" \
   docker build -q -f apps/web/Dockerfile -t sac-hub-web:prod .
 
+COMPOSE_FILES=(-f docker-compose.prod.yml)
+if [ "$MANAGED_DB" = "1" ]; then
+  COMPOSE_FILES+=(-f docker-compose.managed.yml)
+fi
+
 log "Subindo o stack com TLS (Caddy)"
-docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml --profile tls up -d
+docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" --profile tls up -d
 
 log "Aguardando /health/ready"
 for i in $(seq 1 60); do
@@ -147,7 +165,7 @@ for i in $(seq 1 60); do
   fi
   sleep 3
   if [ "$i" -eq 60 ]; then
-    die "API não respondeu em 3 min. Veja: docker compose -f docker-compose.prod.yml logs api"
+    die "API não respondeu em 3 min. Veja: docker compose ${COMPOSE_FILES[*]} logs api"
   fi
 done
 
@@ -160,14 +178,20 @@ DIR="${BACKUP_DIR:-/var/backups/integrai}"
 KEEP_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 POSTGRES_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | cut -d= -f2 || true)"
 POSTGRES_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | cut -d= -f2 || true)"
+DATABASE_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d "'\"" || true)"
 POSTGRES_USER="${POSTGRES_USER:-sac}"
 POSTGRES_DB="${POSTGRES_DB:-sac_hub}"
 mkdir -p "$DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 cd /opt/integrai
 OUT="$DIR/db-$STAMP.sql.gz"
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$OUT"
+if [ -n "$DATABASE_URL" ]; then
+  # Postgres gerenciado: usa o cliente da imagem oficial apontando para a URL.
+  docker run --rm postgres:16-alpine pg_dump "$DATABASE_URL" | gzip > "$OUT"
+else
+  docker compose -f docker-compose.prod.yml exec -T postgres \
+    pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$OUT"
+fi
 # Falha cedo (e visível no cron) se o dump saiu vazio/corrompido.
 gzip -t "$OUT"
 [ -s "$OUT" ] || { echo "[erro] backup vazio: $OUT" >&2; exit 1; }

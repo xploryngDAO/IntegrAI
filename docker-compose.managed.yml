@@ -1,0 +1,27 @@
+# Overlay para usar PostgreSQL/Redis GERENCIADOS (sem containers locais).
+#
+#   DATABASE_URL=postgresql://user:pass@host:5432/db?schema=public \
+#   REDIS_URL=rediss://default:pass@host:6379 \
+#   DOMAIN=api.suaempresa.com APP_BASE_URL=https://api.suaempresa.com \
+#   WEB_ORIGIN=https://integrai-dev.vercel.app \
+#   JWT_SECRET=... ENCRYPTION_MASTER_KEY=... S3_* ... \
+#   docker compose --env-file .env.prod \
+#     -f docker-compose.prod.yml -f docker-compose.managed.yml --profile tls up -d
+#
+# Os serviços postgres/redis locais ficam no profile `local-db` (não sobem).
+# A API roda com as URLs externas; as migrações continuam sendo aplicadas no boot.
+
+name: sac-hub-prod
+
+services:
+  postgres:
+    profiles: ['local-db']
+  redis:
+    profiles: ['local-db']
+
+  api:
+    # Sem os containers locais, a API não pode depender deles.
+    depends_on: !reset []
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?defina DATABASE_URL para o Postgres gerenciado}
+      REDIS_URL: ${REDIS_URL:?defina REDIS_URL para o Redis gerenciado}

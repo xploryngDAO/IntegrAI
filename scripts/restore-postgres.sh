@@ -41,6 +41,7 @@ gzip -t "$FILE" >/dev/null 2>&1 || die "backup corrompido (gzip -t falhou): $FIL
 
 POSTGRES_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | cut -d= -f2 || true)"
 POSTGRES_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | cut -d= -f2 || true)"
+DATABASE_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d "'\"" || true)"
 POSTGRES_USER="${POSTGRES_USER:-sac}"
 POSTGRES_DB="${POSTGRES_DB:-sac_hub}"
 
@@ -49,15 +50,24 @@ cd "$INSTALL_DIR"
 log "Backup de segurança antes do restore"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$BACKUP_DIR"
-docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$BACKUP_DIR/db-pre-restore-$STAMP.sql.gz"
+if [ -n "$DATABASE_URL" ]; then
+  docker run --rm postgres:16-alpine pg_dump "$DATABASE_URL" | gzip > "$BACKUP_DIR/db-pre-restore-$STAMP.sql.gz"
+else
+  docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml exec -T postgres \
+    pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$BACKUP_DIR/db-pre-restore-$STAMP.sql.gz"
+fi
 
 log "Parando API e web para evitar escritas"
 docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml stop api web >/dev/null
 
 log "Restaurando $FILE"
-gunzip -c "$FILE" | docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml \
-  exec -T postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null
+if [ -n "$DATABASE_URL" ]; then
+  gunzip -c "$FILE" | docker run --rm -i postgres:16-alpine \
+    psql -v ON_ERROR_STOP=1 "$DATABASE_URL" >/dev/null
+else
+  gunzip -c "$FILE" | docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml \
+    exec -T postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null
+fi
 
 log "Subindo API e web"
 docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml start api web >/dev/null
