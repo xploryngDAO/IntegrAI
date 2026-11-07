@@ -782,3 +782,10 @@ bundle: assets/index-Nw17pUz4.js (Vercel) / index-CEInSfKG.js (Pages)
 inclui signup/convite/reset/2FA/SSO pela UI, isolamento 14/14, probe 18/18,
 Web Vitals e a11y 21 telas
 ```
+
+### 86. Web Vitals no bundle novo da Vercel
+```
+node scripts/web-vitals.mjs https://integrai-dev.vercel.app
+landing: LCP 688ms CLS 0.000 TTFB 72ms; workspace: LCP 88ms; /accounts: LCP 436ms
+3/3 dentro do alvo; 0 long tasks
+```
