@@ -52,6 +52,12 @@ jobs:
           REDIS_URL='rediss://default:p@redis.example.com:6379' \
           docker compose --env-file .env.prod.example -f docker-compose.prod.yml \
             -f docker-compose.managed.yml --profile tls config --quiet
+      - name: Validate edge configs (Caddy/nginx)
+        run: |
+          docker run --rm -e DOMAIN=api.example.com \
+            -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm --add-host api:127.0.0.1 --entrypoint nginx sac-hub-web:ci -t
       - name: Scan images for HIGH/CRITICAL CVEs
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
