@@ -107,3 +107,5 @@ backup/restore do Postgres (marker restaurado).
 
 - Release no GitHub (prerelease): <https://github.com/xploryngDAO/IntegrAI/releases/tag/v0.1.0-rc.1>
 - Topics do repositório configurados (omnichannel, marketplaces, LGPD, SSO).
+
+- Release **rc.2** (deploy atual, hardening e DR): <https://github.com/xploryngDAO/IntegrAI/releases/tag/v0.1.0-rc.2>
