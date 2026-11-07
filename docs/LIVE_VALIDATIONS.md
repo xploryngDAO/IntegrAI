@@ -872,3 +872,10 @@ validate-live    -> 9/10 (A3-accounts falha porque o seed do compose NAO conecta
 A bateria completa de UI contra o compose foi abortada por conflito de automacao
 de browser na maquina local (varios Chromes/perfis), sem relacao com o stack; SPA,
 proxy nginx e API foram validados separadamente na §94.
+
+### 96. Caddyfile e nginx validados (gate de CI)
+```
+caddy validate --config deploy/Caddyfile --adapter caddyfile -> Valid configuration
+docker run --add-host api:127.0.0.1 --entrypoint nginx sac-hub-web:ci -t -> syntax is ok
+CI b8f9e21: success (novo passo "Validate edge configs")
+```
