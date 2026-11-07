@@ -114,6 +114,7 @@ if [ ! -f "$ENV_FILE" ]; then
   POSTGRES_PASSWORD="$(openssl rand -hex 16)"
   JWT_SECRET="$(openssl rand -hex 32)"
   ENCRYPTION_MASTER_KEY="$(openssl rand -base64 32 | tr -d '\n')"
+  SHOPEE_PARTNER_KEY="$(openssl rand -hex 32)"
   {
     cat <<EOF
 # Gerado por scripts/provision-vps.sh em $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -128,6 +129,7 @@ APP_BASE_URL=https://$DOMAIN
 WEB_ORIGIN=$WEB_ORIGIN
 JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=1h
+SHOPEE_PARTNER_KEY=$SHOPEE_PARTNER_KEY
 ENCRYPTION_MASTER_KEY=$ENCRYPTION_MASTER_KEY
 ENCRYPTION_KEY_ID=prod-v1
 RATE_LIMIT_GLOBAL_PER_MINUTE=1800

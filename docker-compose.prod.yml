@@ -74,6 +74,16 @@ services:
       RATE_LIMIT_GLOBAL_PER_MINUTE: ${RATE_LIMIT_GLOBAL_PER_MINUTE:-1800}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       GIT_SHA: ${GIT_SHA:-}
+      # Produção exige uma chave de assinatura de webhooks Shopee (não vazia).
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:?defina SHOPEE_PARTNER_KEY no .env.prod}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      MAINTENANCE_MODE: ${MAINTENANCE_MODE:-false}
+      MAINTENANCE_MESSAGE: ${MAINTENANCE_MESSAGE:-}
       LOG_LEVEL: info
     extra_hosts:
       - 'host.docker.internal:host-gateway'

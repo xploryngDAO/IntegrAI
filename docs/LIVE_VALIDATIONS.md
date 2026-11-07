@@ -837,3 +837,14 @@ Postgres TLS self-signed (ssl=on, sslmode=require): OK — sslmode removido do
 Redis local: OK (v7.4.12)
 Credenciais inválidas/host inacessível: exit 1 com mensagem clara (sem vazar segredo)
 ```
+
+### 93. Overlay gerenciado validado de ponta a ponta (simulacao local)
+```
+Postgres 16 externo ao compose (porta 55442) + Redis externo (56381) + S3Mock (9090)
+docker compose -f docker-compose.prod.yml -f docker-compose.managed.yml up -d api
+migracoes Prisma aplicadas no boot; container healthy em 25s
+GET :4106/api/v1/health/ready -> ready · database=ok · redis=ok · storage=ok
+```
+Achado corrigido no caminho: o compose de producao nao passava SHOPEE_PARTNER_KEY
+(validacao de producao) nem SMTP_*/MAINTENANCE_* para o container; agora passa.
+O provisionamento gera SHOPEE_PARTNER_KEY automaticamente.
