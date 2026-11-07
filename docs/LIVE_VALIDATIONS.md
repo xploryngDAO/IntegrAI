@@ -820,3 +820,11 @@ Playwright MCP, viewport 390x844: scrollWidth=390 (sem overflow horizontal),
 h1 correto, CTAs visiveis; localStorage limpo -> console errors = 0
 (com tokens antigos no storage, /auth/me 401 e /auth/refresh 422 sao esperados)
 ```
+
+### 91. Revalidacao live final (2026-11-07)
+```
+isolation-test         -> 14/14
+security-probe         -> 18/18
+live-2fa-policy-test   -> 13/13
+(API no tunel atual, apos restart com GIT_SHA)
+```
