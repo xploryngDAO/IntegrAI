@@ -858,3 +858,17 @@ GET /api/v1/version -> v1.0.0 · commit=base-test · node=v22.23.4
 ```
 Achado corrigido: o compose passava `GIT_SHA` vazio e sobrescrevia a identidade
 gravada na imagem; removido, então `/version` reflete o build real.
+
+### 95. Validacao live contra o stack self-hosted (compose)
+```
+node scripts/live-all.mjs --api=http://127.0.0.1:4107 --web=http://127.0.0.1:8091 --only=validate,isolation,probe
+isolation-test   -> 14/14
+security-probe   -> 18/18
+validate-live    -> 9/10 (A3-accounts falha porque o seed do compose NAO conecta
+                    loja Mercado Livre de proposito; os demais 9 cenarios passam:
+                    health, login ADMIN, auth guard, diagnostics, webhooks fail-closed,
+                    sem ticket fantasma)
+```
+A bateria completa de UI contra o compose foi abortada por conflito de automacao
+de browser na maquina local (varios Chromes/perfis), sem relacao com o stack; SPA,
+proxy nginx e API foram validados separadamente na §94.
