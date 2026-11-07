@@ -165,3 +165,6 @@ Antes de provisionar, valide as URLs com `npm run check:managed` (TLS, versão, 
 migrações Prisma). O script detecta as duas URLs, escreve no `.env.prod`, usa o overlay
 (sem Postgres/Redis locais), aplica migrações no boot e valida `/health/ready`. Backup/restore
 também passam a usar as URLs externas (`pg_dump "$DATABASE_URL"`).
+
+> Nota: mesmo no modo gerenciado o `.env.prod` precisa manter uma linha `POSTGRES_PASSWORD`
+> (placeholder; o serviço local não sobe). O `provision-vps.sh` gera automaticamente.
