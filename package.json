@@ -66,10 +66,10 @@
     },
     "devDependencies": {
         "@types/node": "^22.10.2",
-        "axe-core": "^4.14.0",
+        "axe-core": "^4.14.1",
         "concurrently": "^9.1.0",
         "prisma": "^7.10.1",
-        "puppeteer-core": "^25.16.0",
+        "puppeteer-core": "^25.18.1",
         "tsx": "^4.19.2",
         "typescript": "^5.7.2",
         "vitest": "^4.1.12"
